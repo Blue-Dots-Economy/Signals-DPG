@@ -37,7 +37,8 @@ import { MarkerPopupCard } from '@/components/map/marker-popup-card';
 import { MapCountPill } from '@/components/map/map-count-pill';
 import '@/components/map/providers';
 import { performAction, performActionsBulk, type Item } from '@/lib/item-api';
-import { bulkFailureIndices, firstBulkError, BulkSingleError } from '@/lib/bulk';
+import { BulkSingleError } from '@/lib/bulk';
+import { resolveBulkOutcome } from '@/lib/bulk-outcome';
 import { useCardSelection } from '@/hooks/use-card-selection';
 import { useNetworkConfigs, useResolvedNetwork, useNetworkConfig } from '@/hooks/use-network-config';
 import { BulkActionBar } from '@/components/selection/bulk-action-bar';
@@ -1477,49 +1478,36 @@ export function HomePage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.actions.all });
         setBulkConnectOpen(false);
 
-        if (env.summary.failed === 0) {
-          toast.success(t('home.bulk_connected_all', { count: env.summary.succeeded }));
+        // The three-way decision lives in `resolveBulkOutcome` (pure, above);
+        // this only reacts to it.
+        const outcome = resolveBulkOutcome(env, targets, payloads);
+
+        if (outcome.kind === 'all') {
+          toast.success(t('home.bulk_connected_all', { count: outcome.succeeded }));
           browseSelection.exitSelect();
+        } else if (outcome.kind === 'guardian') {
+          // A code has already gone to the guardian — the OTP dialog owns the
+          // resubmit from here.
+          setBulkConnectOpen(false);
+          setBulkGuardianChallenge({
+            payloads: outcome.payloads,
+            sourceInstanceUrl: sourceItemInstanceUrl,
+            actionType,
+            otherFailedIds: outcome.otherFailedIds,
+          });
         } else {
-          // Minor ward: if the failures are the guardian-OTP challenge, don't
-          // surface the raw message — open ONE guardian OTP dialog for the batch
-          // and resubmit those payloads with the code (mirrors single actions).
-          const failedResults = env.results.filter((r) => r.status === 'error');
-          const guardianResults = failedResults.filter(
-            (r) => guardianOtpErrorOf(r) === 'GUARDIAN_OTP_REQUIRED',
-          );
-          // Any GUARDIAN_OTP_REQUIRED failure means a code was already sent to the
-          // guardian — open the dialog for those items even in a mixed batch, so
-          // the sent OTP isn't wasted on the generic error path. Non-guardian
-          // failures ride along and are reselected once the dialog resolves.
-          if (guardianResults.length > 0) {
-            setBulkConnectOpen(false);
-            const otherFailedIds = failedResults
-              .filter((r) => guardianOtpErrorOf(r) !== 'GUARDIAN_OTP_REQUIRED')
-              .map((r) => targets[r.index].item_id);
-            setBulkGuardianChallenge({
-              payloads: guardianResults.map((r) => payloads[r.index]),
-              sourceInstanceUrl: sourceItemInstanceUrl,
-              actionType,
-              otherFailedIds: otherFailedIds.length > 0 ? otherFailedIds : undefined,
-            });
-            return; // the guardian OTP dialog owns the resubmit
-          }
-          const failedIdxs = bulkFailureIndices(env);
-          const failedIds = failedIdxs.map((i) => targets[i].item_id);
-          const firstErr = firstBulkError(env);
           toast.warning(
             t('home.bulk_connected_partial', {
-              succeeded: env.summary.succeeded,
-              total: env.summary.total,
+              succeeded: outcome.succeeded,
+              total: outcome.total,
             }),
             {
-              description: firstErr
-                ? t('home.bulk_connect_first_error', { message: firstErr })
+              description: outcome.firstError
+                ? t('home.bulk_connect_first_error', { message: outcome.firstError })
                 : undefined,
             },
           );
-          browseSelection.setSelected(failedIds);
+          browseSelection.setSelected(outcome.failedIds);
         }
       } catch (err) {
         toast.error(t('home.bulk_connect_failed'), {

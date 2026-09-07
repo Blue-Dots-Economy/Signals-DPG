@@ -105,7 +105,8 @@ const FetchItemsSchemaBase = z.object({
 
 type FetchItemsSchemaShape = z.infer<typeof FetchItemsSchemaBase>;
 
-function withGeoSearchRefinement<T extends z.ZodTypeAny>(schema: T) {
+// `z.ZodType` rather than the deprecated `z.ZodTypeAny` (zod 4).
+function withGeoSearchRefinement<T extends z.ZodType>(schema: T) {
   return schema.refine(
     (rawData) => {
       const data = rawData as Partial<FetchItemsSchemaShape>;

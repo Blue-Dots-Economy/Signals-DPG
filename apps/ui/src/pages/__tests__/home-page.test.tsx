@@ -765,35 +765,36 @@ describe('HomePage — map/list view toggle', () => {
 });
 
 describe('HomePage — map→list domain collapse (spec D27)', () => {
-  it('carries a map-only domain selection into the single-domain list', async () => {
-    // `collapseToSingleDomain` was exported and unit-tested but never called,
-    // so switching map→list left `selectedDomain` untouched — potentially a
-    // domain the viewer had just deselected on the map.
+  // `collapseToSingleDomain` was exported and unit-tested but never called, so
+  // switching map→list left `selectedDomain` untouched — potentially a domain
+  // the viewer had just deselected on the map. All three cases are the same
+  // interaction (land on the map, switch to list) differing only in what the
+  // resulting URL must say.
+  it.each([
+    [
+      'carries a map-only domain selection into the single-domain list',
+      '/?view=map&domain=provider&map_domains=mentor',
+      'domain=mentor',
+    ],
+    [
+      // Toggling map↔list must not reshuffle a choice already made.
+      'leaves the list domain alone when it is already in the map selection',
+      '/?view=map&domain=provider&map_domains=provider,mentor',
+      'domain=provider',
+    ],
+    [
+      // The map selection has to survive, or switching back loses it.
+      'keeps the map selection so switching back does not lose it',
+      '/?view=map&domain=provider&map_domains=mentor',
+      'map_domains=mentor',
+    ],
+  ])('%s', async (_name, initialUrl, expected) => {
     signedInSeeker();
-    renderHome('/?view=map&domain=provider&map_domains=mentor');
+    renderHome(initialUrl);
 
     await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
 
-    expect(url()).toContain('domain=mentor');
-  });
-
-  it('leaves the list domain alone when it is already in the map selection', async () => {
-    // Toggling map↔list must not reshuffle a choice the viewer already made.
-    signedInSeeker();
-    renderHome('/?view=map&domain=provider&map_domains=provider,mentor');
-
-    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
-
-    expect(url()).toContain('domain=provider');
-  });
-
-  it('keeps the map selection so switching back does not lose it', async () => {
-    signedInSeeker();
-    renderHome('/?view=map&domain=provider&map_domains=mentor');
-
-    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
-
-    expect(url()).toContain('map_domains=mentor');
+    expect(url()).toContain(expected);
   });
 });
 
