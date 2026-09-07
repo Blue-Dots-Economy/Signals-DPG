@@ -29,9 +29,9 @@ on:
     branches: [feature, develop, main]
   push:
     branches: [develop, main]
-  # Weekly sweep: new CVEs get published against code nobody has touched.
+  # Monthly sweep: new CVEs get published against code nobody has touched.
   schedule:
-    - cron: "0 3 * * 1"
+    - cron: "0 3 1 * *"
   workflow_dispatch:
 
 concurrency:

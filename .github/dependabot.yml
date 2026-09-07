@@ -24,8 +24,7 @@ updates:
     target-branch: "feature"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
@@ -84,8 +83,7 @@ updates:
     target-branch: "feature"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:15"
       timezone: "UTC"
     labels:
@@ -111,8 +109,7 @@ updates:
       - "/apps/ui"
       - "/docker/postgres"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:30"
       timezone: "UTC"
     labels:
