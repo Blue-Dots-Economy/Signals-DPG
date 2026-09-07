@@ -125,6 +125,73 @@ describe('SortSelect — relevance availability', () => {
     expect(screen.getByRole('option', { name: /nearest/i })).toBeInTheDocument();
   });
 
+  // Found on the test cluster, where signals-search actually runs (#644 QA).
+  // The client PREDICTS relevance is available — the viewer has a profile that
+  // interacts with the browsed domain, so an anchor is sent — but the anchor
+  // is not usable (not yet indexed, or no interaction edge), so the BFF
+  // retries anchor-less and honestly reports `sort_applied: 'newest'` with
+  // `degraded: false`. The client-side prediction cannot see any of that, so
+  // `relevanceAvailable` stays true and only `applied` carries the truth.
+  describe('when the server REFUSES a relevance request', () => {
+    const refused = (
+      <SortSelect
+        value="relevance"
+        applied="newest"
+        nearestAvailable
+        basis="profile"
+        relevanceAvailable
+        onChange={() => {}}
+      />
+    );
+
+    it('ticks the order the server applied, not the one requested', async () => {
+      // The bug: the trigger read "Newest" while the open menu ticked
+      // "Relevance to your profile" — two contradictory claims on screen.
+      render(refused);
+      await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+      expect(screen.getByRole('option', { name: /newest/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(screen.getByRole('option', { name: /your profile/i })).toHaveAttribute(
+        'aria-selected',
+        'false',
+      );
+    });
+
+    it('marks relevance unavailable WITH a reason, so re-picking it is not inert', async () => {
+      // `sort` state already holds 'relevance' (it is the default), so
+      // choosing it again changed nothing and triggered no refetch — the
+      // control looked broken. Listed-with-a-reason is the same idiom
+      // `nearest` already uses.
+      render(refused);
+      await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+      const relevance = screen.getByRole('option', { name: /your profile/i });
+      expect(relevance).toHaveAttribute('aria-disabled', 'true');
+      expect(relevance).toHaveTextContent(/not available/i);
+    });
+
+    it('still ticks relevance when the server DID apply it', async () => {
+      render(
+        <SortSelect
+          value="relevance"
+          applied="relevance"
+          nearestAvailable
+          basis="profile"
+          relevanceAvailable
+          onChange={() => {}}
+        />,
+      );
+      await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+      const relevance = screen.getByRole('option', { name: /your profile/i });
+      expect(relevance).toHaveAttribute('aria-selected', 'true');
+      expect(relevance).toHaveAttribute('aria-disabled', 'false');
+    });
+  });
+
   it('offers relevance when it is available', async () => {
     render(
       <SortSelect

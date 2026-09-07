@@ -132,6 +132,18 @@ export interface ResolveListNoteInput {
   // profile", but the caller wires it from the real anchor-sent condition
   // rather than re-deriving that rule here.
   hasProfileAnchor: boolean;
+  /**
+   * Whether the server actually RANKED by relevance (`meta.sort_applied ===
+   * 'relevance'`), as opposed to us merely having sent an anchor.
+   *
+   * Required, not optional: sending an anchor is not the same as it being
+   * usable. signals-search 404s an anchor it has not indexed yet, the BFF
+   * retries anchor-less, and the response comes back `sort_applied: 'newest'`
+   * with `degraded: false` — so the degraded branch below never fires and the
+   * note claimed "relevant to your profile" over a date-ordered list. A caller
+   * has to state this explicitly rather than have it default.
+   */
+  relevanceApplied: boolean;
   // Whether a location is being sent as the discover spatial filter (i.e. the
   // source-resolved coordinate resolved to something, not
   // null). Combined with `distanceMeters` below to decide whether a truthful
@@ -155,17 +167,21 @@ export interface ListNoteResult {
 export function resolveListNote(input: ResolveListNoteInput): ListNoteResult | null {
   if (input.degraded) return { key: 'home.list_ranking_unavailable' };
 
+  // The note may only claim profile-relevance when the anchor was both SENT
+  // and honoured.
+  const claimsRelevance = input.hasProfileAnchor && input.relevanceApplied;
+
   const hasKm = input.hasLocation && input.distanceMeters !== undefined;
   if (hasKm) {
     const km = Math.round(input.distanceMeters! / 1000);
     const locationSource = input.locationSource === 'browser' ? 'current' : 'profile';
     return {
-      key: input.hasProfileAnchor ? 'home.list_note_anchor_location' : 'home.list_note_location_only',
+      key: claimsRelevance ? 'home.list_note_anchor_location' : 'home.list_note_location_only',
       values: { km, locationSource },
     };
   }
 
-  if (input.hasProfileAnchor) return { key: 'home.list_note_anchor_only' };
+  if (claimsRelevance) return { key: 'home.list_note_anchor_only' };
 
   return null;
 }

@@ -1307,6 +1307,9 @@ export function HomePage() {
   const hasLocation = browseLocation !== null;
   const listNote = resolveListNote({
     hasProfileAnchor,
+    // What the server DID. Optimistic before the first response lands, so the
+    // note does not flicker in on arrival.
+    relevanceApplied: (listSortApplied ?? sort) === 'relevance',
     hasLocation,
     degraded: listDegraded,
     distanceMeters: listDistanceMeters,

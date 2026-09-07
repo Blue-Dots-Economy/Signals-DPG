@@ -674,6 +674,7 @@
   "browse.sort_newest": "ಹೊಸದು",
   "browse.sort_newest_hint": "ಯಾವಾಗ ಪೋಸ್ಟ್ ಮಾಡಲಾಯಿತು ಎಂಬುದರ ಪ್ರಕಾರ",
   "browse.sort_nearest": "ಹತ್ತಿರದ",
+  "browse.sort_relevance_unavailable": "ಈ ಪಟ್ಟಿಗೆ ಇನ್ನೂ ಲಭ್ಯವಿಲ್ಲ",
   "browse.sort_nearest_unavailable": "ದೂರದ ಪ್ರಕಾರ ಜೋಡಿಸಲು ನಿಮ್ಮ ಸ್ಥಳ ಬೇಕು",
   "browse.area_label": "ಪ್ರದೇಶ",
   "browse.area_anywhere": "ಎಲ್ಲಿಯಾದರೂ",

@@ -81,15 +81,49 @@ export function SortSelect({
   // first response has arrived.
   const effective = applied ?? value;
 
+  /**
+   * The server asked for relevance and got something else.
+   *
+   * `relevanceAvailable` above is a CLIENT-SIDE PREDICTION — "is there a query
+   * vector at all", i.e. an anchor is being sent or text was typed. It cannot
+   * see whether signals-search could actually USE that anchor. On the test
+   * cluster it could not (the profile was not indexed yet), so the BFF retried
+   * anchor-less and honestly reported `sort_applied: 'newest'` with
+   * `degraded: false` — the prediction said available, the response said
+   * newest, and nothing reconciled the two.
+   *
+   * Two visible bugs followed. The trigger labelled from `applied` while the
+   * menu ticked `value`, so the control claimed "Newest" and "Relevance" at
+   * once; and because `sort` state ALREADY held 'relevance' (its default),
+   * choosing relevance again was a no-op that fired no refetch, so the option
+   * looked broken.
+   */
+  const relevanceRefused =
+    value === 'relevance' && applied !== undefined && applied !== 'relevance';
+
   return (
     <OptionSelect<BrowseSort>
       name={t('browse.sort_label')}
       displayLabel={labelFor(effective)}
-      value={value}
+      // The APPLIED order, not the requested one — otherwise the trigger and
+      // the tick can disagree, which is exactly the bug above.
+      value={effective}
       onChange={onChange}
       options={[
+        // Listed-with-a-reason rather than omitted when the server refuses it:
+        // omitting would silently drop a row the viewer had already chosen,
+        // and the same idiom already carries `nearest`'s explanation below.
         ...(relevanceAvailable
-          ? [{ value: 'relevance' as const, label: relevanceLabel }]
+          ? [
+              {
+                value: 'relevance' as const,
+                label: relevanceLabel,
+                available: !relevanceRefused,
+                reason: relevanceRefused
+                  ? t('browse.sort_relevance_unavailable')
+                  : undefined,
+              },
+            ]
           : []),
         // Names its basis (`items.created_at`) so a card's "6 days ago" is not
         // ambiguous between posting date and last-edit date (Q3).

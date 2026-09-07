@@ -684,6 +684,7 @@
   "browse.sort_newest": "Newest",
   "browse.sort_newest_hint": "By when it was posted",
   "browse.sort_nearest": "Nearest",
+  "browse.sort_relevance_unavailable": "Not available for this list yet",
   "browse.sort_nearest_unavailable": "Needs your location to sort by distance",
   "browse.area_label": "Area",
   "browse.area_anywhere": "Anywhere",

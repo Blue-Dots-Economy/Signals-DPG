@@ -674,6 +674,7 @@
   "browse.sort_newest": "नवीनतम",
   "browse.sort_newest_hint": "कब पोस्ट किया गया, उसके अनुसार",
   "browse.sort_nearest": "निकटतम",
+  "browse.sort_relevance_unavailable": "इस सूची के लिए अभी उपलब्ध नहीं है",
   "browse.sort_nearest_unavailable": "दूरी से क्रम लगाने के लिए आपका स्थान आवश्यक है",
   "browse.area_label": "क्षेत्र",
   "browse.area_anywhere": "कहीं भी",

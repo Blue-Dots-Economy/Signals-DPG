@@ -553,6 +553,23 @@ const discover_items_handler = async (
           searchErr.code === 'INTERACTION_NOT_ALLOWED');
 
       if (isRecoverableAnchorError) {
+        // Logged because this path is otherwise INVISIBLE: it returns 200 with
+        // `source: 'signals_search'` and `degraded: false`, so the only
+        // outward sign is `sort_applied` coming back as something other than
+        // the requested `relevance`. On the test cluster that surfaced purely
+        // as "the sort control looks broken", with nothing to grep for.
+        request.log.warn(
+          {
+            err: searchErr,
+            anchorItemId: body.anchor_item_id,
+            itemNetwork: body.item_network,
+            itemDomain: body.item_domain,
+            requestedSort: body.sort,
+            resolvedSort: sortApplied,
+          },
+          'signals-search rejected the discover anchor; retrying without it (relevance ranking will degrade to newest)'
+        );
+
         try {
           const retryResult = await searchSignals({
             ...searchInput,
