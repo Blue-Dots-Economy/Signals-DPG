@@ -244,7 +244,7 @@
   "filters.help": "Select options above to filter map markers.",
   "filters.help_list": "Select options above to filter listings.",
   "filters.no_matches": "No matches",
-  "filters.open": "Open map filters",
+  "filters.open": "Open filters",
   "filters.search_placeholder": "Search {{field}}…",
   "filters.selected": "{{count}} selected",
   "filters.title": "Filters",

@@ -185,20 +185,23 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             {t('browse.no_filters')}
           </span>
         )}
-        {/* Hairline between the filter state and the result count. They are
-            adjacent runs of same-size inline text, so without it the row reads
-            as one phrase ("No filters applied 2 listings") rather than as two
-            independent facts. Rendered only alongside the count, so it never
-            trails the row on its own. `aria-hidden` — it is punctuation. */}
         {props.count !== undefined && (
+          /* The divider between the filter state and the result count is a
+             BORDER on the count itself, not a separate element. They are
+             adjacent runs of same-size inline text, so without it the row
+             reads as one phrase ("No filters applied 2 listings") rather than
+             two independent facts — but as its own element it wrapped
+             independently, leaving a hairline dangling at the end of the
+             previous line on a narrow screen while the count sat below it.
+             Being part of the count, it cannot separate from it.
+
+             `sm:` only: below that the count wraps onto its own line, and the
+             line break already does the separating — a leading rule at the
+             start of a line would just be noise. */
           <span
-            aria-hidden="true"
-            data-testid="toolbar-count-separator"
-            className="h-3.5 w-px shrink-0 bg-border"
-          />
-        )}
-        {props.count !== undefined && (
-          <span className="flex flex-wrap items-baseline justify-end gap-x-1.5 text-xs">
+            data-testid="toolbar-count"
+            className="flex flex-wrap items-baseline justify-end gap-x-1.5 text-xs sm:border-l sm:border-border sm:pl-2.5"
+          >
             <span className="font-semibold text-muted-foreground">
               {t('browse.count_listings', { count: props.count })}
             </span>

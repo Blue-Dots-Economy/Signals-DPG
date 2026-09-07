@@ -276,12 +276,19 @@ export function LocationSelect({
                       className="h-7 w-10 bg-transparent text-xs outline-none"
                     />
                     <span className="text-muted-foreground">{t('browse.area_km_unit')}</span>
+                    {/* Both icon buttons enlarge on a coarse pointer (18px →
+                        30px). Not the full 44px: two 44px targets will not fit
+                        this inline row inside a ~300px popover without
+                        restructuring it. They stay reachable without precise
+                        aiming because the WHOLE row focuses the input, Enter
+                        commits the value, and the field can be cleared from the
+                        keyboard — so these are shortcuts, not the only path. */}
                     <button
                       type="button"
                       aria-label={t('browse.area_custom_clear')}
                       onClick={() => setDraft('')}
                       disabled={shown === ''}
-                      className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="rounded p-0.5 pointer-coarse:p-2 text-muted-foreground hover:text-foreground disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -290,7 +297,7 @@ export function LocationSelect({
                       aria-label={t('browse.area_custom_apply')}
                       onClick={commit}
                       disabled={!canApply}
-                      className="rounded p-0.5 text-primary hover:bg-accent disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="rounded p-0.5 pointer-coarse:p-2 text-primary hover:bg-accent disabled:opacity-30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <Check className="h-3.5 w-3.5" />
                     </button>

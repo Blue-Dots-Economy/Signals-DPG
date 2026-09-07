@@ -2041,6 +2041,10 @@ export function HomePage() {
         type="button"
         variant={browseSelection.selectMode ? 'default' : 'outline'}
         size="sm"
+        // `size="sm"` is h-8 (32px), below the touch minimum every other
+        // control in this browse chrome honours. It is a primary action on the
+        // list, so it gets the same treatment.
+        className="pointer-coarse:min-h-11"
         onClick={() =>
           browseSelection.selectMode
             ? browseSelection.exitSelect()

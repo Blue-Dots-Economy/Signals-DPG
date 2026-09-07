@@ -67,15 +67,22 @@ describe('BrowseToolbar', () => {
     expect(screen.queryByText(/248/)).toBeNull();
   });
 
-  it('rules off the filter state from the count, and only when both are there', () => {
+  it('rules off the filter state from the count without a separate element', () => {
     // "No filters applied" and "2 listings" are adjacent same-size text, so
     // they read as one phrase without a divider between them.
+    //
+    // Found in mobile QA: as its own element the rule wrapped independently of
+    // the count, so at 390px it dangled at the end of the "Clear all" line
+    // while the count sat on the line below. Carrying it as a BORDER on the
+    // count means it cannot separate from what it divides — so the assertion
+    // is that no standalone rule exists to strand.
     const { rerender } = render(<BrowseToolbar {...base} />);
-    expect(screen.getByTestId('toolbar-count-separator')).toBeInTheDocument();
-
-    // No count means nothing to separate — a trailing rule would just dangle.
-    rerender(<BrowseToolbar {...base} count={undefined} />);
+    expect(screen.getByTestId('toolbar-count')).toBeInTheDocument();
     expect(screen.queryByTestId('toolbar-count-separator')).toBeNull();
+
+    // No count at all → nothing rendered, so nothing to divide.
+    rerender(<BrowseToolbar {...base} count={undefined} />);
+    expect(screen.queryByTestId('toolbar-count')).toBeNull();
   });
 
   it('OMITS both sort and area on the map — absent, not disabled (spec D26)', () => {

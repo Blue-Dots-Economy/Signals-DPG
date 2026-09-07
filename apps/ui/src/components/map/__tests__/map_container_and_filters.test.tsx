@@ -640,7 +640,7 @@ const MANY_OPTION_DOMAIN = domain('seeker', {
 
 /** Opens the desktop popover / mobile sheet by clicking the Filters pill. */
 async function openPanel() {
-  await userEvent.click(screen.getByRole('button', { name: 'Open map filters' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Open filters' }));
 }
 
 /**
@@ -1001,7 +1001,7 @@ describe('BrowseFiltersPanel — mobile bottom sheet', () => {
 
     expect(baseElement.querySelector('[data-slot="drawer-content"]')).toBeFalsy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open map filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open filters' }));
 
     expect(baseElement.querySelector('[data-slot="drawer-content"]')).toBeTruthy();
     expect(baseElement.querySelector('[data-slot="popover-content"]')).toBeFalsy();

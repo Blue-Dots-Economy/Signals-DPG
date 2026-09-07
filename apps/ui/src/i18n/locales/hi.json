@@ -201,7 +201,7 @@
   "filters.help": "मैप मार्कर फ़िल्टर करने के लिए ऊपर विकल्प चुनें।",
   "filters.help_list": "सूची फ़िल्टर करने के लिए ऊपर विकल्प चुनें।",
   "filters.no_matches": "कोई परिणाम नहीं",
-  "filters.open": "मैप फ़िल्टर खोलें",
+  "filters.open": "फ़िल्टर खोलें",
   "filters.search_placeholder": "{{field}} खोजें…",
   "filters.selected": "{{count}} चुने गए",
   "filters.title": "फ़िल्टर",
