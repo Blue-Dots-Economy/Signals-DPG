@@ -14,7 +14,12 @@ import type { MapMarker, MapProviderProps, MapViewport } from '@/engine/types';
 import { registerMapProvider } from '@/engine/map/map-registry';
 import { useThemeMode } from '@/theme/mode-provider';
 import { getIconForDomain } from '../domain-icons';
-import { tallyDomains } from '../cluster-breakdown';
+import {
+  tallyDomains,
+  countDistinctListings,
+  listingIdOfMarker,
+  type ClusterEntry,
+} from '../cluster-breakdown';
 import { FitBounds } from '../fit-bounds';
 import { MarkerPopupCard } from '../marker-popup-card';
 import { createSelfMarkerDivIcon } from '../self-marker';
@@ -29,7 +34,7 @@ import 'react-leaflet-cluster/dist/assets/MarkerCluster.Default.css';
  * Populated via a ref callback on each <Marker>; read by createClusterDivIcon
  * to tally per-domain counts when building the badge row.
  */
-const markerDomainMap = new WeakMap<object, string>();
+const markerDomainMap = new WeakMap<object, ClusterEntry>();
 
 /**
  * Imperatively pans/zooms the Leaflet map whenever the `center` or `zoom`
@@ -244,7 +249,6 @@ function createClusterDivIcon(cluster: { getChildCount: () => number; getAllChil
   // Neutral gray fallback (not a specific network's brand colour) if unresolved.
   const bg = readCssVar('--primary', '#6b7280');
   const fg = readCssVar('--primary-foreground', '#ffffff');
-  const size = count < 10 ? 34 : count < 100 ? 40 : 46;
 
   // Tally per-domain counts using the WeakMap populated on each marker's ref.
   const childMarkers: L.Marker[] = cluster.getAllChildMarkers?.() ?? [];
@@ -253,10 +257,22 @@ function createClusterDivIcon(cluster: { getChildCount: () => number; getAllChil
   // fabricate a phantom empty-domain group — making a single-domain cluster
   // (e.g. all `practitioner`) look multi-domain. Unknown ones are still counted
   // in the total (getChildCount), just not in the per-domain breakdown.
-  const domains = childMarkers
+  const registered = childMarkers
     .map((m) => markerDomainMap.get(m as object))
-    .filter((d): d is string => Boolean(d));
-  const breakdown = tallyDomains(domains);
+    .filter((e): e is ClusterEntry => Boolean(e));
+  const breakdown = tallyDomains(registered.filter((e) => e.domain));
+  // The headline counts distinct LISTINGS, not pins — see `tallyDomains`. Pins
+  // we could not identify still count once each, so an unregistered marker is
+  // never dropped from the total.
+  const listingCount =
+    childMarkers.length > 0
+      ? countDistinctListings(registered) +
+        Math.max(0, childMarkers.length - registered.length)
+      : count;
+
+  // Sized by the number actually shown, so the bubble's size and its label
+  // never describe different quantities.
+  const size = listingCount < 10 ? 34 : listingCount < 100 ? 40 : 46;
   const multiDomain = breakdown.length > 1;
 
   // Build badge chips HTML (only when there are multiple distinct domains).
@@ -322,7 +338,7 @@ function createClusterDivIcon(cluster: { getChildCount: () => number; getAllChil
         font-size: 13px;
         font-weight: 600;
         flex-shrink: 0;
-      ">${count}</div>
+      ">${listingCount}</div>
       ${badgesHtml}
     </div>
   `.trim();
@@ -429,7 +445,10 @@ export function LeafletMapProvider({
                 // domain for this marker when building the badge row. react-leaflet
                 // passes the underlying L.Marker instance to `ref` callbacks.
                 if (leafletMarker) {
-                  markerDomainMap.set(leafletMarker as object, domain);
+                  markerDomainMap.set(leafletMarker as object, {
+                    domain,
+                    itemId: listingIdOfMarker(marker.id),
+                  });
                 }
               }}
               eventHandlers={{

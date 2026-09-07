@@ -281,11 +281,49 @@ describe('item_state facet guard', () => {
     );
   });
 
-  it('normalizes a scalar facet to a single-element = ANY (no unguarded containment branch)', async () => {
+  it('normalizes a scalar facet to a single-element = ANY', async () => {
     await countLocalItems({ ...base, item_state: { college: 'Alpha' } });
 
+    expect(whereText()).toContain(
+      "items.item_state ->> 'college' = ANY(ARRAY['Alpha'])"
+    );
+  });
+
+  // An ARRAY-valued facet field (blue_dot seeker's `natureOfJobsInterestedIn`
+  // and `otherHelpNeeded`) stores a JSON array, so `->> field` yields
+  // `["Full-time","Flexible"]` and the text equality above is false for every
+  // row, forever. Measured against the dev cluster before the fix: the same
+  // facet returned 14 through signals-search and 0 natively — so the map lost
+  // every pin when you filtered on one, and `useBrowseTotals` reported all 14
+  // matches as "not on the map", because its `mappable` count comes from this
+  // path.
+  it('also matches an ARRAY-valued facet by containment, per value', async () => {
+    await countLocalItems({
+      ...base,
+      item_state: { college: ['Alpha', 'Beta'] },
+    });
+
     const text = whereText();
-    expect(text).toContain("items.item_state ->> 'college' = ANY(ARRAY['Alpha'])");
+    // One containment clause PER VALUE: `@>` with a two-element array would
+    // mean "contains BOTH", which is the wrong quantifier for a facet.
+    expect(text).toContain(
+      "items.item_state -> 'college' @> to_jsonb('Alpha'::text)"
+    );
+    expect(text).toContain(
+      "items.item_state -> 'college' @> to_jsonb('Beta'::text)"
+    );
+    // OR'd with the scalar equality, so one predicate covers both shapes.
+    expect(text).toMatch(/= ANY\(ARRAY\['Alpha', 'Beta'\]\) or/i);
+  });
+
+  it('keeps the containment branch behind the SAME field guard as the equality', async () => {
+    // The unguarded whole-object `@> {...}` branch removed in #394 is what
+    // made containment dangerous. This one runs only after
+    // `allowedFacetFields`, so a private field gets neither branch.
+    await countLocalItems({ ...base, item_state: { phone: '99900011' } }, log);
+
+    const text = whereText();
+    expect(text).not.toContain('phone');
     expect(text).not.toContain('@>');
   });
 

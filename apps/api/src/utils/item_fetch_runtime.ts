@@ -259,6 +259,10 @@ async function buildWhereClause(
     // text comparison rather than the JSON-typed equality `@>` used to do.
     // Not an issue while facets stay string enums; revisit if a non-string
     // facet is ever declared.
+    //
+    // The `= ANY` text comparison is ALSO wrong for a field whose schema type
+    // is `array`, which is why a guarded containment clause is OR'd in below —
+    // see the comment at that predicate.
     const facetEntries: Array<[string, unknown[]]> = Object.entries(
       filters.item_state
     ).map(([field, value]) => [field, Array.isArray(value) ? value : [value]]);
@@ -293,8 +297,42 @@ async function buildWhereClause(
           values.map((value) => sql`${value}`),
           sql.raw(', ')
         );
+
+        // ARRAY-valued facets need containment, not text equality.
+        //
+        // `->> field` extracts the field as TEXT, and for a field whose schema
+        // type is `array` the stored value is a JSON array — so `->>` yields
+        // `["Full-time","Flexible"]` and comparing that to `'Full-time'` is
+        // false for every row, always. Two array facets on blue_dot's seeker
+        // schema (`natureOfJobsInterestedIn`, `otherHelpNeeded`) were therefore
+        // matching NOTHING natively while matching correctly through
+        // signals-search: the map lost all its pins the moment you filtered on
+        // one, and `useBrowseTotals` reported every match as "not on the map"
+        // because its `mappable` count comes from this path.
+        //
+        // `-> field @> to_jsonb(value)` is true when the stored array CONTAINS
+        // the value, and also when the stored scalar EQUALS it (a jsonb scalar
+        // contains itself), so it covers both shapes. One clause per value,
+        // OR'd, because `@>` with a multi-element array would mean "contains
+        // ALL of these" — the wrong quantifier for a facet.
+        //
+        // Kept alongside the `->>` equality rather than replacing it: the
+        // scalar path has per-field btree expression indexes
+        // (`items_item_state_*_idx`), while `@>` is served by the GIN index on
+        // `item_state`. Both stay index-backed.
+        //
+        // This is containment for a GUARDED field only — the field has already
+        // passed `allowedFacetFields` above, which is what the unguarded
+        // whole-object `@> {...}` branch removed in #394 lacked.
+        const arrayContainment = sql.join(
+          values.map(
+            (value) => sql`${items.item_state} -> ${field} @> to_jsonb(${value}::text)`
+          ),
+          sql.raw(' OR ')
+        );
+
         conditions.push(
-          sql`${items.item_state} ->> ${field} = ANY(ARRAY[${valuesArrayLiteral}])`
+          sql`(${items.item_state} ->> ${field} = ANY(ARRAY[${valuesArrayLiteral}]) OR ${arrayContainment})`
         );
       }
     }

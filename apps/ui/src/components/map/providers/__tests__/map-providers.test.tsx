@@ -1193,12 +1193,36 @@ describe('GoogleMapProvider', () => {
     };
     const els = sdkObjects('AdvancedMarker');
 
+    // The headline counts distinct LISTINGS, not clustered pins. `count` here
+    // is the clusterer's pin tally; with two identifiable listings registered,
+    // 2 is the honest answer and 7 would be a fiction. This is the
+    // service-provider case: one listing serving several areas draws several
+    // pins, and the bubble used to read 220 beside a pill reading 110.
     const bubble = renderer.render({ count: 7, position: { lat: 19, lng: 72.5 }, markers: els });
     expect(bubble.opts.zIndex).toBe(1007);
     const content = bubble.opts.content as HTMLElement;
     const circle = content.querySelector('.dpg-cluster-count') as HTMLElement;
-    expect(circle.textContent).toBe('7');
-    expect(circle.style.width).toBe('38px');
+    expect(circle.textContent).toBe('2');
+
+    // Two pins of the SAME listing collapse to one.
+    const sameListing = renderer.render({
+      count: 2,
+      position: { lat: 19, lng: 72.5 },
+      markers: [els[0], els[0]],
+    });
+    expect(
+      (sameListing.opts.content as HTMLElement).querySelector('.dpg-cluster-count')
+        ?.textContent,
+    ).toBe('1');
+
+    // With nothing registered there is no listing id to dedupe on, so the
+    // clusterer's own pin count stands, and the size band follows it.
+    const fallback = renderer.render({ count: 7, position: { lat: 19, lng: 72.5 }, markers: [] });
+    const fallbackCircle = (fallback.opts.content as HTMLElement).querySelector(
+      '.dpg-cluster-count',
+    ) as HTMLElement;
+    expect(fallbackCircle.textContent).toBe('7');
+    expect(fallbackCircle.style.width).toBe('38px');
 
     const medium = renderer.render({ count: 50, position: { lat: 19, lng: 72.5 }, markers: [] });
     const large = renderer.render({ count: 200, position: { lat: 19, lng: 72.5 }, markers: [] });
