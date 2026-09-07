@@ -2052,6 +2052,68 @@ export function HomePage() {
       </Button>
     ) : null;
 
+  /**
+   * The browse toolbar, as a render FUNCTION rather than an element.
+   *
+   * Not a hoisted const like `listFiltersPanel` above, and the distinction
+   * matters: cognitive complexity is measured PER FUNCTION, and this subtree
+   * carries nine points of it — the `network ?` guard plus four
+   * view-dependent ternaries, each paying a nesting increment for sitting
+   * inside that guard. Held as an element those nine land on `HomePage`,
+   * which was already at its limit; held as a function they are budgeted
+   * here, next to the props they actually describe. Same idiom as
+   * `renderPageHeader` below.
+   */
+  const renderBrowseToolbar = () =>
+    network ? (
+      <BrowseToolbar
+        viewMode={viewMode}
+        filtersSlot={listFiltersPanel}
+        domainOptions={domainOptions}
+        selectedDomains={toolbarSelectedDomains}
+        onDomainsChange={(next) => {
+          if (viewMode === 'map') {
+            handleMapDomainsChange(next);
+            return;
+          }
+          // Single-select: DomainControl always emits exactly one here.
+          if (next[0]) handleDomainSelect(next[0]);
+        }}
+        count={contentLoading ? undefined : contentCount}
+        // Map only: names the items that can never be pins at any zoom, so
+        // the part of the gap with the map's viewport pill that zooming
+        // out will never close is stated rather than inferred.
+        notMappable={viewMode === 'map' ? browseTotals.notMappable : undefined}
+        sort={sort}
+        sortApplied={listSortApplied}
+        // `nearest` needs a centre to order around.
+        nearestAvailable={browseCoords !== null}
+        relevanceAvailable={relevanceAvailable}
+        relevanceBasis={relevanceBasis}
+        onSortChange={setSort}
+        area={area}
+        defaultCenter={browseCoords}
+        // The location source now lives WITH the distance, in one control
+        // (#644 QA redesign) — the standalone "Search near" toggle asked
+        // the same question a second time, in a second place.
+        locationSource={preferredSource}
+        onLocationSourceChange={handleLocationSourceChange}
+        profileLocationAvailable={profileLocation !== null}
+        browserLocationAvailable={browserLocation.isSupported}
+        onAreaChange={setArea}
+        chips={appliedChips}
+        onRemoveChip={handleRemoveChip}
+        // Clear-all must offer to clear only what APPLIES to the view in
+        // front of the user. On the map, Sort and Location are not
+        // rendered and `area` never reaches `useMapMarkers` at all (the
+        // map scopes by viewport), so counting them left a lone "Clear
+        // all" on the map offering to clear something invisible that was
+        // having no effect there.
+        onClearAll={viewMode === 'map' ? handleClearFacetsOnly : handleClearAll}
+        canClearAll={viewMode === 'map' ? appliedChips.length > 0 : canClearAll}
+      />
+    ) : undefined
+
   const renderPageHeader = () => {
     return (
       <>
@@ -2124,54 +2186,7 @@ export function HomePage() {
       viewMode={viewMode}
       onViewModeChange={handleViewModeChange}
       toolbarSlot={
-        network ? (
-          <BrowseToolbar
-            viewMode={viewMode}
-            filtersSlot={listFiltersPanel}
-            domainOptions={domainOptions}
-            selectedDomains={toolbarSelectedDomains}
-            onDomainsChange={(next) => {
-              if (viewMode === 'map') {
-                handleMapDomainsChange(next);
-                return;
-              }
-              // Single-select: DomainControl always emits exactly one here.
-              if (next[0]) handleDomainSelect(next[0]);
-            }}
-            count={contentLoading ? undefined : contentCount}
-            // Map only: names the items that can never be pins at any zoom, so
-            // the part of the gap with the map's viewport pill that zooming
-            // out will never close is stated rather than inferred.
-            notMappable={viewMode === 'map' ? browseTotals.notMappable : undefined}
-            sort={sort}
-            sortApplied={listSortApplied}
-            // `nearest` needs a centre to order around.
-            nearestAvailable={browseCoords !== null}
-            relevanceAvailable={relevanceAvailable}
-            relevanceBasis={relevanceBasis}
-            onSortChange={setSort}
-            area={area}
-            defaultCenter={browseCoords}
-            // The location source now lives WITH the distance, in one control
-            // (#644 QA redesign) — the standalone "Search near" toggle asked
-            // the same question a second time, in a second place.
-            locationSource={preferredSource}
-            onLocationSourceChange={handleLocationSourceChange}
-            profileLocationAvailable={profileLocation !== null}
-            browserLocationAvailable={browserLocation.isSupported}
-            onAreaChange={setArea}
-            chips={appliedChips}
-            onRemoveChip={handleRemoveChip}
-            // Clear-all must offer to clear only what APPLIES to the view in
-            // front of the user. On the map, Sort and Location are not
-            // rendered and `area` never reaches `useMapMarkers` at all (the
-            // map scopes by viewport), so counting them left a lone "Clear
-            // all" on the map offering to clear something invisible that was
-            // having no effect there.
-            onClearAll={viewMode === 'map' ? handleClearFacetsOnly : handleClearAll}
-            canClearAll={viewMode === 'map' ? appliedChips.length > 0 : canClearAll}
-          />
-        ) : undefined
+        renderBrowseToolbar()
       }
     >
       {renderPageHeader()}
