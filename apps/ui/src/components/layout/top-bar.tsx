@@ -94,13 +94,25 @@ export function TopBar({
         </div>
       ) : (
         <>
-          {/* On mobile the fixed right-hand controls consume the row, so the search
-              drops to its own full-width line (order-last + w-full). From sm up it
-              sits inline between the trigger and the controls as before. */}
+          {/* On mobile this used to ALWAYS drop to its own full-width line,
+              which left row one holding nothing but icons and a gap — two rows
+              of chrome before any content. It now shares row one whenever
+              there is room; the class comment below says when that is. From
+              `sm` up it is inline and wide, unchanged. */}
           {/* `max-w-2xl`, up from `max-w-md`: the Filters trigger moved to the
               browse toolbar, so the search box can take the width it left
               rather than sitting beside a gap. */}
-          <div className="relative order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1 sm:max-w-2xl">
+          <div
+            className={cn(
+              'relative min-w-0 sm:order-none sm:w-auto sm:flex-1 sm:max-w-2xl',
+              // Signed in, the language + theme pair below is hidden under
+              // `md`, so the row has room for the search inline and row one is
+              // actually used. Signed out those two are present and it does
+              // not fit — then it keeps its own full-width line rather than
+              // shrinking to an unusable stub.
+              isAuthenticated ? 'flex-1' : 'order-last w-full',
+            )}
+          >
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"

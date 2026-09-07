@@ -102,6 +102,50 @@ describe('SortSelect', () => {
   });
 });
 
+describe('Sort and Location go icon-only on a phone', () => {
+  /**
+   * Reported from a real phone: "Sort Relevance to your profile" is so wide it
+   * took a whole row on its own, pushing Location, Filters and the count onto
+   * rows of their own — four rows of chrome before the first card. Below `sm`
+   * both controls now show only their icon.
+   *
+   * The value is not lost. The note directly under the toolbar states the
+   * ranking basis and any applied radius in words, the popover ticks the
+   * current choice, and the trigger's accessible name carries it — which is
+   * what these assert, because the visible text is hidden by a CSS breakpoint
+   * that jsdom does not evaluate.
+   */
+  it('names the sort trigger with its VALUE, since the text is hidden at that width', () => {
+    render(
+      <SortSelect value="nearest" applied="nearest" nearestAvailable basis={null} onChange={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /sort: nearest/i })).toBeInTheDocument();
+  });
+
+  it('names the sort trigger from what the SERVER applied, not the request', () => {
+    render(
+      <SortSelect value="relevance" applied="newest" nearestAvailable basis={null} onChange={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: /sort: newest/i })).toBeInTheDocument();
+  });
+
+  it('names the location trigger with its value', () => {
+    render(
+      <LocationSelect
+        value={{ mode: 'anywhere' }}
+        sort="newest"
+        source="profile"
+        onSourceChange={vi.fn()}
+        profileAvailable
+        browserAvailable
+        center={{ lat: 12.97, lng: 77.59 }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /location: anywhere/i })).toBeInTheDocument();
+  });
+});
+
 describe('SortSelect — relevance availability', () => {
   it('OMITS relevance when the server cannot rank by it (Q2)', async () => {
     // Signed out with no typed text, or signals-search down and the BFF

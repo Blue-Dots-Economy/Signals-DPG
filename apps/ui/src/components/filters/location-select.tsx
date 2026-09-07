@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, X,
+  MapPin,
+} from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { DEFAULT_BROWSE_AREA } from '@/lib/browse-discover';
 import type { BrowseArea, BrowseSort } from '@/lib/browse-discover';
@@ -160,11 +162,29 @@ export function LocationSelect({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs pointer-coarse:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          // Icon-only below `sm` — see OptionSelect's `icon` prop for why. The
+          // label carries the value, since the text is hidden there.
+          aria-label={`${t('browse.location_label')}: ${displayLabel}`}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-xs',
+            'h-9 w-9 justify-center px-0 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5',
+            'pointer-coarse:min-h-11 pointer-coarse:min-w-11 sm:pointer-coarse:min-w-0',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
         >
-          <span className="font-normal text-muted-foreground">{t('browse.location_label')}</span>
-          <span className="truncate font-semibold">{displayLabel}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+          <MapPin
+            className={cn(
+              'h-4 w-4 shrink-0 sm:hidden',
+              // A radius IS applied — say so, since the "Anywhere"/"Within N km"
+              // text is not visible at this width.
+              value.mode !== 'anywhere' && 'text-primary',
+            )}
+          />
+          <span className="hidden font-normal text-muted-foreground sm:inline">
+            {t('browse.location_label')}
+          </span>
+          <span className="hidden truncate font-semibold sm:inline">{displayLabel}</span>
+          <ChevronDown className="hidden h-3 w-3 shrink-0 opacity-60 sm:block" />
         </button>
       </PopoverTrigger>
 

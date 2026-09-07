@@ -23,6 +23,16 @@ export interface OptionSelectProps<T extends string> {
   name: string;
   /** The value to DISPLAY. May differ from the requested one — see SortSelect. */
   displayLabel: string;
+  /**
+   * Icon shown INSTEAD of the text below `sm`.
+   *
+   * On a phone the prefix plus the value is far too wide — "Sort Relevance to
+   * your profile" alone consumed a whole row, pushing Location, Filters and the
+   * count onto rows of their own. The value is not lost: the note directly
+   * under the toolbar states the ranking basis and the applied radius in
+   * words, and the popover ticks the current choice.
+   */
+  icon: React.ComponentType<{ className?: string }>;
   options: SelectOption<T>[];
   value: T;
   onChange: (next: T) => void;
@@ -43,6 +53,7 @@ export interface OptionSelectProps<T extends string> {
 export function OptionSelect<T extends string>({
   name,
   displayLabel,
+  icon: Icon,
   options,
   value,
   onChange,
@@ -54,17 +65,22 @@ export function OptionSelect<T extends string>({
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={name}
+          // Carries the value too, because below `sm` the text is hidden and
+          // this is the only name a screen reader or a long-press gets.
+          aria-label={`${name}: ${displayLabel}`}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground',
-            'pointer-coarse:min-h-11',
+            'inline-flex items-center gap-1.5 rounded-lg border border-border bg-background text-xs font-semibold text-foreground',
+            // Square while icon-only, so it matches the Filters trigger beside it.
+            'h-9 w-9 justify-center px-0 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5',
+            'pointer-coarse:min-h-11 pointer-coarse:min-w-11 sm:pointer-coarse:min-w-0',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
             'hover:bg-accent hover:text-accent-foreground',
           )}
         >
-          <span className="font-normal text-muted-foreground">{name}</span>
-          <span className="truncate">{displayLabel}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+          <Icon className="h-4 w-4 shrink-0 sm:hidden" />
+          <span className="hidden font-normal text-muted-foreground sm:inline">{name}</span>
+          <span className="hidden truncate sm:inline">{displayLabel}</span>
+          <ChevronDown className="hidden h-3 w-3 shrink-0 opacity-60 sm:block" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-1">

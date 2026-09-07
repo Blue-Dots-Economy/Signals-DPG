@@ -123,7 +123,17 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
           selected={props.selectedDomains}
           onChange={props.onDomainsChange}
         />
-        <span className="flex-1" />
+        {/* Pushes the controls to the far right — from `sm` up only. On a
+            phone the domain control already fills the row, so the spacer flung
+            Sort to the right edge of row one while Location and Filters sat at
+            the left of row two. */}
+        <span className="hidden flex-1 sm:block" />
+        {/* Sort, Location and Filters travel as ONE flex item, so when the
+            domain control has taken the whole first row they wrap together as
+            a single left-aligned cluster instead of Sort staying behind on its
+            own. `sm:contents` hands them straight back to the parent row from
+            `sm` up, so the desktop layout is unchanged. */}
+        <span className="flex shrink-0 items-center gap-2 sm:contents">
         {/* Sort is ABSENT on the map (spec D26), not disabled: ordering is
             meaningless for a marker layer, and a disabled control invites the
             question rather than answering it. */}
@@ -169,6 +179,7 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
           />
         )}
         {props.filtersSlot}
+        </span>
         {props.chips.length > 0 && (
           <AppliedFilterChips chips={props.chips} onRemove={props.onRemoveChip} />
         )}

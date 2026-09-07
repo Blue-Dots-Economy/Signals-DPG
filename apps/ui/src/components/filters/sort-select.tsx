@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { ArrowDownUp } from 'lucide-react';
 import { OptionSelect } from './option-select';
 import type { BrowseSort } from '@/lib/browse-discover';
 
@@ -105,6 +106,7 @@ export function SortSelect({
     <OptionSelect<BrowseSort>
       name={t('browse.sort_label')}
       displayLabel={labelFor(effective)}
+      icon={ArrowDownUp}
       // The APPLIED order, not the requested one — otherwise the trigger and
       // the tick can disagree, which is exactly the bug above.
       value={effective}

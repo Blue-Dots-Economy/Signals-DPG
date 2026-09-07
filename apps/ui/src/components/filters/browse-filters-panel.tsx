@@ -191,7 +191,11 @@ export function BrowseFiltersPanel({
         // The raised/blurred treatment below was for floating over map tiles
         // and read as a different KIND of control once it joined the row.
         trigger === 'toolbar'
-          ? 'h-auto rounded-lg border-border bg-background px-2.5 py-1.5 font-semibold shadow-none pointer-coarse:min-h-11'
+          ? 'h-auto rounded-lg border-border bg-background px-2.5 py-1.5 font-semibold shadow-none'
+        // Square on touch like the icon-only Sort and Location beside it —
+        // three icon buttons in a row that are not the same size read as a
+        // mistake. Released from `sm` up, where all three show their text.
+        + ' pointer-coarse:min-h-11 pointer-coarse:min-w-11 sm:pointer-coarse:min-w-0'
           : 'h-8 border-input bg-background/95 shadow-md backdrop-blur-sm',
         activeCount > 0 && 'border-primary/50 bg-primary/5',
       )}
