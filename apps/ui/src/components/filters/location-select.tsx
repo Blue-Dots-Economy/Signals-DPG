@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 /** Whole numbers only, in a range a real search could mean (#644 QA). */
 export const MIN_RADIUS_KM = 1;
 export const MAX_RADIUS_KM = 500;
+/** Prefilled when the distance row is engaged with no value yet. */
+export const DEFAULT_RADIUS_KM = 5;
 
 export interface LocationSelectProps {
   value: BrowseArea;
@@ -64,6 +66,15 @@ export function LocationSelect({
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<string | null>(null);
+  /**
+   * The user has engaged the distance row but not committed a value yet.
+   *
+   * Without this, the row stayed unselected and "Measured from" stayed hidden
+   * until a distance was actually applied — so clicking the row appeared to do
+   * nothing, and the source question only turned up on the NEXT opening of
+   * the menu. Intent is enough to show both.
+   */
+  const [pendingRadius, setPendingRadius] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   const anySource = profileAvailable || browserAvailable;
@@ -77,7 +88,9 @@ export function LocationSelect({
    * shown only when the answer is yes — asking which point to measure from
    * while nothing measures is the noise this redesign removes.
    */
-  const usesCenter = value.mode === 'radius' || sort === 'nearest';
+  const usesCenter = value.mode === 'radius' || pendingRadius || sort === 'nearest';
+  /** The row reads as chosen once engaged, not only once committed. */
+  const radiusSelected = value.mode === 'radius' || pendingRadius;
 
   const displayLabel = (() => {
     switch (value.mode) {
@@ -104,7 +117,22 @@ export function LocationSelect({
     if (!canApply || !center) return;
     onChange({ mode: 'radius', center, meters: parsed * 1000 });
     setDraft(null);
+    setPendingRadius(false);
     setOpen(false);
+  };
+
+  /**
+   * Select the distance row. Prefills a usable value when there is none, so
+   * the tick is immediately live rather than disabled on an empty field.
+   */
+  const engageRadius = () => {
+    setPendingRadius(true);
+    if (draft === null && value.mode !== 'radius') setDraft(String(DEFAULT_RADIUS_KM));
+    // Focus after the prefill lands so the value is selected, not appended to.
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
   };
 
   const rowClass =
@@ -123,7 +151,10 @@ export function LocationSelect({
       onOpenChange={(next) => {
         setOpen(next);
         // A half-typed distance must not survive into the next opening.
-        if (!next) setDraft(null);
+        if (!next) {
+          setDraft(null);
+          setPendingRadius(false);
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -142,15 +173,20 @@ export function LocationSelect({
           <button
             type="button"
             role="option"
-            aria-selected={value.mode === 'anywhere'}
+            aria-selected={value.mode === 'anywhere' && !pendingRadius}
             className={rowClass}
             onClick={() => {
               onChange(DEFAULT_BROWSE_AREA);
+              setPendingRadius(false);
+              setDraft(null);
               setOpen(false);
             }}
           >
             <Check
-              className={cn('h-3 w-3 shrink-0', value.mode === 'anywhere' ? 'opacity-100' : 'opacity-0')}
+              className={cn(
+                'h-3 w-3 shrink-0',
+                value.mode === 'anywhere' && !pendingRadius ? 'opacity-100' : 'opacity-0',
+              )}
             />
             <span>
               <span className="font-semibold">{t('browse.area_anywhere')}</span>
@@ -189,26 +225,24 @@ export function LocationSelect({
                   it was inert: only the input itself responded, so the row
                   read as unselectable. */}
               <div
-                className={cn(rowClass, 'cursor-pointer')}
+                className={cn(rowClass, 'cursor-pointer', radiusSelected && 'bg-accent/50')}
                 role="option"
                 tabIndex={0}
-                aria-selected={value.mode === 'radius'}
+                aria-selected={radiusSelected}
                 onClick={(e) => {
                   // Let the field and its ✓/✕ handle their own clicks.
                   if ((e.target as HTMLElement).closest('input,button')) return;
-                  inputRef.current?.focus();
-                  inputRef.current?.select();
+                  engageRadius();
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    inputRef.current?.focus();
-                    inputRef.current?.select();
+                    engageRadius();
                   }
                 }}
               >
                 <Check
-                  className={cn('h-3 w-3 shrink-0', value.mode === 'radius' ? 'opacity-100' : 'opacity-0')}
+                    className={cn('h-3 w-3 shrink-0', radiusSelected ? 'opacity-100' : 'opacity-0')}
                 />
                 <span className="flex flex-wrap items-center gap-1">
                   <span>{t('browse.area_within')}</span>
@@ -223,6 +257,7 @@ export function LocationSelect({
                       })}
                       value={shown}
                       placeholder={String(MIN_RADIUS_KM)}
+                      onFocus={() => setPendingRadius(true)}
                       onChange={(e) =>
                         // Digits only. Decimals are BLOCKED, not rounded:
                         // rounding 12.5 to 13 would leave the field and the

@@ -371,4 +371,53 @@ describe('LocationSelect', () => {
     await userEvent.click(distanceRow!);
     expect(field()).toHaveFocus();
   });
+
+  it('selects the row and reveals "Measured from" as soon as it is clicked', async () => {
+    // It used to need a COMMITTED value: clicking the row appeared to do
+    // nothing, and the source question only turned up on the next opening of
+    // the menu. Intent is enough.
+    render(<LocationSelect {...base} />);
+    await open();
+
+    const menu = screen.getByRole('listbox', { name: /location/i });
+    expect(within(menu).queryByText(/measured from/i)).toBeNull();
+
+    const distanceRow = within(menu)
+      .getAllByRole('option')
+      .find((r) => r.textContent?.match(/of me/i))!;
+    await userEvent.click(distanceRow);
+
+    expect(distanceRow).toHaveAttribute('aria-selected', 'true');
+    expect(within(menu).getByText(/measured from/i)).toBeInTheDocument();
+    // Anywhere gives up its tick the moment a distance is being set.
+    const anywhere = within(menu).getByRole('option', { name: /anywhere/i });
+    expect(anywhere).toHaveAttribute('aria-selected', 'false');
+  });
+
+  it('prefills a usable distance on engage, so the tick is live immediately', async () => {
+    render(<LocationSelect {...base} />);
+    await open();
+    await userEvent.click(
+      within(screen.getByRole('listbox', { name: /location/i }))
+        .getAllByRole('option')
+        .find((r) => r.textContent?.match(/of me/i))!,
+    );
+
+    expect(field()).toHaveValue('5');
+    expect(screen.getByRole('button', { name: /apply this distance/i })).toBeEnabled();
+  });
+
+  it('drops the pending intent when Anywhere is chosen instead', async () => {
+    const onChange = vi.fn();
+    render(<LocationSelect {...base} onChange={onChange} />);
+    await open();
+    const menu = screen.getByRole('listbox', { name: /location/i });
+    await userEvent.click(
+      within(menu).getAllByRole('option').find((r) => r.textContent?.match(/of me/i))!,
+    );
+    expect(within(menu).getByText(/measured from/i)).toBeInTheDocument();
+
+    await userEvent.click(within(menu).getByRole('option', { name: /anywhere/i }));
+    expect(onChange).toHaveBeenCalledWith({ mode: 'anywhere' });
+  });
 });
