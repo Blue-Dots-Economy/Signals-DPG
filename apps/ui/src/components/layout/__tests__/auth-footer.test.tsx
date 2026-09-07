@@ -22,11 +22,14 @@ describe('<AuthFooter />', () => {
       </MemoryRouter>,
     );
 
+    // One page holds both documents; the fragment picks the section. `/privacy`
+    // and `/terms` still resolve — they redirect here — but a link that already
+    // knows where it is going should not spend a redirect to get there.
     expect(screen.getByRole('link', { name: 'Privacy Policy' })).toHaveAttribute(
       'href',
-      '/privacy',
+      '/legal#privacy',
     );
-    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms');
+    expect(screen.getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/legal#terms');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

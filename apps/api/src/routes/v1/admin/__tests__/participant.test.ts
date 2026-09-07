@@ -186,6 +186,12 @@ const dbState: {
   userInsertError: unknown;
   /** user rows deleted (the orphan-cleanup path). */
   userDeletes: number;
+  /**
+   * Orgs claiming the binding in the SS-3 default-aggregator lookup (#640).
+   * Empty = no default configured for this instance, which is the launch state
+   * and what every pre-existing test in this file expects.
+   */
+  defaultAggregatorRows: Array<{ id: string }>;
 } = {
   existingUserRows: [],
   itemsByUser: new Map(),
@@ -198,6 +204,7 @@ const dbState: {
   userInserts: [],
   identityCalls: [],
   identityResult: { ok: true },
+  defaultAggregatorRows: [],
   userInsertError: null,
   userDeletes: 0,
 };
@@ -350,6 +357,9 @@ vi.mock('@api/db/postgres/drizzle_config', () => {
       insert: insertFn,
       transaction,
       delete: deleteFn,
+      // Raw-SQL path. Used by the SS-3 default-aggregator lookup (#640);
+      // `defaultAggregatorRows` decides whether a default is configured.
+      execute: vi.fn(() => Promise.resolve({ rows: dbState.defaultAggregatorRows })),
     },
   };
 });
@@ -458,6 +468,10 @@ const baseBody = (over: Record<string, unknown> = {}) => ({
   terms_accepted: true,
   privacy_accepted: true,
   channel: 'bulk',
+  // SS-3 (#640): a non-aggregator caller must send `domain` — it selects which
+  // default aggregator owns the participant, and the schema's `?? 'seeker'`
+  // fallback would silently hand a provider signup to the seeker aggregator.
+  domain: 'seeker',
   item_state: { whoIAm: { education: 'XII' } },
   ...over,
 });
@@ -502,6 +516,7 @@ const resetDbState = () => {
     dbState.identityResult = { ok: true };
     dbState.userInsertError = null;
     dbState.userDeletes = 0;
+    dbState.defaultAggregatorRows = [];
     mockAuthConfig.keycloak_enabled = false;
     lastQueriedUserId = null;
     lastQueriedItemId = null;
@@ -601,9 +616,35 @@ describe('POST /admin/participant', () => {
     expect(dbState.updates[0].set).toMatchObject({
       onboardedByOrgId: 'org_agg_1',
       onboardedVia: 'bulk',
+      // This API never wrote `user.domains`, which left every participant it
+      // onboarded permanently exempt from the single-domain lock (empty reads
+      // as "not decided yet") and made GET /api/v1/user/domains return [] for
+      // them in the UI. Recorded here, on the account-only path too, since the
+      // caller states the domain.
+      domains: ['seeker'],
     });
     expect(dbState.updates[0].set).not.toHaveProperty('termsAccepted');
     expect(dbState.updates[0].set).not.toHaveProperty('privacyAccepted');
+  });
+
+  it('omits domains entirely when an aggregator caller sends no domain', async () => {
+    // An aggregator IS the owner, so `domain` is optional for it. Writing `[]`
+    // would read as "locked to nothing" rather than "not yet decided" — the
+    // participant's first item create records it instead.
+    dbState.signUpUserId = 'usr_new_nodomain';
+    const app = await buildApp({ org_id: 'org_agg_1', org_type: 'aggregator' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({
+        phone_number: VALID_PHONE,
+        email: undefined,
+        item_state: undefined,
+        domain: undefined,
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dbState.updates[0].set).not.toHaveProperty('domains');
   });
 
   it('accepts a request with terms_accepted/privacy_accepted omitted (now optional) → 200', async () => {
@@ -898,13 +939,127 @@ describe('POST /admin/participant', () => {
     expect(body.items).toHaveLength(0);
     expect(dbState.inserts).toHaveLength(0);
     // Assert that the onboarding-field update fired and set the expected fields.
+    //
+    // SS-3 (#640): `onboardedByOrgId` is deliberately NULL here, where it used
+    // to be the acting org. A `network_service` caller is not an aggregator —
+    // tagging its participants to the network's own org satisfied "every
+    // entrant has an owner" on paper while leaving a verification queue nobody
+    // would open. No default is nominated in this test (the launch state), so
+    // the participant is left unowned.
     expect(dbState.updates).toHaveLength(1);
     expect(dbState.updates[0].set).toMatchObject({
-      onboardedByOrgId: 'org_ns_1',
+      onboardedByOrgId: null,
+      onboardedByDefault: false,
       onboardedVia: 'bulk',
     });
     expect(dbState.updates[0].set).not.toHaveProperty('termsAccepted');
     expect(dbState.updates[0].set).not.toHaveProperty('privacyAccepted');
+  });
+
+  it('a non-aggregator caller tags to the default aggregator when one is configured (SS-3)', async () => {
+    // Cold inbound voice: the caller is the network's own service org, so the
+    // participant is tagged to the nominated default aggregator rather than to
+    // the network org (whose verification queue nobody would open).
+    dbState.signUpUserId = 'usr_voice_default';
+    dbState.defaultAggregatorRows = [{ id: 'org_default_agg' }];
+    const app = await buildApp({ org_id: 'org_ns_1', org_type: 'network_service' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      // A profile is created, so the domain is known and the per-(network,
+      // domain) default can be resolved.
+      payload: baseBody({
+        phone_number: VALID_PHONE,
+        email: undefined,
+        domain: 'seeker',
+        channel: 'voice',
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dbState.userInserts.length + dbState.updates.length).toBeGreaterThan(0);
+    const written = (dbState.updates[0]?.set ?? dbState.userInserts[0]) as Record<string, unknown>;
+    expect(written).toMatchObject({
+      onboardedByOrgId: 'org_default_agg',
+      onboardedByDefault: true,
+      onboardedVia: 'voice',
+    });
+  });
+
+  it('tags in account_only mode too — domain rides the body, not the item (SS-3)', async () => {
+    // `domain` is a top-level body field, independent of `item_state`, so an
+    // account-only onboard (no profile yet) still resolves its binding's
+    // default and is tagged at account creation rather than deferred.
+    dbState.signUpUserId = 'usr_voice_account_only';
+    dbState.defaultAggregatorRows = [{ id: 'org_default_agg' }];
+    const app = await buildApp({ org_id: 'org_ns_1', org_type: 'network_service' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({ phone_number: VALID_PHONE, email: undefined, item_state: undefined }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dbState.updates[0].set).toMatchObject({
+      onboardedByOrgId: 'org_default_agg',
+      onboardedByDefault: true,
+    });
+    expect(res.json()).toMatchObject({
+      onboarded_by_org_id: 'org_default_agg',
+      onboarded_by_default: true,
+    });
+  });
+
+
+  it('400s when a non-aggregator caller omits domain (SS-3)', async () => {
+    // Defaults are per (network, domain). The schema documents `domain` as
+    // defaulting to 'seeker', so without this a provider onboard that omitted
+    // it would be handed to the SEEKER aggregator — wrong org gets decrypt
+    // rights, with a 200 and no trace.
+    dbState.signUpUserId = 'usr_no_domain';
+    dbState.defaultAggregatorRows = [{ id: 'org_default_agg' }];
+    const app = await buildApp({ org_id: 'org_ns_1', org_type: 'network_service' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({ phone_number: VALID_PHONE, email: undefined, domain: undefined }),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('DOMAIN_REQUIRED');
+    expect(dbState.updates).toHaveLength(0);
+  });
+
+  it('an aggregator caller may still omit domain — it owns its own onboards (SS-3)', async () => {
+    // The 400 is scoped to the branch that resolves a default; an aggregator
+    // never does, so its existing contract is unchanged.
+    dbState.signUpUserId = 'usr_agg_no_domain';
+    const app = await buildApp({ org_id: 'org_agg_1', org_type: 'aggregator' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({ phone_number: VALID_PHONE, email: undefined, domain: undefined }),
+    });
+    expect(res.statusCode).toBe(200);
+    const written = (dbState.updates[0]?.set ?? dbState.userInserts[0]) as Record<string, unknown>;
+    expect(written).toMatchObject({ onboardedByOrgId: 'org_agg_1', onboardedByDefault: false });
+  });
+
+  it('aggregator acting org still owns the participants it onboards (SS-3 unchanged path)', async () => {
+    dbState.signUpUserId = 'usr_new_agg_acct';
+    const app = await buildApp({
+      org_id: 'org_agg_1',
+      org_type: 'aggregator',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({ phone_number: VALID_PHONE, email: undefined, item_state: undefined }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dbState.updates).toHaveLength(1);
+    expect(dbState.updates[0].set).toMatchObject({
+      onboardedByOrgId: 'org_agg_1',
+      onboardedByDefault: false,
+      onboardedVia: 'bulk',
+    });
   });
 
   it('network_service + existing user + valid item_id → 200 owned_elsewhere:false, item updated', async () => {

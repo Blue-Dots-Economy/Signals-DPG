@@ -24,8 +24,7 @@ updates:
     target-branch: "feature"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:00"
       timezone: "UTC"
     open-pull-requests-limit: 5
@@ -47,6 +46,15 @@ updates:
         update-types: ["version-update:semver-major"]
       # vitest 4 needs vite 6 in lockstep — hold the major.
       - dependency-name: "vitest"
+        update-types: ["version-update:semver-major"]
+      # @vitest/coverage-v8 peers on the EXACT vitest version, so its major can
+      # only move when vitest's does — and vitest's is held above. #674 proposed
+      # coverage-v8 5.0.0 against vitest 4, which PASSES CI: an unmet peer is only
+      # a warning, so nothing fails — coverage just stops being produced and
+      # SonarCloud silently sees none. aggregator-dpg holds the same pair for the
+      # same reason (its #559). Keep the two majors coupled; take them together
+      # when vitest 5 is taken deliberately. Tracked in #677.
+      - dependency-name: "@vitest/coverage-v8"
         update-types: ["version-update:semver-major"]
       # better-auth 1.7 breaks two contracts we'd have to migrate: SecondaryStorage
       # gained required `getAndDelete`/`increment`, and `verifyApiKey` left the
@@ -75,8 +83,7 @@ updates:
     target-branch: "feature"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:15"
       timezone: "UTC"
     labels:
@@ -102,8 +109,7 @@ updates:
       - "/apps/ui"
       - "/docker/postgres"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "03:30"
       timezone: "UTC"
     labels:

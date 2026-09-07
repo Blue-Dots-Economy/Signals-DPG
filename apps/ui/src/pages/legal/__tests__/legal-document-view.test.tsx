@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+
+/** Reports the resolved path + hash, so a redirect's destination is assertable. */
+function LocationProbe() {
+  const { pathname, hash } = useLocation();
+  return <span data-testid="here">{`${pathname}${hash}`}</span>;
+}
 import { LegalDocumentView } from '@/pages/legal/legal-document-view';
 
 const mockUseConsentConfig = vi.fn();
@@ -50,10 +56,14 @@ const REAL_SHAPE = consentConfig({
   termsContent: '## Terms of Service\n\nWelcome.',
 });
 
-const view = (doc: 'privacy' | 'terms', initialEntries?: string[]) =>
+/**
+ * Renders the page as if arrived at `/legal${hash}`. There is one route now,
+ * so what used to be "which document is this route for" is just the fragment.
+ */
+const view = (hash: '' | '#privacy' | '#terms' = '', initialEntries?: string[]) =>
   render(
-    <MemoryRouter initialEntries={initialEntries ?? [doc === 'privacy' ? '/privacy' : '/terms']}>
-      <LegalDocumentView doc={doc} />
+    <MemoryRouter initialEntries={initialEntries ?? [`/legal${hash}`]}>
+      <LegalDocumentView />
     </MemoryRouter>,
   );
 
@@ -63,7 +73,7 @@ describe('<LegalDocumentView />', () => {
   });
 
   it('renders both documents in order on both routes', () => {
-    view('privacy');
+    view();
     expect(screen.getAllByText('Privacy Policy').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Terms of Service').length).toBeGreaterThan(0);
     expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument();
@@ -71,29 +81,29 @@ describe('<LegalDocumentView />', () => {
   });
 
   it('renders both documents in order on the /terms route too', () => {
-    view('terms');
+    view('#terms');
     expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Terms of Service' })).toBeInTheDocument();
   });
 
   it('anchors each extracted section', () => {
-    view('privacy');
+    view();
     expect(screen.getByRole('link', { name: 'Retention' })).toHaveAttribute('href', '#retention');
   });
 
   it('rail entries are same-page anchors, not links to another route', () => {
-    view('privacy');
+    view();
     // The other document's rail header used to navigate via a react-router
     // <Link to="/terms">. Both documents now live on the same page, so it
     // must be a same-page anchor instead.
     expect(screen.getByRole('link', { name: 'Terms of Service' })).toHaveAttribute(
       'href',
-      '#terms-document',
+      '#terms',
     );
   });
 
   it('captures no consent', () => {
-    view('terms');
+    view('#terms');
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
@@ -102,7 +112,7 @@ describe('<LegalDocumentView />', () => {
     // Both documents are always on the page now, so the route must not
     // affect the rail's appearance at all: neither header ever carries
     // aria-current, on arrival or otherwise.
-    view('privacy');
+    view();
     expect(screen.getByRole('link', { name: 'Privacy Policy' })).not.toHaveAttribute(
       'aria-current',
     );
@@ -116,7 +126,7 @@ describe('<LegalDocumentView />', () => {
     // document's heading tinted, the other one dimmed via `opacity-75` on
     // its wrapping group). Both documents are always present now, so the two
     // routes' rails must be indistinguishable.
-    view('privacy');
+    view();
     const privacyHeader = screen.getByRole('link', { name: 'Privacy Policy' });
     const termsHeader = screen.getByRole('link', { name: 'Terms of Service' });
     expect(privacyHeader.className).toBe(termsHeader.className);
@@ -126,13 +136,13 @@ describe('<LegalDocumentView />', () => {
   });
 
   it('renders the heading it links to, so the anchor actually lands', () => {
-    view('privacy');
+    view();
     const heading = screen.getByRole('heading', { name: 'Retention' });
     expect(heading).toHaveAttribute('id', 'retention');
   });
 
   it('shows the version and effective date for each document', () => {
-    view('privacy');
+    view();
     expect(screen.getAllByText(/Version 1/)).toHaveLength(2);
   });
 
@@ -142,7 +152,7 @@ describe('<LegalDocumentView />', () => {
     // duplicate heading-role element, and must not become the rail's first
     // section entry (a repeat of the group header sitting right underneath
     // it).
-    view('privacy');
+    view();
     expect(screen.getAllByRole('heading', { name: 'Privacy Policy' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Privacy Policy' })).toHaveLength(1);
     // The real (and only) surviving section is "Retention".
@@ -160,7 +170,7 @@ describe('<LegalDocumentView />', () => {
         termsContent: '## Terms of Service\n\nWelcome.',
       }),
     );
-    view('privacy');
+    view();
     expect(screen.getByRole('heading', { name: 'Overview' })).toHaveAttribute('id', 'overview');
     expect(screen.getByRole('link', { name: 'Overview' })).toHaveAttribute('href', '#overview');
   });
@@ -172,7 +182,7 @@ describe('<LegalDocumentView />', () => {
         termsContent: '## Terms of Service\n\nWelcome.',
       }),
     );
-    view('privacy');
+    view();
     expect(screen.getByText('Just a paragraph, no subsections at all.')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toBeInTheDocument();
   });
@@ -185,7 +195,7 @@ describe('<LegalDocumentView />', () => {
         termsContent: '## Terms of Service\n\nWelcome.',
       }),
     );
-    view('privacy');
+    view();
     expect(screen.getByRole('heading', { name: 'A section' })).toBeInTheDocument();
     expect(screen.getByText('deepest text')).toBeInTheDocument();
   });
@@ -200,7 +210,7 @@ describe('<LegalDocumentView />', () => {
         termsContent: '## Terms of Service\n\nWelcome.\n### Shared Heading\nFrom terms.',
       }),
     );
-    view('privacy');
+    view();
     const headings = screen.getAllByRole('heading', { name: 'Shared Heading' });
     expect(headings).toHaveLength(2);
     const ids = headings.map((h) => h.id);
@@ -216,12 +226,12 @@ describe('<LegalDocumentView />', () => {
   });
 
   it('uses the i18n contents label for the rail, not a hardcoded string', () => {
-    view('privacy');
+    view();
     expect(screen.getByRole('navigation', { name: 'Contents' })).toBeInTheDocument();
   });
 
   it('has a back-to-sign-in link', () => {
-    view('privacy');
+    view();
     expect(screen.getByRole('link', { name: /Back to sign in/i })).toHaveAttribute(
       'href',
       '/auth/login',
@@ -231,7 +241,7 @@ describe('<LegalDocumentView />', () => {
   it('clicking a rail section scrolls it into view and highlights it', () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView;
-    view('privacy');
+    view();
 
     const link = screen.getByRole('link', { name: 'Retention' });
     fireEvent.click(link);
@@ -253,7 +263,7 @@ describe('<LegalDocumentView />', () => {
     );
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView;
-    view('privacy');
+    view();
 
     const termsHeader = screen.getByRole('link', { name: 'Terms of Service' });
     fireEvent.click(termsHeader);
@@ -264,6 +274,140 @@ describe('<LegalDocumentView />', () => {
       'aria-current',
       'true',
     );
+  });
+});
+
+// happy-dom has no layout engine — it computes no scroll heights and honours
+// no `position: sticky` — so these assert the utility classes that produce the
+// behaviour rather than the behaviour itself. That is a real limit: they prove
+// the classes are present, not that the rail scrolls. They exist because all
+// three defects below shipped once, and each was a single missing class.
+describe('<LegalDocumentView /> sticky app bar and rail geometry', () => {
+  beforeEach(() => {
+    mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
+  });
+
+  it('gives the app bar an opaque background under its gradient', () => {
+    // `bg-gradient-to-r from-background to-primary/5` alone is translucent at
+    // its right stop, so the reading column scrolled visibly through the bar.
+    const { container } = view();
+    const bar = container.querySelector('header');
+    expect(bar?.className).toContain('sticky');
+    expect(bar?.className).toContain('bg-background');
+  });
+
+  it('bounds the rail and lets it scroll on its own', () => {
+    // The rail is taller than the viewport on every network, and a sticky
+    // element with no bounded height simply leaves its tail below the fold
+    // with no way to reach it.
+    view();
+    const rail = screen.getByRole('navigation');
+    expect(rail.className).toMatch(/md:max-h-/);
+    expect(rail.className).toContain('md:overflow-y-auto');
+  });
+
+  it('offsets the rail by the app bar height so the bar does not cover it', () => {
+    view();
+    const rail = screen.getByRole('navigation');
+    expect(rail.className).toContain('md:top-14');
+  });
+
+  it('offsets every anchor target clear of the app bar', () => {
+    // Without a scroll-margin at least the bar's height, an anchor lands its
+    // heading underneath the bar.
+    view();
+    for (const name of ['Privacy Policy', 'Retention', 'Terms of Service']) {
+      expect(screen.getByRole('heading', { name }).className).toContain('scroll-mt-20');
+    }
+  });
+});
+
+// The two paths operators have already shared over SMS and email (#637) must
+// keep landing on the right section, now that both documents live on one page.
+describe('/privacy and /terms redirect into the single page', () => {
+  beforeEach(() => {
+    mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
+  });
+
+  it.each([
+    ['/privacy', '/legal#privacy'],
+    ['/terms', '/legal#terms'],
+  ])('redirects %s to %s', (from, to) => {
+    render(
+      <MemoryRouter initialEntries={[from]}>
+        <Routes>
+          <Route path="/legal" element={<LocationProbe />} />
+          <Route path="/privacy" element={<Navigate to="/legal#privacy" replace />} />
+          <Route path="/terms" element={<Navigate to="/legal#terms" replace />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('here')).toHaveTextContent(to);
+  });
+
+  it('anchors each document at the bare fragment those redirects target', () => {
+    view();
+    // If these ids drifted (back to `privacy-document`, say), the redirects
+    // above would land at the top of the page instead of on the document.
+    expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toHaveAttribute(
+      'id',
+      'privacy',
+    );
+    expect(screen.getByRole('heading', { name: 'Terms of Service' })).toHaveAttribute(
+      'id',
+      'terms',
+    );
+  });
+
+  it('never pills a document the network does not publish', () => {
+    // Regression (review of #648): the fallback took a document AND a document
+    // key, so `availableDocs[0]` (whatever loaded) could be paired with
+    // `DOC_ORDER[0]` (`privacy`). A network publishing only `terms`, with no
+    // sections in it, therefore pilled a non-existent `#privacy`.
+    mockUseConsentConfig.mockReturnValue({
+      isLoading: false,
+      config: {
+        documents: {
+          terms: {
+            current_version: 1,
+            versions: [
+              {
+                version: 1,
+                title: 'Terms of Service',
+                content: '## Terms of Service\n\nNo subsections at all.',
+                effective_from: '2026-06-01',
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    view();
+
+    // The one document that exists is anchored and rendered...
+    expect(screen.getByRole('heading', { name: 'Terms of Service' })).toHaveAttribute('id', 'terms');
+    // ...and nothing claims to be the privacy document.
+    expect(document.getElementById('privacy')).toBeNull();
+    const current = document.querySelector('[aria-current="true"]');
+    expect(current?.getAttribute('href') ?? null).not.toBe('#privacy');
+  });
+
+  it('keeps a section that slugifies to a document name from stealing its id', () => {
+    // A "Privacy" section would otherwise take `#privacy` out from under a
+    // link that has already been shared.
+    mockUseConsentConfig.mockReturnValue(
+      consentConfig({
+        privacyContent: '## Privacy Policy\n\nIntro.\n### Privacy\nx',
+        termsContent: '## Terms of Service\n\nWelcome.',
+      }),
+    );
+    view();
+    expect(screen.getByRole('heading', { name: 'Privacy Policy' })).toHaveAttribute(
+      'id',
+      'privacy',
+    );
+    expect(screen.getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '#privacy-2');
   });
 });
 
@@ -278,15 +422,15 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
   it('scrolls the hash target into view once its section has rendered', () => {
     mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
     render(
-      <MemoryRouter initialEntries={['/privacy#retention']}>
-        <LegalDocumentView doc="privacy" />
+      <MemoryRouter initialEntries={['/legal#retention']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(scrollIntoView).toHaveBeenCalled();
   });
 
   it('scrolls once content arrives after mount, even though the hash was already set (cold-load ordering)', () => {
-    // Reproduces a cold `/privacy#retention` load: the consent-config fetch
+    // Reproduces a cold `/legal#retention` load: the consent-config fetch
     // resolves well after the browser's own one-shot fragment-scroll attempt
     // has already run and found nothing — so the effect must fire again when
     // the CONTENT shows up, not only when the hash changes. An effect keyed
@@ -295,8 +439,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
     // `isLoading` is still true.
     mockUseConsentConfig.mockReturnValue({ isLoading: true, config: null });
     const { rerender } = render(
-      <MemoryRouter initialEntries={['/privacy#retention']}>
-        <LegalDocumentView doc="privacy" />
+      <MemoryRouter initialEntries={['/legal#retention']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(scrollIntoView).not.toHaveBeenCalled();
@@ -304,8 +448,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
     // The fetch resolves; same hash, content now available.
     mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
     rerender(
-      <MemoryRouter initialEntries={['/privacy#retention']}>
-        <LegalDocumentView doc="privacy" />
+      <MemoryRouter initialEntries={['/legal#retention']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
 
@@ -315,8 +459,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
   it('does nothing on /privacy with no hash — it is already the top of the page', () => {
     mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
     render(
-      <MemoryRouter initialEntries={['/privacy']}>
-        <LegalDocumentView doc="privacy" />
+      <MemoryRouter initialEntries={['/legal']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(scrollIntoView).not.toHaveBeenCalled();
@@ -325,8 +469,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
   it('scrolls to the terms document heading when arriving at /terms with no hash', () => {
     mockUseConsentConfig.mockReturnValue(REAL_SHAPE);
     render(
-      <MemoryRouter initialEntries={['/terms']}>
-        <LegalDocumentView doc="terms" />
+      <MemoryRouter initialEntries={['/legal#terms']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(scrollIntoView).toHaveBeenCalled();
@@ -340,8 +484,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
       }),
     );
     render(
-      <MemoryRouter initialEntries={['/terms#governing-law']}>
-        <LegalDocumentView doc="terms" />
+      <MemoryRouter initialEntries={['/legal#governing-law']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(scrollIntoView).toHaveBeenCalled();
@@ -365,8 +509,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
   it('pills the first section on arrival at /privacy', () => {
     mockUseConsentConfig.mockReturnValue(BOTH_HAVE_SECTIONS);
     render(
-      <MemoryRouter initialEntries={['/privacy']}>
-        <LegalDocumentView doc="privacy" />
+      <MemoryRouter initialEntries={['/legal']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(screen.getByRole('link', { name: 'Retention' })).toHaveAttribute(
@@ -381,8 +525,8 @@ describe('<LegalDocumentView /> deep-link and arrival scrolling', () => {
   it('pills the first section on arrival at /terms — Terms\' own first section, not Privacy\'s', () => {
     mockUseConsentConfig.mockReturnValue(BOTH_HAVE_SECTIONS);
     render(
-      <MemoryRouter initialEntries={['/terms']}>
-        <LegalDocumentView doc="terms" />
+      <MemoryRouter initialEntries={['/legal#terms']}>
+        <LegalDocumentView />
       </MemoryRouter>,
     );
     expect(screen.getByRole('link', { name: 'Governing law' })).toHaveAttribute(
@@ -435,7 +579,7 @@ describe('<LegalDocumentView /> click pins the highlight through its scroll', ()
 
   it('keeps the clicked (short) section highlighted through a misleading mid-scroll read, and after settling', () => {
     vi.useFakeTimers();
-    view('privacy');
+    view();
 
     const shortLink = screen.getByRole('link', { name: 'Short' });
     fireEvent.click(shortLink);
@@ -444,7 +588,7 @@ describe('<LegalDocumentView /> click pins the highlight through its scroll', ()
     // Mid-flight: geometry momentarily suggests "Third" has also passed the
     // reading line (the short-section overshoot). A spy with no pin would
     // jump to it right here.
-    mockTop('privacy-document', 0);
+    mockTop('privacy', 0);
     mockTop('first', -50);
     mockTop('short', 10);
     mockTop('third', 50);
@@ -471,7 +615,7 @@ describe('<LegalDocumentView /> click pins the highlight through its scroll', ()
     })) as unknown as typeof window.matchMedia;
 
     vi.useFakeTimers();
-    view('privacy');
+    view();
 
     const shortLink = screen.getByRole('link', { name: 'Short' });
     fireEvent.click(shortLink);
@@ -483,7 +627,7 @@ describe('<LegalDocumentView /> click pins the highlight through its scroll', ()
     // the pin must still release on its own rather than staying stuck.
     vi.advanceTimersByTime(500);
 
-    mockTop('privacy-document', 0);
+    mockTop('privacy', 0);
     mockTop('first', -50);
     mockTop('short', 10);
     mockTop('third', 150);

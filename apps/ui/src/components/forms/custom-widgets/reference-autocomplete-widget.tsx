@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { WidgetProps } from '@rjsf/utils';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useSuggestionKeyboard } from './use-suggestion-keyboard';
 import { getRuntimeEnv } from '@/lib/runtime-env';
 
 /**
@@ -223,6 +224,19 @@ export function ReferenceAutocompleteWidget({
     return parts.length > 0 ? parts.join(', ') : null;
   }
 
+  const { activeIndex, setActiveIndex, optionId, activeDescendantId, listboxId, onKeyDown } =
+    useSuggestionKeyboard({
+      items: suggestions,
+      open,
+      onOpen: () => setOpen(true),
+      onClose: () => setOpen(false),
+      onSelect: (index) => {
+        const option = suggestions[index];
+        if (option) choose(option);
+      },
+      idPrefix: id,
+    });
+
   return (
     <div className="relative space-y-2">
       <Input
@@ -231,32 +245,50 @@ export function ReferenceAutocompleteWidget({
         disabled={disabled || readonly}
         autoComplete="off"
         placeholder={placeholder}
+        role="combobox"
+        aria-expanded={open && suggestions.length > 0}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeDescendantId}
         className={cn(rawErrors && rawErrors.length > 0 && 'border-destructive')}
         onChange={(e) => handleInput(e.target.value)}
+        onKeyDown={onKeyDown}
         onFocus={() => setOpen(suggestions.length > 0)}
         onBlur={() => {
           blurRef.current = window.setTimeout(() => setOpen(false), 150);
         }}
       />
       {open && suggestions.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-popover shadow-md">
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-popover shadow-md"
+        >
           {suggestions.map((o, i) => {
             const sub = subtitle(o);
             return (
-              <li key={`${o.name}-${i}`}>
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    choose(o);
-                  }}
-                >
-                  <span className="block">{o.name}</span>
-                  {sub && (
-                    <span className="block text-xs text-muted-foreground">{sub}</span>
-                  )}
-                </button>
+              // `role="option"` on the item itself rather than a nested
+              // <button>: an option is what `aria-activedescendant` can point
+              // at, and a listbox may only contain options.
+              <li
+                key={`${o.name}-${i}`}
+                id={optionId(i)}
+                role="option"
+                aria-selected={i === activeIndex}
+                className={cn(
+                  'cursor-pointer px-3 py-2 text-sm',
+                  i === activeIndex ? 'bg-accent' : 'hover:bg-accent',
+                )}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  choose(o);
+                }}
+                onMouseEnter={() => setActiveIndex(i)}
+              >
+                <span className="block">{o.name}</span>
+                {sub && (
+                  <span className="block text-xs text-muted-foreground">{sub}</span>
+                )}
               </li>
             );
           })}

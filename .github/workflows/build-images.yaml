@@ -44,6 +44,8 @@ jobs:
           # in this repo. Add to the matrix once their Dockerfiles land.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Verify Dockerfile exists
         run: |
           if [ ! -f "${{ matrix.service.dockerfile }}" ]; then
@@ -116,7 +118,7 @@ jobs:
 
       - name: Upload Trivy image SARIF
         if: always() && steps.build.outputs.digest != ''
-        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           sarif_file: trivy-image.sarif
           # One category per image so api and ui alerts don't overwrite each other.

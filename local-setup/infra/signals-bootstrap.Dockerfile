@@ -19,6 +19,16 @@
 # for macOS), avoiding the classic bind-mount platform mismatch.
 
 # syntax=docker/dockerfile:1.7
+# Trivy DS-0002 (no USER) / DS-0026 (no HEALTHCHECK) are ACCEPTED here — see #548.
+#
+# This image never ships: it is a one-shot local-compose tools container that
+# runs to completion and exits 0 (signals-api gates on
+# `depends_on: condition: service_completed_successfully`). It is not published
+# to GHCR and not deployed to any cluster.
+#
+# DS-0002: `pnpm install` writes the full dev dependency set into /repo, which
+# COPY lands root-owned; switching to a non-root USER would fail the install.
+# DS-0026: a container whose whole job is to exit has no steady state to health-check.
 FROM node:24-alpine
 
 RUN apk add --no-cache libc6-compat bash && corepack enable

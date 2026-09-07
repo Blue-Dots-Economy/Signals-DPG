@@ -14,6 +14,7 @@ import { DatePickerWidget } from './custom-widgets/date-picker-widget';
 import { LocationAutocompleteWidget } from './custom-widgets/location-autocomplete-widget';
 import { MultiLocationAutocompleteWidget } from './custom-widgets/multi-location-autocomplete-widget';
 import { ReferenceAutocompleteWidget } from './custom-widgets/reference-autocomplete-widget';
+import { ClearableSelectWidget } from './custom-widgets/clearable-select-widget';
 import CustomFieldTemplate from './custom-field-template';
 import { resolveFormLayout, type FormLayout } from '@/theme/form-layouts';
 import { resolveVisibleSchema } from '@/lib/show-if';
@@ -367,6 +368,10 @@ const widgets: RegistryWidgetsType = {
   'location-autocomplete': LocationAutocompleteWidget,
   'location-multi': MultiLocationAutocompleteWidget,
   'reference-autocomplete': ReferenceAutocompleteWidget,
+  // Overrides the theme's own `SelectWidget` by name — every enum field routes
+  // through this one, which is the theme's select plus a clear button for
+  // optional fields (see the widget's own comment).
+  SelectWidget: ClearableSelectWidget,
 };
 
 function stripMetaSchema(schema: RJSFSchema): RJSFSchema {

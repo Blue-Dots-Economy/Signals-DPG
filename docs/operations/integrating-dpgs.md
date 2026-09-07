@@ -401,6 +401,14 @@ or every entry was `false`/unrecognised).
 | acting_org_type == 'voice' (or anything not in aggregator/network_service) | 403 | `ACTING_ORG_TYPE_NOT_ALLOWED` | not allowed today |
 | network_service + invalid `item_id` (doesn't belong to user) | 403 | `ITEM_NOT_OWNED_BY_USER` | item ownership check failed |
 | email + phone race | 409 | `USER_ALREADY_EXISTS` | another caller created the same identity between SELECT and signUp |
+| aggregator + participant already locked to another domain | 403 | `DOMAIN_LOCKED` | **not additive.** An account holds profiles in exactly ONE domain (`assertSingleDomain`). A previously-succeeding call now fails if `domain` (or its `'seeker'` default) differs from the domain the participant already holds. Body carries `locked_domain` / `requested_domain`. Per-row, so a batch is unaffected — the row does not land. |
+
+### `POST /api/v1/admin/participant/decrypt` — error matrix (additions)
+
+| Caller shape | HTTP | error | When |
+|---|---|---|---|
+| aggregator whose org declares no `metadata.domains` | 400 | `NO_DOMAINS_CONFIGURED` | **not additive.** Decrypt is now scoped to the acting org's declared domains and fails closed when there are none, matching `GET /aggregator/dashboard` and `/dashboard/export`. Affects only orgs mirrored before `domains` was sent; re-upsert with a non-empty `domains` array. The same requirement is now enforced when an org is nominated as a **default aggregator** (migration 0017), so the two cannot disagree. |
+| aggregator requesting an item outside its declared domains | 200 | — | the id lands in `skipped`, undifferentiated from not-found, so nothing leaks about its existence. |
 
 ### Migration from `/admin/onboard_participant`
 

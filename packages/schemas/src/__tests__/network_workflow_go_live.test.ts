@@ -21,7 +21,11 @@ const configWithDomain = (domain: Record<string, unknown>) => ({
 
 describe('network_workflow go_live_required', () => {
   it('exposes the gate vocabulary', () => {
-    expect(PROFILE_GO_LIVE_GATES).toEqual(['schema_required', 'consent_required']);
+    expect(PROFILE_GO_LIVE_GATES).toEqual([
+      'schema_required',
+      'consent_required',
+      'owner_required',
+    ]);
   });
 
   it('omitted go_live_required parses (undefined — resolver applies the default)', () => {

@@ -9,14 +9,16 @@ export function AuthFooter() {
       <p className="mb-3">
         By continuing you agree to the{' '}
         <Link
-          to="/privacy"
+          // Both documents live on one page; the fragment is what picks
+          // the section. `/privacy` still works — it redirects here.
+          to="/legal#privacy"
           className="text-primary font-medium underline underline-offset-2 hover:opacity-80"
         >
           Privacy Policy
         </Link>{' '}
         and{' '}
         <Link
-          to="/terms"
+          to="/legal#terms"
           className="text-primary font-medium underline underline-offset-2 hover:opacity-80"
         >
           Terms

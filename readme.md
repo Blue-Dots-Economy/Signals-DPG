@@ -345,8 +345,8 @@ used on write (with consent now true) and flips a `draft` item to `live`
 `pnpm db:backfill:consent:api`, re-classifies existing profiles against this gate.
 
 Which gates a profile must clear to go `live` is **configurable per domain** via
-`go_live_required` in `network.json` (`schema_required` and/or
-`consent_required`; default `schema_required`). A `guardian_consent_required`
+`go_live_required` in `network.json` (`schema_required`, `consent_required`
+and/or `owner_required`; default `schema_required`). A `guardian_consent_required`
 domain must keep `consent_required` in the list — config that dropped it would
 silently disable the U18 age control, so it is rejected at load.
 

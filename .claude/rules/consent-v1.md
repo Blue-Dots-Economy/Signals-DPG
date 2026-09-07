@@ -27,6 +27,7 @@ Two invariants worth internalising:
 
 - `schema_required` — all `schema.required` fields populated (completeness).
 - `consent_required` — `profile_creation` consent accepted **by the correct signer** (see U18 note below).
+- `owner_required` — the profile owner's account has an owning aggregator (`user.onboarded_by_org_id`), #640/SS-3. **The one gate that is not a pure function of the item's own state**: it reads the prior lifecycle status and instance config, and it deliberately lets an already-`live` profile pass a condition it does not satisfy. Two guards, both load-bearing, documented on `GO_LIVE_GATE_CHECKS.owner_required` — read them before touching it.
 
 Omitting `go_live_required` uses `DEFAULT_GO_LIVE_GATES` = `['schema_required']` — **consent is opt-in, not the default** (a change from the old "every network is consent-gated" rule). A domain that wants the historical behaviour lists both tokens. An empty array and unknown tokens are rejected at config load. `resolveGoLiveGates` (`item_service.ts`) resolves the effective set per (network, domain). Accepting profile consent (`routes/v1/consent/accept_profile_consent.ts`) calls `promoteItemOnProfileConsent`, which re-runs `classify_item` with the resolved gates and flips a `draft` item to `live`. Only `draft` is promoted: `paused` is sticky, `retired` is terminal, and `live` needs no change. **Profile completion % (`profile_completion_pct`) is intentionally independent of the gate set** — always required-only.
 

@@ -43,6 +43,7 @@ import { materializeSignupGuardian } from '@/services/signup_guardian';
 import { sendWelcomeNotifications } from '@/notifications/welcome';
 import { takeSignupExtras } from '@/services/auth/signup_extras';
 import { insertLocalUser } from '@/services/auth/user_writer';
+import { tagUserForDomain } from '@/services/aggregator/default_aggregator';
 import { actingOrgGrant, grantIsWildcard } from '@/utils/keycloak_token';
 import type { KeycloakClaims } from '@/utils/keycloak_token';
 import { randomUUID } from 'node:crypto';
@@ -572,6 +573,15 @@ async function applySignupExtras(
 
     updates.updatedAt = new Date();
     await db.update(userTable).set(updates).where(eq(userTable.id, userId));
+
+    // SS-3 (#640): the domain the user picked at signup has just landed on
+    // their row, so this is the first moment a per-(network, domain) default
+    // aggregator can own them. No-op when they already have an owner or no
+    // default is nominated. Inside the same best-effort try/catch as the rest
+    // of this function — a login that already succeeded must not fail here.
+    if (extras.domain) {
+      await tagUserForDomain(db, userId, extras.domain);
+    }
     log.info(
       { user_id: userId, domain: extras.domain ?? null, age: extras.age ?? null },
       'provisioning: applied parked signup details',

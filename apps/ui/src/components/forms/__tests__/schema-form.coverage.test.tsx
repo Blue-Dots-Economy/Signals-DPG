@@ -130,7 +130,7 @@ describe('SchemaForm custom widget registry', () => {
     render(<SchemaForm schema={schema} onSubmit={onSubmit} submitButtonText="Save" />);
     fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Beng' } });
 
-    const option = await screen.findByRole('button', { name: 'Bengaluru, Karnataka' });
+    const option = await screen.findByRole('option', { name: 'Bengaluru, Karnataka' });
     fireEvent.mouseDown(option);
 
     await waitFor(() => expect(screen.getByLabelText('City')).toHaveValue('Bengaluru, Karnataka'));
@@ -161,7 +161,7 @@ describe('SchemaForm custom widget registry', () => {
       <SchemaForm schema={schema} onSubmit={vi.fn()} formContext={{ onLocationResolved }} />,
     );
     fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Mysu' } });
-    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Mysuru, Karnataka' }));
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'Mysuru, Karnataka' }));
 
     await waitFor(() => expect(screen.getByLabelText('City')).toHaveValue('Mysuru, Karnataka'));
     expect(onLocationResolved).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe('SchemaForm custom widget registry', () => {
 
     fireEvent.change(screen.getByLabelText('College'), { target: { value: 'Alph' } });
 
-    const option = await screen.findByRole('button', { name: /Alpha Institute/ });
+    const option = await screen.findByRole('option', { name: /Alpha Institute/ });
     // Default subtitle config is ["district"] — the state must NOT be shown.
     expect(option).toHaveTextContent('Mandya');
     expect(option).not.toHaveTextContent('Karnataka');
@@ -231,7 +231,7 @@ describe('SchemaForm custom widget registry', () => {
 
     fireEvent.change(screen.getByLabelText('Institute'), { target: { value: 'Gamm' } });
 
-    const option = await screen.findByRole('button', { name: /Gamma Polytechnic/ });
+    const option = await screen.findByRole('option', { name: /Gamma Polytechnic/ });
     expect(option).toHaveTextContent('Karnataka');
     expect(option).not.toHaveTextContent('Kolar');
   });

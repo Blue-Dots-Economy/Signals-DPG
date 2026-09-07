@@ -1,5 +1,5 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=true; section>
+<@layout.registrationLayout displayMessage=true subtitleKey="loginAccountSubtitle"; section>
 <!-- template: login-otp-identifier.ftl -->
 
     <#if section="header">

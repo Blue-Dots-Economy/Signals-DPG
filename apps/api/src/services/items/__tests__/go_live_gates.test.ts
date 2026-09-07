@@ -15,6 +15,11 @@ const ctx = (over: Partial<GoLiveContext> = {}): GoLiveContext => ({
   schema: { required: ['name', 'phone'] },
   state: { name: 'Asha', phone: '9876500000' },
   consentSatisfied: true,
+  // owner_required baseline: an owned profile, a configured default, and a
+  // draft that is being promoted — i.e. the gate's only "real" evaluation.
+  hasOwner: true,
+  defaultConfigured: true,
+  currentStatus: 'draft',
   ...over,
 });
 
@@ -38,6 +43,40 @@ describe('GO_LIVE_GATE_CHECKS.consent_required', () => {
   it('mirrors consentSatisfied', () => {
     expect(GO_LIVE_GATE_CHECKS.consent_required(ctx({ consentSatisfied: true }))).toBe(true);
     expect(GO_LIVE_GATE_CHECKS.consent_required(ctx({ consentSatisfied: false }))).toBe(false);
+  });
+});
+
+describe('GO_LIVE_GATE_CHECKS.owner_required (SS-3, #640)', () => {
+  it('is true when the owner has an owning aggregator', () => {
+    expect(GO_LIVE_GATE_CHECKS.owner_required(ctx({ hasOwner: true }))).toBe(true);
+  });
+
+  it('is false when a default is configured and the owner has none', () => {
+    expect(GO_LIVE_GATE_CHECKS.owner_required(ctx({ hasOwner: false }))).toBe(false);
+  });
+
+  // Guard 1 — the default aggregator arrives post-launch (#640 Q1). Without
+  // this, every self-signup profile would be frozen in draft from launch.
+  it('is inert while no default aggregator is nominated', () => {
+    expect(
+      GO_LIVE_GATE_CHECKS.owner_required(ctx({ hasOwner: false, defaultConfigured: false })),
+    ).toBe(true);
+  });
+
+
+  // Guard 2 — classify_item re-derives draft<->live on EVERY write, so without
+  // this an already-live unowned user editing their own profile would be
+  // demoted to draft and de-indexed from discover + the map.
+  it('never demotes a profile that is already live', () => {
+    expect(
+      GO_LIVE_GATE_CHECKS.owner_required(ctx({ hasOwner: false, currentStatus: 'live' })),
+    ).toBe(true);
+  });
+
+  it('still blocks an unowned profile that is only in draft', () => {
+    expect(
+      GO_LIVE_GATE_CHECKS.owner_required(ctx({ hasOwner: false, currentStatus: 'draft' })),
+    ).toBe(false);
   });
 });
 

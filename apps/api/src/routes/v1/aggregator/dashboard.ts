@@ -5,7 +5,7 @@ import type {
 } from 'fastify';
 import { db } from '@api/db/postgres/drizzle_config';
 import { item_metrics } from '../../../../db/postgres/schema/metrics.js';
-import { organization } from '../../../../db/postgres/schema/auth.js';
+import { readConfiguredDomains } from '@/utils/org_metadata';
 import { eq, and, sql, desc, getTableColumns, inArray } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import {
@@ -84,23 +84,7 @@ export const aggregator_dashboard_handler = async (
     });
   }
 
-  const [org] = (await db
-    .select({ metadata: organization.metadata })
-    .from(organization)
-    .where(eq(organization.id, acting.org_id))
-    .limit(1)) as Array<{ metadata: string | null }>;
-
-  let configured_domains: string[] = [];
-  if (org?.metadata) {
-    try {
-      const meta = JSON.parse(org.metadata) as { domains?: unknown };
-      if (Array.isArray(meta.domains)) {
-        configured_domains = (meta.domains as unknown[]).filter(
-          (x): x is string => typeof x === 'string',
-        );
-      }
-    } catch { /* fallthrough → 400 below */ }
-  }
+  const configured_domains = await readConfiguredDomains(acting.org_id);
   if (configured_domains.length === 0) {
     return reply.code(400).send({
       error: 'NO_DOMAINS_CONFIGURED',
