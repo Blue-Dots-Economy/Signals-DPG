@@ -28,10 +28,9 @@ interface UseMatchScoreReturn {
 }
 
 // #394: `/discover` already returns a per-item relevance score (the SAME
-// cosine-similarity quantity `/v1/relevance` computes), raw ~0-1, on
-// `networkItem.score` (see `item-api.ts`). Seed the badge with it — scaled to
-// the 0-10 internal scale the rest of match-score assumes
-// (`formatScorePercentage`) — so the card shows a % upfront
+// cosine-similarity quantity `/v1/relevance` computes) on
+// `networkItem.score` (see `item-api.ts`), already rescaled to 0-100 by
+// `fetchDiscover`. Seed the badge with it so the card shows a % upfront
 // instead of requiring a click. It has no `confidence`/`signals`/`reasoning`
 // (those only come from `/v1/relevance`); `source: 'discover'` marks it as
 // such so badge/modal know to hide the confidence line. Absent on native
@@ -41,7 +40,8 @@ function seedFromDiscoverScore(networkItem: Item): MatchScoreResult | null {
   if (networkItem.score == null) return null;
   return {
     provider: 'discover',
-    // #646 §5.2: /discover already returns 0-100; no conversion.
+    // Already 0-100: `fetchDiscover` rescales the raw cosine at the wire
+    // boundary (`toPercentScale`), so this seeds the badge unchanged.
     score: networkItem.score,
     source: 'discover',
   };

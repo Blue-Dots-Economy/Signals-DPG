@@ -336,6 +336,41 @@ const OPTIONAL_DISCOVER_BODY_KEYS = [
   'ordering_longitude',
 ] as const satisfies readonly (keyof FetchDiscoverQuery)[];
 
+/**
+ * Raw cosine → the 0-100 scale the rest of the UI works in (#646 §5.2).
+ *
+ * The two signals-search endpoints disagree about scale, which is the whole
+ * reason this exists: `/v1/relevance` (behind `/api/v1/match-score/calculate`,
+ * the modal) returns a 0-100 percentage, while `/v1/search` (behind
+ * `/discover`, this feed) returns the RAW cosine similarity, ~0-1. The
+ * "one scale end to end" cleanup took both to be 0-100 already; the raw 0.633
+ * then reached the card pill's `Math.round(percent)` and every card badged
+ * **1%**.
+ *
+ * Done here rather than at the two consumers (`resolveCardMetric` and
+ * `seedFromDiscoverScore`) so there is exactly ONE place that knows the wire
+ * scale, and neither of them can drift from it again.
+ *
+ * NOT done in the BFF: `/discover` deliberately reports the score its search
+ * backend produced. Rescaling it there would make the API's own response
+ * disagree with signals-search for every other consumer.
+ *
+ * Clamped because cosine similarity runs -1..1 in principle, and a negative
+ * percentage renders as a nonsense badge.
+ */
+function toPercentScale(score: number): number {
+  return Math.min(100, Math.max(0, score * 100));
+}
+
+/** Discover items carry a relevance score on a different scale — see `toPercentScale`. */
+function normalizeDiscoverItemScore(item: Item): Item {
+  // `null` is preserved as-is: only `undefined`/`null` mean "never scored",
+  // and coercing either to 0 would badge "0%" as if the item had been scored
+  // and found irrelevant.
+  if (typeof item.score !== 'number') return item;
+  return { ...item, score: toPercentScale(item.score) };
+}
+
 export async function fetchDiscover(
   query: FetchDiscoverQuery,
   signal?: AbortSignal
@@ -362,7 +397,10 @@ export async function fetchDiscover(
     body,
     { signal }
   );
-  return response.data;
+  return {
+    ...response.data,
+    items: (response.data.items ?? []).map(normalizeDiscoverItemScore),
+  };
 }
 
 export async function fetchNetworkConfigs(): Promise<DotNetworkSchema[]> {
