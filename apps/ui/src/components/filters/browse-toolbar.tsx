@@ -1,8 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { AppliedFilterChips } from './applied-filter-chips';
 import { SortSelect } from './sort-select';
+import * as React from 'react';
+import { DomainControl } from './domain-control';
 import { LocationSelect } from './location-select';
 import type { AppliedChip } from './applied-filter-chips';
+import type { DomainOption } from './domain-control';
 import type { BrowseArea, BrowseSort } from '@/lib/browse-discover';
 import type { PreferredLocationSource } from '@/hooks/use-user-location';
 import type { ViewMode } from '@/engine/types';
@@ -30,6 +33,17 @@ export interface BrowseToolbarProps {
   relevanceAvailable?: boolean;
   relevanceBasis: 'profile' | 'search' | null;
   onSortChange: (next: BrowseSort) => void;
+  /**
+   * The domains this viewer can browse, and the current selection. Back in
+   * this bar: with "Search near" gone, the row it had moved to existed only
+   * for this control, which made three chrome layers where the approved
+   * design has two.
+   */
+  domainOptions: DomainOption[];
+  selectedDomains: string[];
+  onDomainsChange: (next: string[]) => void;
+  /** Trailing action (the list's "Select" mode), rendered after the count. */
+  trailing?: React.ReactNode;
   area: BrowseArea;
   /**
    * Which location source is in force, and whether each can supply one. Lives
@@ -69,12 +83,12 @@ export interface BrowseToolbarProps {
  * and `area`. Nothing here becomes a second editor for something the app bar
  * already edits.
  *
- * Row 1: the domain control and the result count.
- * Row 2: sort (list only), area, the applied chips, clear-all.
+ * ONE row: the domain control, then sort (list only), location, filters, the
+ * applied chips, clear-all, the count, and any trailing action.
  *
- * Row 2 always renders — showing "no filters applied" when empty — so the bar
- * keeps a stable height and the list below does not shift under the user's
- * thumb as chips come and go.
+ * It always renders — showing "no filters applied" when nothing is set — so
+ * the bar keeps a stable height and the list below does not shift under the
+ * user's thumb as chips come and go.
  *
  * It is NOT `sticky`: `PageShell` renders this as a sibling of the scrolling
  * `<main>`, so it is structurally pinned. See `toolbarSlot` there for why that
@@ -85,15 +99,26 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
   const isMap = props.viewMode === 'map';
 
   return (
-    // ONE row. The domain control used to sit in a row of its own above this
-    // one; it now renders beside "Search near" over the content (see
-    // `PageShell`/`ContentHeader`), which frees this bar to be purely "what is
-    // filtering this list, and what does it total".
+    // ONE row, holding everything that scopes or refines the browse: domain on
+    // the left, then sort / location / filters / count on the right. With the
+    // app bar above that is two chrome layers, which is the approved design —
+    // the domain control had briefly moved to a row of its own to sit beside
+    // "Search near", and once that toggle was absorbed into Location the row
+    // existed for nothing else.
     <div data-testid="browse-toolbar" className="px-4 py-2 sm:px-6">
       <div
         data-testid="toolbar-row-2"
         className="flex flex-wrap items-center gap-2"
       >
+        <DomainControl
+          options={props.domainOptions}
+          // The map is multi-domain and takes its own selection; the list is
+          // single-select on the one domain driving its feed (spec D11).
+          mode={isMap ? 'multi' : 'single'}
+          selected={props.selectedDomains}
+          onChange={props.onDomainsChange}
+        />
+        <span className="flex-1" />
         {/* Sort is ABSENT on the map (spec D26), not disabled: ordering is
             meaningless for a marker layer, and a disabled control invites the
             question rather than answering it. */}
@@ -154,7 +179,6 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             {t('browse.no_filters')}
           </span>
         )}
-        <span className="flex-1" />
         {props.count !== undefined && (
           <span className="flex flex-wrap items-baseline justify-end gap-x-1.5 text-xs">
             <span className="font-semibold text-muted-foreground">
@@ -167,6 +191,7 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             )}
           </span>
         )}
+        {props.trailing}
       </div>
     </div>
   );

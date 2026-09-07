@@ -11,6 +11,12 @@ const base: BrowseToolbarProps = {
   nearestAvailable: true,
   relevanceBasis: 'profile',
   onSortChange: vi.fn(),
+  domainOptions: [
+    { id: 'provider', label: 'Provider' },
+    { id: 'service_provider', label: 'Service Provider' },
+  ],
+  selectedDomains: ['provider'],
+  onDomainsChange: vi.fn(),
   area: { mode: 'anywhere' },
   locationSource: 'profile' as const,
   onLocationSourceChange: vi.fn(),
@@ -37,9 +43,22 @@ describe('BrowseToolbar', () => {
     expect(screen.getByText(/248/)).toBeInTheDocument();
   });
 
-  it('offers no domain control of its own', () => {
+  it('owns the domain control, so the whole browse chrome is two layers', () => {
+    // It briefly moved to a row of its own to sit beside "Search near"; once
+    // that toggle was absorbed into Location, the row existed for nothing
+    // else and the page carried three layers instead of the approved two.
     render(<BrowseToolbar {...base} />);
-    expect(screen.queryByRole('group', { name: /domain/i })).toBeNull();
+    expect(screen.getByRole('group', { name: /domain/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Provider' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('renders a trailing action after the count', () => {
+    // The list's "Select" toggle was the last thing keeping the third row.
+    render(<BrowseToolbar {...base} trailing={<button type="button">Select</button>} />);
+    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
   });
 
   it('omits the count while it is still loading', () => {

@@ -72,7 +72,6 @@ import { BrowseToolbar } from '@/components/filters/browse-toolbar';
 import { useAppliedFilterChips } from '@/hooks/use-applied-filter-chips';
 import { useBrowseTotals } from '@/hooks/use-browse-totals';
 import { resolveFacetFieldLabels } from '@/lib/facet-fields';
-import { DomainControl } from '@/components/filters/domain-control';
 import type { DomainOption } from '@/components/filters/domain-control';
 import { resolveDefaultDomain } from '@/lib/browse-domain';
 import { getServedScope } from '@/lib/served-binding';
@@ -2003,73 +2002,34 @@ export function HomePage() {
   // guest-vs-signed-in conditionals live inside a function, keeping HomePage's
   // cognitive complexity within bounds (SonarCloud S3776). Called each render, so
   // no memo dependency array to keep in sync.
-  const renderPageHeader = () => {
-    const selectButton =
-      myItem && viewMode === 'list' ? (
-        <Button
-          type="button"
-          variant={browseSelection.selectMode ? 'default' : 'outline'}
-          size="sm"
-          onClick={() =>
-            browseSelection.selectMode
-              ? browseSelection.exitSelect()
-              : browseSelection.enterSelect()
-          }
-        >
-          <CheckSquare className="mr-1.5 h-4 w-4" />
-          {browseSelection.selectMode ? t('selection.done') : t('selection.select')}
-        </Button>
-      ) : null;
-
-    const headerActions = selectButton ? (
-      <div className="flex items-center gap-2">{selectButton}</div>
-    ) : undefined;
-
-    // The browse-context row, rendered for guests AND signed-in viewers.
-    //
-    // The domain control sits on the left, opposite the location/select
-    // controls — that half of the row was empty space. It CANNOT live inside
-    // `ContentHeader`, which only renders for a signed-in viewer: a guest gets
-    // `GuestHero` instead, so putting it there would hide the domain control
-    // from exactly the audience browsing without an account.
-    const browseContextRow = (
-      <div
-        data-testid="browse-context-row"
-        // `items-center` keeps the location/select controls exactly where they
-        // were; the domain side takes `self-end` so the heading drops to the
-        // bottom of the row, sitting just above the content instead of
-        // floating in the middle of a row whose height those taller buttons
-        // set. `mb-2` rather than `mb-4` closes the rest of the gap.
-        className="mb-2 flex flex-wrap items-center justify-between gap-3"
+  // Bulk-select toggle. Lives in the browse toolbar's trailing slot rather
+  // than a header row of its own: it was the last thing keeping that row
+  // alive once the domain and location controls both moved into the toolbar.
+  const browseSelectButton =
+    myItem && viewMode === 'list' ? (
+      <Button
+        type="button"
+        variant={browseSelection.selectMode ? 'default' : 'outline'}
+        size="sm"
+        onClick={() =>
+          browseSelection.selectMode
+            ? browseSelection.exitSelect()
+            : browseSelection.enterSelect()
+        }
       >
-        <div className="self-end">
-        <DomainControl
-          options={domainOptions}
-          // The map is multi-domain and takes its own selection; the list is
-          // single-select on the one domain driving its feed (spec D11).
-          mode={viewMode === 'map' ? 'multi' : 'single'}
-          selected={toolbarSelectedDomains}
-          onChange={(next) => {
-            if (viewMode === 'map') {
-              handleMapDomainsChange(next);
-              return;
-            }
-            // Single-select: DomainControl always emits exactly one here.
-            if (next[0]) handleDomainSelect(next[0]);
-          }}
-        />
-        </div>
-        {headerActions}
-      </div>
-    );
+        <CheckSquare className="mr-1.5 h-4 w-4" />
+        {browseSelection.selectMode ? t('selection.done') : t('selection.select')}
+      </Button>
+    ) : null;
 
+  const renderPageHeader = () => {
     return (
       <>
         {!user && <GuestHero />}
-        {browseContextRow}
         {/* Signed-in only, and now its sole remaining job: prompt a viewer who
             has no profile yet. Title/description/count all moved or went away
-            (#645) — see `ContentHeader`. */}
+            (#645) — see `ContentHeader`. The domain control and the location
+            controls that briefly shared this space are both in the toolbar. */}
         {user && (
           <ContentHeader
             count={undefined}
@@ -2135,6 +2095,17 @@ export function HomePage() {
         network ? (
           <BrowseToolbar
             viewMode={viewMode}
+            domainOptions={domainOptions}
+            selectedDomains={toolbarSelectedDomains}
+            onDomainsChange={(next) => {
+              if (viewMode === 'map') {
+                handleMapDomainsChange(next);
+                return;
+              }
+              // Single-select: DomainControl always emits exactly one here.
+              if (next[0]) handleDomainSelect(next[0]);
+            }}
+            trailing={browseSelectButton}
             count={contentLoading ? undefined : contentCount}
             // Map only: names the items that can never be pins at any zoom, so
             // the part of the gap with the map's viewport pill that zooming
