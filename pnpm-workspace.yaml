@@ -4,3 +4,25 @@ packages:
 allowBuilds:
   esbuild: true
   sharp: true
+
+# Security floors for vulnerable transitives (Trivy / GHSA). Range-scoped so only
+# the vulnerable copies move; already-patched consumers are untouched. Nothing here
+# is declared directly — fast-uri arrives via fastify/ajv and qs via the express
+# family — so Dependabot cannot raise these itself.
+#
+#   fast-uri 3.1.5 and 4.1.2 → four HIGH SSRF / host-confusion advisories:
+#     CVE-2026-75899, CVE-2026-75931, CVE-2026-75975, CVE-2026-76172.
+#     Fixed in 2.4.5 / 3.1.6 / 4.1.3. Both major lines are present in this tree,
+#     so both are floored separately rather than collapsed onto one version —
+#     forcing a single copy across a major boundary is how the duplicate-copy
+#     type breakage in aggregator-dpg#585 started.
+#     The replacement is an EXACT version, not `'>=3.1.6'`: an open-ended `>=`
+#     is not bounded by the selector's major, so `fast-uri@>=3.0.0 <3.1.6`
+#     resolving to `'>=3.1.6'` silently pulled the 3.x copy up to 4.1.4 —
+#     collapsing the two lines rather than patching each in place.
+#   qs 6.15.3 → CVE-2026-82417 (MED) and CVE-2026-82562 (LOW), both DoS in
+#     stringify / array-limit parsing. Fixed in 6.16.0.
+overrides:
+  'fast-uri@>=3.0.0 <3.1.6': 3.1.7
+  'fast-uri@>=4.0.0 <4.1.3': 4.1.4
+  'qs@<6.16.0': 6.16.0
