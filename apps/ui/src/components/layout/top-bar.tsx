@@ -1,4 +1,3 @@
-import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, List, MapPinned, LogIn, Bell, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -31,8 +30,6 @@ interface TopBarProps {
   onSearchChange?: (value: string) => void;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
-  /** Optional Filters control rendered next to the search bar (home/browse only). */
-  filtersSlot?: React.ReactNode;
 }
 
 function NotificationBell() {
@@ -68,7 +65,6 @@ export function TopBar({
   onSearchChange,
   viewMode,
   onViewModeChange,
-  filtersSlot,
 }: Readonly<TopBarProps>) {
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -101,7 +97,10 @@ export function TopBar({
           {/* On mobile the fixed right-hand controls consume the row, so the search
               drops to its own full-width line (order-last + w-full). From sm up it
               sits inline between the trigger and the controls as before. */}
-          <div className="relative order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1 sm:max-w-md">
+          {/* `max-w-2xl`, up from `max-w-md`: the Filters trigger moved to the
+              browse toolbar, so the search box can take the width it left
+              rather than sitting beside a gap. */}
+          <div className="relative order-last w-full min-w-0 sm:order-none sm:w-auto sm:flex-1 sm:max-w-2xl">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               type="search"
@@ -112,8 +111,6 @@ export function TopBar({
               onChange={(e) => onSearchChange?.(e.target.value)}
             />
           </div>
-          {/* Filters control sits immediately to the right of the search bar. */}
-          {filtersSlot}
         </>
       )}
       <div className="ml-auto flex items-center gap-2">

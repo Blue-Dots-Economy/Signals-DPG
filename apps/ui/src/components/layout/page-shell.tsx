@@ -39,8 +39,6 @@ interface PageShellProps {
   onSearchChange?: (value: string) => void;
   viewMode?: ViewMode;
   onViewModeChange?: (mode: ViewMode) => void;
-  /** Optional Filters control surfaced in the top bar next to the search input. */
-  filtersSlot?: React.ReactNode;
   /**
    * Browse state bar (#644, spec §7.2) — domain, sort, area and the applied
    * filter chips. Rendered BETWEEN the top bar and the scroll area, as a
@@ -87,7 +85,6 @@ export function PageShell({
   onSearchChange,
   viewMode,
   onViewModeChange,
-  filtersSlot,
   toolbarSlot,
   backLabel,
   hideBrowse,
@@ -130,7 +127,6 @@ export function PageShell({
             onSearchChange={onSearchChange}
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}
-            filtersSlot={filtersSlot}
           />
           {toolbarSlot && (
             // `flex-none` so it keeps its natural height instead of being

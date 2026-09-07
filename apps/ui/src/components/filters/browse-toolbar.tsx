@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { AppliedFilterChips } from './applied-filter-chips';
 import { SortSelect } from './sort-select';
+import * as React from 'react';
 import { DomainControl } from './domain-control';
 import { LocationSelect } from './location-select';
 import type { AppliedChip } from './applied-filter-chips';
@@ -41,6 +42,12 @@ export interface BrowseToolbarProps {
   domainOptions: DomainOption[];
   selectedDomains: string[];
   onDomainsChange: (next: string[]) => void;
+  /**
+   * The facet-panel trigger. It sat beside the search box in the app bar; it
+   * belongs with the other refine controls, and moving it lets the search box
+   * take the width it freed.
+   */
+  filtersSlot?: React.ReactNode;
   area: BrowseArea;
   /**
    * Which location source is in force, and whether each can supply one. Lives
@@ -80,8 +87,8 @@ export interface BrowseToolbarProps {
  * and `area`. Nothing here becomes a second editor for something the app bar
  * already edits.
  *
- * ONE row: the domain control, then sort (list only), location, filters, the
- * applied chips, clear-all, and the count. Actions that operate ON the
+ * ONE row: the domain control, then sort (list only), location, the facet-panel
+ * trigger, the applied chips, clear-all, and the count. Actions that operate ON the
  * results (bulk-select) deliberately live over the content instead.
  *
  * It always renders — showing "no filters applied" when nothing is set — so
@@ -161,6 +168,7 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             onChange={props.onAreaChange}
           />
         )}
+        {props.filtersSlot}
         {props.chips.length > 0 && (
           <AppliedFilterChips chips={props.chips} onRemove={props.onRemoveChip} />
         )}

@@ -2090,11 +2090,11 @@ export function HomePage() {
       onSearchChange={setSearch}
       viewMode={viewMode}
       onViewModeChange={handleViewModeChange}
-      filtersSlot={listFiltersPanel}
       toolbarSlot={
         network ? (
           <BrowseToolbar
             viewMode={viewMode}
+            filtersSlot={listFiltersPanel}
             domainOptions={domainOptions}
             selectedDomains={toolbarSelectedDomains}
             onDomainsChange={(next) => {
