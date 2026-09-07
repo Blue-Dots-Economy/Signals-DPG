@@ -66,6 +66,9 @@ const networkFixture: DotNetworkSchema = {
       id: 'provider',
       description: 'Employers hiring',
       card: { title_field: 'company' },
+      // blue_dot's real config carries this: a provider's own items are job
+      // postings, so the sidebar group is "My Jobs", not "My Profile(s)".
+      my_items_label: 'My Jobs',
       item_schemas: { 'job_posting_1.0': providerSchema },
     },
     {
@@ -761,6 +764,38 @@ describe('HomePage — map/list view toggle', () => {
 
     expect(await findCard('Acme Welding')).toBeInTheDocument();
     expect(url()).toContain('view=list');
+  });
+});
+
+describe('HomePage — sidebar "my items" group label', () => {
+  it("uses the domain's own label for the viewer's items, not the generic one", async () => {
+    // Regression (#645): removing domain SELECTION from the sidebar also
+    // dropped the `domains` prop from this page's PageShell — and that prop is
+    // what `my_items_label` is looked up in. So the heading fell back to the
+    // generic "My Profile(s)" here while the edit page, which still passes
+    // `domains` alongside its own `hideBrowse`, correctly said "My Jobs".
+    state.myItems = [
+      mkItem('me-provider', 'provider', 'job_posting_1.0', { company: 'Ganesh' }, [
+        { lat: 12.9, lng: 77.6 },
+      ]),
+    ];
+    renderHome('/?view=list');
+
+    expect(await screen.findByText('My Jobs')).toBeInTheDocument();
+    expect(screen.queryByText('My Profile(s)')).toBeNull();
+  });
+
+  it('keeps the generic label when the viewer spans domains', async () => {
+    // Two domains, so no single override applies — `resolveMyItemsDomainId`
+    // returns null and the generic heading covers the mix.
+    state.myItems = [
+      myProfile,
+      mkItem('me-provider', 'provider', 'job_posting_1.0', { company: 'Ganesh' }),
+    ];
+    renderHome('/?view=list');
+
+    expect(await screen.findByText('My Profile(s)')).toBeInTheDocument();
+    expect(screen.queryByText('My Jobs')).toBeNull();
   });
 });
 

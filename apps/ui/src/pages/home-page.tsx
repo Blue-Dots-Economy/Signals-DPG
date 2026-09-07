@@ -2173,6 +2173,17 @@ export function HomePage() {
       // domain IS a filter and now lives in the browse toolbar with the
       // others. `hideBrowse` keeps the sidebar's other groups intact.
       hideBrowse
+      // Still passed despite `hideBrowse`, because the sidebar reads
+      // `my_items_label` out of it to title the viewer's own-items group — a
+      // provider's items are job postings, so that group is "My Jobs", not
+      // "My Profile(s)". Dropping this prop along with the domain selector is
+      // what made the heading fall back to the generic label here while the
+      // edit page, which passes both, got it right.
+      //
+      // The NETWORK's domains, not `visibleDomains`: the latter is the
+      // browsable counterparty set, which excludes the viewer's own domain —
+      // so the lookup for a provider's own label would never match.
+      domains={network.domains}
       currentDomainLabel={currentDomainLabel}
       myItems={myItems}
       activeProfileId={activeProfileId}
