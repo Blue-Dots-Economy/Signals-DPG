@@ -18,7 +18,7 @@
   "packageManager": "pnpm@11.1.2",
   "devDependencies": {
     "vitest": "^4.1.11",
-    "@vitest/coverage-v8": "^4.1.11"
+    "@vitest/coverage-v8": "^5.0.0"
   },
   "dependencies": {
     "@better-auth/api-key": "~1.6.29",
