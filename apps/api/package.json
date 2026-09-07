@@ -39,7 +39,7 @@
     "@types/pg": "^8.23.1",
     "@vitest/coverage-v8": "^4.1.11",
     "drizzle-kit": "^0.31.8",
-    "tsx": "^4.23.11",
+    "tsx": "^4.23.13",
     "vitest": "^4.1.11"
   },
   "dependencies": {
