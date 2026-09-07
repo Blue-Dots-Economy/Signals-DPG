@@ -67,6 +67,17 @@ describe('BrowseToolbar', () => {
     expect(screen.queryByText(/248/)).toBeNull();
   });
 
+  it('rules off the filter state from the count, and only when both are there', () => {
+    // "No filters applied" and "2 listings" are adjacent same-size text, so
+    // they read as one phrase without a divider between them.
+    const { rerender } = render(<BrowseToolbar {...base} />);
+    expect(screen.getByTestId('toolbar-count-separator')).toBeInTheDocument();
+
+    // No count means nothing to separate — a trailing rule would just dangle.
+    rerender(<BrowseToolbar {...base} count={undefined} />);
+    expect(screen.queryByTestId('toolbar-count-separator')).toBeNull();
+  });
+
   it('OMITS both sort and area on the map — absent, not disabled (spec D26)', () => {
     // Area was rendered here originally, which was wrong twice over: the map
     // fetch never received `area` (it scopes by viewport), so the control was
