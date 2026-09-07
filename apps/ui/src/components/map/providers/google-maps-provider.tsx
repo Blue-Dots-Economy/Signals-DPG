@@ -19,24 +19,19 @@ import { registerMapProvider } from '@/engine/map/map-registry';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useThemeMode } from '@/theme/mode-provider';
 import { getIconForDomain } from '../domain-icons';
-import {
-  tallyDomains,
-  countDistinctListings,
-  listingIdOfMarker,
-  type ClusterEntry,
-} from '../cluster-breakdown';
+import { tallyDomains } from '../cluster-breakdown';
 import { MarkerPopupCard } from '../marker-popup-card';
 import { SelfMarkerContent, SELF_MARKER_GOOGLE_OFFSET_Y } from '../self-marker';
 import { getRuntimeEnv } from '@/lib/runtime-env';
 import { useViewportReportEmitter } from './use-viewport-report';
 
 /**
- * Module-level WeakMap: AdvancedMarkerElement → its domain and LISTING id.
+ * Module-level WeakMap: AdvancedMarkerElement → domain string.
  * Populated by each ClusteredMarker when its underlying element becomes
- * available; read by the cluster renderer to tally distinct listings.
+ * available; read by the cluster renderer to tally per-domain counts.
  * WeakMap ensures entries are GC-eligible alongside the element object.
  */
-const markerDomainMap = new WeakMap<object, ClusterEntry>();
+const markerDomainMap = new WeakMap<object, string>();
 
 // Marker stacking. The "You" self-marker is non-interactive decoration, so it
 // must sit BELOW item pins: otherwise, when an item shares the exact same point
@@ -221,26 +216,14 @@ const clusterRenderer: Renderer = {
     // marker would otherwise fall back to '' and fabricate a phantom
     // empty-domain group, making a single-domain cluster look multi-domain.
     // The total bubble count is independent (cluster.count).
-    const pins = markers ?? [];
-    const registered = pins
+    const domains = (markers ?? [])
       .map((m) => markerDomainMap.get(m as object))
-      .filter((e): e is ClusterEntry => Boolean(e));
-    // Only markers with a KNOWN domain feed the badge row; an unregistered one
-    // would fall back to '' and fabricate a phantom empty-domain group.
-    const breakdown = tallyDomains(registered.filter((e) => e.domain));
-    // The headline counts distinct LISTINGS, not pins: `cluster.count` counts
-    // pins, and one listing with several locations contributes several of them.
-    // Pins we could not identify still count once each — they are real markers
-    // we simply cannot dedupe — so a marker whose ref has not registered yet is
-    // never dropped from the total.
-    const listingCount =
-      pins.length > 0
-        ? countDistinctListings(registered) + Math.max(0, pins.length - registered.length)
-        : count;
+      .filter((d): d is string => Boolean(d));
+    const breakdown = tallyDomains(domains);
 
     return new google.maps.marker.AdvancedMarkerElement({
       position,
-      content: buildClusterContent(listingCount, breakdown, primary),
+      content: buildClusterContent(count, breakdown, primary),
       zIndex: 1000 + count,
     });
   },
@@ -339,15 +322,11 @@ function ClusteredMarker({
   const markerImage = resolveMarkerImage?.(marker) ?? null;
 
   // Report the underlying element to the parent each time it changes.
-  // Also register this element→{domain, listing id} mapping so the cluster
-  // renderer can tally DISTINCT LISTINGS rather than pins when building the
-  // bubble count and badge row.
+  // Also register this element→domain mapping so the cluster renderer can
+  // look up each marker's domain when building the badge row.
   React.useEffect(() => {
     if (markerEl) {
-      markerDomainMap.set(markerEl, {
-        domain: marker.domain ?? '',
-        itemId: listingIdOfMarker(marker.id),
-      });
+      markerDomainMap.set(markerEl, marker.domain ?? '');
     }
     onMarkerReady(id, markerEl);
     // Cleanup: remove from clusterer when this marker unmounts.
