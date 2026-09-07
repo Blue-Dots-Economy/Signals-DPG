@@ -1581,6 +1581,14 @@ export function HomePage() {
     setSort,
   });
 
+  // The map applies facets and the search text; it does not apply `area` or
+  // `sort`. Clearing from there must not silently reset controls the user
+  // cannot see.
+  const handleClearFacetsOnly = React.useCallback(() => {
+    setSearch('');
+    handleMapFieldsChange({});
+  }, [setSearch, handleMapFieldsChange]);
+
   // Only the domains this viewer can actually browse.
   //
   // REVERSES spec D7, which listed every domain in the network and marked the
@@ -2130,8 +2138,14 @@ export function HomePage() {
             onAreaChange={setArea}
             chips={appliedChips}
             onRemoveChip={handleRemoveChip}
-            onClearAll={handleClearAll}
-            canClearAll={canClearAll}
+            // Clear-all must offer to clear only what APPLIES to the view in
+            // front of the user. On the map, Sort and Location are not
+            // rendered and `area` never reaches `useMapMarkers` at all (the
+            // map scopes by viewport), so counting them left a lone "Clear
+            // all" on the map offering to clear something invisible that was
+            // having no effect there.
+            onClearAll={viewMode === 'map' ? handleClearFacetsOnly : handleClearAll}
+            canClearAll={viewMode === 'map' ? appliedChips.length > 0 : canClearAll}
           />
         ) : undefined
       }
@@ -2438,12 +2452,14 @@ export function HomePage() {
                   mapViewport.minLng !== undefined &&
                   mapViewport.maxLat !== undefined &&
                   mapViewport.maxLng !== undefined &&
-                  // Zoomed in AND still truncated. At low zoom "zoom in" is
-                  // the honest advice and the pill already gives it; the list
-                  // is only the escape hatch once there is no further zoom to
-                  // escape to.
+                  // Zoomed in enough for "this area" to mean something, AND
+                  // searching it would actually change the result — either the
+                  // map cannot draw everything in view, or there are matching
+                  // items outside it. Gating on `truncated` alone made this
+                  // unreachable: it needs >500 markers in one viewport, so a
+                  // network with tens of items never qualified.
                   (mapViewport.zoom ?? 0) >= SEARCH_AREA_MIN_ZOOM &&
-                  mapMarkers.truncated && (
+                  (mapMarkers.truncated || mapMarkers.total < browseTotals.total) && (
                     <div className="pointer-events-none fixed bottom-20 left-1/2 z-[2100] -translate-x-1/2 px-4">
                       <button
                         type="button"

@@ -349,4 +349,26 @@ describe('LocationSelect', () => {
     expect(screen.getByRole('button', { name: /apply this distance/i })).toBeDisabled();
     expect(screen.getByText(/waiting for a location/i)).toBeInTheDocument();
   });
+
+  it('lets the whole distance row be clicked and hovered, not just the field', async () => {
+    // It used to be inert: only the input responded, so the row read as
+    // unselectable next to "Anywhere", which hovers and clicks.
+    render(<LocationSelect {...base} />);
+    await open();
+
+    const menu = screen.getByRole('listbox', { name: /location/i });
+    const rows = within(menu).getAllByRole('option');
+    const distanceRow = rows.find((r) => r.textContent?.match(/of me/i));
+
+    expect(distanceRow).toBeDefined();
+    expect(distanceRow).toHaveClass('cursor-pointer');
+    // Same hover treatment as the other rows.
+    expect(distanceRow?.className).toMatch(/hover:bg-accent/);
+    // Reachable by keyboard.
+    expect(distanceRow).toHaveAttribute('tabindex', '0');
+
+    // Clicking the row focuses the field, so typing works immediately.
+    await userEvent.click(distanceRow!);
+    expect(field()).toHaveFocus();
+  });
 });

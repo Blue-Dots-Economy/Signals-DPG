@@ -79,16 +79,25 @@ export interface CapForZoomOptions {
  * a different threshold/cap.
  */
 /**
- * The zoom at or beyond which "Search this area" is offered (#644 QA).
+ * The zoom floor for offering "Search this area" (#644 QA).
  *
- * Two conditions must hold, not one. The button is only useful when the
- * viewport is a *meaningful* area AND the map still cannot show everything in
- * it: at low zoom the honest advice is "zoom in" (which the count pill already
- * gives, and which fixes the problem on its own), so offering a jump to the
- * list there would be answering a question the user has not reached yet. At
- * high zoom with the set still truncated there is no further zoom to escape
- * to — that is the case #644 calls the dense-cell problem, and the list is the
- * escape hatch.
+ * Below it, the viewport is not a *meaningful* area to search — at world zoom
+ * "this area" is most of the planet, so narrowing to it says nothing, and the
+ * count pill's "zoom in" is the honest advice.
+ *
+ * The floor alone is not enough, though. The button is only worth offering
+ * when searching this area would CHANGE something, which is either:
+ *
+ *   - the map cannot draw everything in view (`truncated`) — the dense-cell
+ *     case #644 describes, where there is no further zoom to escape to and the
+ *     list is the escape hatch; or
+ *   - matching items exist OUTSIDE the view, so scoping to the rectangle
+ *     actually narrows the list.
+ *
+ * Gating on `truncated` alone made the button unreachable in practice: it
+ * needs more than `INDIVIDUAL_MARKER_CAP` (500) or `CLUSTERED_MARKER_CAP`
+ * (1000) markers in a single viewport, so a network with tens of items never
+ * qualified and the control never appeared at any zoom.
  */
 export const SEARCH_AREA_MIN_ZOOM = 10;
 

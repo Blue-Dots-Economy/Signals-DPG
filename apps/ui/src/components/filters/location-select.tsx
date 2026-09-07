@@ -64,6 +64,7 @@ export function LocationSelect({
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [draft, setDraft] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   const anySource = profileAvailable || browserAvailable;
   const km = (meters: number) => Math.round(meters / 1000);
@@ -163,7 +164,11 @@ export function LocationSelect({
               "Search this area" — it is not something to choose from a list
               view, where there is no map on screen to refer to. */}
           {value.mode === 'viewport' && (
-            <div className={cn(rowClass, 'cursor-default hover:bg-transparent')} role="option" aria-selected>
+            <div
+              className={cn(rowClass, 'cursor-default hover:bg-transparent')}
+              role="option"
+              aria-selected
+            >
               <Check className="h-3 w-3 shrink-0" />
               <span>
                 <span className="font-semibold">{t('browse.area_viewport')}</span>
@@ -176,11 +181,31 @@ export function LocationSelect({
 
           {anySource ? (
             <>
-              {/* Scope and distance on one line, reading as a sentence. */}
+              {/* Scope and distance on one line, reading as a sentence.
+                  A <div role="option"> rather than a <button>, because it
+                  CONTAINS the field and its two controls and nested buttons
+                  are invalid. It still behaves like the other rows — hover,
+                  click and keyboard all land on it — which they did not when
+                  it was inert: only the input itself responded, so the row
+                  read as unselectable. */}
               <div
-                className={cn(rowClass, 'cursor-default hover:bg-transparent')}
+                className={cn(rowClass, 'cursor-pointer')}
                 role="option"
+                tabIndex={0}
                 aria-selected={value.mode === 'radius'}
+                onClick={(e) => {
+                  // Let the field and its ✓/✕ handle their own clicks.
+                  if ((e.target as HTMLElement).closest('input,button')) return;
+                  inputRef.current?.focus();
+                  inputRef.current?.select();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    inputRef.current?.focus();
+                    inputRef.current?.select();
+                  }
+                }}
               >
                 <Check
                   className={cn('h-3 w-3 shrink-0', value.mode === 'radius' ? 'opacity-100' : 'opacity-0')}
@@ -189,6 +214,7 @@ export function LocationSelect({
                   <span>{t('browse.area_within')}</span>
                   <span className="inline-flex items-center gap-1 rounded-md border border-input bg-background px-1.5 focus-within:ring-2 focus-within:ring-ring">
                     <input
+                      ref={inputRef}
                       type="text"
                       inputMode="numeric"
                       aria-label={t('browse.area_custom_label', {

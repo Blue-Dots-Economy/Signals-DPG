@@ -1207,3 +1207,39 @@ describe('HomePage — bulk selection', () => {
     expect(screen.queryByRole('button', { name: 'Select' })).not.toBeInTheDocument();
   });
 });
+
+describe('HomePage — clear-all only offers what the view applies', () => {
+  it('offers no clear-all on the MAP for a distance the map ignores', async () => {
+    // The map scopes by viewport: `area` never reaches `useMapMarkers`, and
+    // Sort and Location are not rendered there. Counting them left a lone
+    // "Clear all" on the map offering to clear something invisible that was
+    // having no effect (#644 QA).
+    signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    renderHome('/?view=list&domain=provider');
+    await findCard('Acme Welding');
+
+    // Apply a distance in the list, where it does apply.
+    await userEvent.click(screen.getByRole('button', { name: /location/i }));
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /distance in kilometres/i }),
+      '11',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /apply this distance/i }));
+    expect(await screen.findByRole('button', { name: /clear all/i })).toBeInTheDocument();
+
+    // Switch to the map: the distance is still in state but inert there.
+    await userEvent.click(screen.getByRole('radio', { name: 'Map view' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /clear all/i })).toBeNull(),
+    );
+  });
+
+  it('still offers clear-all on the map for facets, which the map DOES apply', async () => {
+    signedInSeeker();
+    renderHome('/?view=map&domain=provider&f_gender=female');
+
+    expect(await screen.findByRole('button', { name: /clear all/i })).toBeInTheDocument();
+  });
+});
