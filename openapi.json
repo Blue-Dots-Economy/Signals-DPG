@@ -5855,7 +5855,7 @@
                     "minLength": 1
                   },
                   "domain": {
-                    "description": "domain within the network (default: 'seeker').",
+                    "description": "domain within the network (default: 'seeker'). REQUIRED when acting on behalf of a non-aggregator org (voice / network_service): it selects which default aggregator owns the participant, so the 'seeker' fallback would mis-assign a provider signup. Omitting it there returns 400 DOMAIN_REQUIRED. Aggregator callers own their own onboards and may omit it.",
                     "type": "string",
                     "minLength": 1
                   },
@@ -5990,6 +5990,13 @@
                       "type": "integer",
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
+                    },
+                    "onboarded_by_org_id": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "onboarded_by_default": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -8325,6 +8332,7 @@
                 "properties": {
                   "domains": {
                     "minItems": 1,
+                    "maxItems": 1,
                     "type": "array",
                     "items": {
                       "type": "string",

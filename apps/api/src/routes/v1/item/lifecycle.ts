@@ -210,6 +210,10 @@ const item_lifecycle_handler = async (
           itemType: existing.item_type,
         });
         const consent_accepted = await hasAcceptedProfileConsent(tx, item_id);
+        // No `gates` here, so `owner_required` (#640) is not evaluated on
+        // unpause — deliberate, and consistent with its guard 2: resuming a
+        // profile that was live before must not be stricter than leaving it
+        // alone. See `GO_LIVE_GATE_CHECKS.owner_required`.
         next_status = classify_item({
           schema: itemSchema as { required?: string[] },
           merged_state: mergedState,

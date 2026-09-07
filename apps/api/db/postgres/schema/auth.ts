@@ -6,7 +6,9 @@ import {
   integer,
   index,
   jsonb,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -44,6 +46,13 @@ export const user = pgTable('user', {
   // (which acts on behalf of an aggregator or voice org via acting_org). Null
   // for users created by other paths (better-auth signUp from a UI etc.).
   onboardedByOrgId: text('onboarded_by_org_id').references(() => organization.id),
+  // SS-3 (#640): true when `onboarded_by_org_id` was filled from the
+  // instance's DEFAULT aggregator rather than from a real onboarding act.
+  // Server-only and deliberately NOT derived from `onboarded_via` — that
+  // column is written from the request's `channel` field, so a caller could
+  // set it, and this flag is what the later re-assignment job scopes on (it
+  // decides who is handed PII-decrypt rights over whom).
+  onboardedByDefault: boolean('onboarded_by_default').notNull().default(false),
   onboardedVia: text('onboarded_via'),
   onboardedSourceId: text('onboarded_source_id'),
   onboardedAt: timestamp('onboarded_at'),
@@ -100,7 +109,53 @@ export const organization = pgTable('organization', {
   createdAt: timestamp('created_at').notNull(),
   metadata: text('metadata'),
   type: text('type'),
-});
+  // SS-3 (#640): served-domain bindings ("<network>/<domain>", e.g.
+  // 'blue_dot/seeker') for which this org is the DEFAULT aggregator — the one
+  // that inherits users arriving with no aggregator of their own.
+  //
+  // An array because one aggregator may be the default for several domains
+  // (seeker AND provider is the expected launch shape). Postgres cannot
+  // unique-index an array element, so "one org per binding" is enforced by the
+  // `organization_default_binding_exclusive` trigger (migration 0014), which
+  // rejects a nomination for a binding another org already holds.
+  //
+  // Deliberately NOT indexed for lookup: `organization` holds tens to hundreds
+  // of rows, where a sequential scan beats GIN and GIN would tax every upsert.
+  defaultForBindings: text('default_for_bindings').array(),
+}, (table) => [
+  // The flag grants PII-decrypt rights over the users it captures, so it must
+  // never land on a `network_service` org — whose "unverified queue" nobody
+  // would ever open. Approval state itself lives in aggregator-dpg and is not
+  // visible here, so this constraint is the only enforceable half.
+  check(
+    'organization_default_requires_aggregator',
+    sql`${table.defaultForBindings} IS NULL OR ${table.type} = 'aggregator'`,
+  ),
+  // NO global "one default per instance" index any more.
+  //
+  // There used to be a unique index on a constant expression here, allowing a
+  // single default-holding org instance-wide. It was a stand-in for a rule the
+  // write paths did not yet enforce: `user.onboarded_by_org_id` (which grants
+  // PII-decrypt rights) is per ACCOUNT, while profiles are per DOMAIN, and
+  // `participant_decrypt` scopes on the tag with no domain condition. A user
+  // holding profiles in two domains therefore had one owner covering both, so a
+  // second per-domain default could decrypt a participant it did not own.
+  //
+  // That ambiguity is now impossible at the source: `assertSingleDomain`
+  // (`services/item_service.ts`) locks every account to one domain on its first
+  // item create, at the shared choke point every path goes through — including
+  // `admin/participant` and admin api-key callers, both of which skipped the
+  // old route-level check. Migration 0015 backfills the historical rows the old
+  // check never recorded. With one domain per account the tag is unambiguous,
+  // so separate default aggregators per domain are safe and the index is gone
+  // (migration 0016).
+  //
+  // Per-binding exclusivity — "no two orgs are the default for the SAME
+  // binding" — is unaffected and still enforced, by the
+  // `organization_default_binding_exclusive` trigger in migration 0014.
+  // Postgres cannot unique-index an array element, which is why that one is a
+  // trigger and not an index.
+]);
 
 export const member = pgTable('member', {
   id: text('id').primaryKey(),

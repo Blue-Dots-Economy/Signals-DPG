@@ -169,6 +169,15 @@ vi.mock('@/utils/item_decrypt', () => ({
 // per-domain contact-field context, but only calls it when body.contact is
 // present — mocked here so the pre-existing (contact-omitted) tests in this
 // file never need a real network config.
+// participant_decrypt now scopes an aggregator to the domains its org declares
+// (defence in depth for per-domain default aggregators). Mocked here rather
+// than adding `organization` to the schema mock, so tests can drive the
+// declared set directly and this stays a unit test.
+const declaredDomains = { value: ['seeker'] as string[] };
+vi.mock('@/utils/org_metadata', () => ({
+  readConfiguredDomains: async () => declaredDomains.value,
+}));
+
 vi.mock('@/network_configs', () => ({
   getNetworkConfigById: vi.fn(async () => {
     if (!networkCfgState.cfg) {
@@ -277,6 +286,7 @@ beforeEach(() => {
   queries.length = 0;
   dbState.failWith = null;
   configState.served_domains = [{ network: 'blue_dot', domain: 'seeker' }];
+  declaredDomains.value = ['seeker'];
   networkCfgState.cfg = null;
   vi.clearAllMocks();
   decryptImpl.mockImplementation((row: { item_state: Record<string, unknown> }) => ({
@@ -706,6 +716,56 @@ describe('participant_decrypt_handler — item_ids mode', () => {
     expect(leaves(queries[0].where).map((c) => c.a)).not.toContain(
       'item_metrics.org_id',
     );
+  });
+
+  it('also scopes an aggregator to the domains its org declares', async () => {
+    // Defence in depth for per-domain default aggregators: the org tag is per
+    // ACCOUNT and items are per DOMAIN, so without this a seeker default could
+    // decrypt a provider profile belonging to an account that spans both.
+    // Dashboard and export already filter this way (`export.ts`).
+    declaredDomains.value = ['seeker'];
+    rowQueue.push([]);
+
+    await call(participant_decrypt_handler, {
+      acting_org: AGG,
+      body: { item_ids: ['i1'] },
+    });
+
+    expect(leafFor(queries[0].where, 'items.item_domain')).toEqual({
+      op: 'inArray',
+      a: 'items.item_domain',
+      b: ['seeker'],
+    });
+  });
+
+  it('applies NO domain filter for network_service', async () => {
+    // A network_service caller is not a tenant; it sees every served network.
+    declaredDomains.value = ['seeker'];
+    rowQueue.push([]);
+
+    await call(participant_decrypt_handler, {
+      acting_org: NETSVC,
+      body: { item_ids: ['i1'] },
+    });
+
+    expect(leafFor(queries[0].where, 'items.item_domain')).toBeUndefined();
+  });
+
+  it('400 NO_DOMAINS_CONFIGURED for an aggregator that declares nothing', async () => {
+    // Fail closed: with no declared domains there is no scope to honour, and
+    // defaulting to "all of them" on a path that returns decrypted PII is the
+    // wrong direction. `aggregator/export.ts` refuses the same way.
+    declaredDomains.value = [];
+
+    const reply = await call(participant_decrypt_handler, {
+      acting_org: AGG,
+      body: { item_ids: ['i1'] },
+    });
+
+    expect(reply.statusCode).toBe(400);
+    expect((reply.body as { error: string }).error).toBe('NO_DOMAINS_CONFIGURED');
+    // Refused before any query ran — no chance of a wide read slipping out.
+    expect(queries).toHaveLength(0);
   });
 
   it('applies no org filter for network_service but keeps the served-network scope', async () => {

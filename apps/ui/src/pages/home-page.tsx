@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { RJSFSchema } from '@rjsf/utils';
+import type { GoLiveGate } from '@dpg/schemas';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -338,7 +339,7 @@ function resolveDefaultViewMode(): ViewMode {
  */
 function domainNeedsProfileConsent(
   domains:
-    | ReadonlyArray<{ id: string; go_live_required?: Array<'schema_required' | 'consent_required'> }>
+    | ReadonlyArray<{ id: string; go_live_required?: GoLiveGate[] }>
     | undefined,
   domainId: string | undefined,
 ): boolean {

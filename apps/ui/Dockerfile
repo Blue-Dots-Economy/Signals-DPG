@@ -78,7 +78,12 @@ FROM dhi.io/nginx:1.31-alpine AS runner
 #      Docker default), so uid 65532 CAN bind 80 — verified serving HTTP 200
 #      with all capabilities dropped. So the port contract stays 80, unchanged
 #      from the pre-hardening image. If a host ever restores the traditional
-#      sysctl, this and the chart's service.targetPort move to 8080 together.
+#      sysctl, FOUR places move to 8080 together: the chart's service.targetPort,
+#      `EXPOSE 80` below, the entrypoint's `listen 80;`, and the HEALTHCHECK's
+#      http://127.0.0.1:80/ (HEALTHCHECK does not expand ${...}, so it cannot be
+#      derived from an ENV without switching to shell form). Missing the last one
+#      leaves the probe hitting a dead port and flaps the container to
+#      `unhealthy` for docker run / compose users.
 #   3. busybox IS present (unlike the hardened node image), so /bin/sh exists and
 #      the config-generation script below still runs.
 # /etc/nginx is chowned to 65532 with g+w by the base image, so the entrypoint
@@ -164,5 +169,24 @@ echo "[ui-variant] serving '${UI_VARIANT:-signals}' from ${ROOT}${UI_HOST_BINDIN
 exec "$@"
 EOF
 EXPOSE 80
+# Declared explicitly even though it changes nothing at runtime: the hardened
+# base already defaults to the unprivileged `nginx` user (uid 65532), which is
+# what the entrypoint and the port-80 bind above are written against. Trivy's
+# DS-0002 check is static — it looks for a literal USER instruction and reported
+# HIGH "specify at least 1 USER command" against this file despite the image
+# never running as root (#548). Numeric rather than `nginx` so the check
+# resolves it without a passwd lookup.
+USER 65532
+
+# Checks the docroot index over HTTP on the port the entrypoint writes into the
+# server block. `/` resolves for both variants (try_files $uri /index.html),
+# so this is correct whether UI_VARIANT is signals or tourist. Uses wget, which
+# this base does ship at /usr/bin/wget (unlike the hardened node image, which
+# ships no HTTP client at all) — verified against dhi.io/nginx:1.31-alpine.
+# Kubernetes ignores Docker HEALTHCHECKs; this serves compose users and scanners.
+# (Trivy DS-0026, #548)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD ["wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+
 ENTRYPOINT ["/usr/local/bin/ui-variant-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

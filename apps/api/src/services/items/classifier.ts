@@ -35,6 +35,17 @@ export interface ClassifierInput {
    * Resolved from the domain's `go_live_required` config by the caller.
    */
   gates?: readonly GoLiveGate[];
+  /**
+   * `owner_required` only (SS-3, #640). Resolve with
+   * `applyDefaultOwnerAndResolveGate` (`item_service.ts`) and pass it whenever
+   * `gates` includes `owner_required`.
+   *
+   * Omitted → FAILS CLOSED (treated as "a default exists and the owner has
+   * none"): a call site that configures the gate but forgets the context
+   * leaves profiles in `draft`, which is visible and recoverable, where the
+   * opposite default would silently publish unowned profiles.
+   */
+  owner_context?: { has_owner: boolean; default_configured: boolean };
 }
 
 export interface ClassifierResult {
@@ -49,6 +60,11 @@ export interface ClassifierResult {
  * `retired` is terminal and `paused` is sticky; otherwise `live` requires
  * EVERY configured gate to pass, else `draft`. The gate set is config-driven
  * per domain (`go_live_required`), defaulting to `schema_required`.
+ *
+ * ⚠️ One documented exception to "EVERY configured gate must pass":
+ * `owner_required` (SS-3, #640) can let an already-`live` profile through when
+ * it does not satisfy the gate. Both guards are load-bearing — read
+ * `GO_LIVE_GATE_CHECKS.owner_required` before changing this function.
  * (Completion % is not produced here — the single completion metric is
  * `item_metrics.profile_completion_pct`, computed required-only via
  * `profile_completion_pct`, and is intentionally independent of the gate set.)
@@ -68,6 +84,11 @@ export const classify_item = (input: ClassifierInput): ClassifierResult => {
     schema: input.schema,
     state: input.merged_state ?? {},
     consentSatisfied: input.consent_accepted,
+    // Fail closed when the caller configured `owner_required` but passed no
+    // owner context — see `owner_context` on ClassifierInput.
+    hasOwner: input.owner_context?.has_owner ?? false,
+    defaultConfigured: input.owner_context?.default_configured ?? true,
+    currentStatus: input.current_status,
   });
   return { lifecycle_status: live ? 'live' : 'draft' };
 };
