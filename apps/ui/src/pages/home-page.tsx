@@ -2449,8 +2449,16 @@ export function HomePage() {
                   // items outside it. Gating on `truncated` alone made this
                   // unreachable: it needs >500 markers in one viewport, so a
                   // network with tens of items never qualified.
+                  //
+                  // Compared against `mappable`, NOT `total`: `total` counts
+                  // items with no coordinates at all, and those can never be
+                  // inside ANY viewport. Against `total`, a single
+                  // un-geocoded item made "items exist outside the view"
+                  // permanently true, so the button was offered at every zoom
+                  // above the floor forever — which is how it turned up over a
+                  // whole-city view with two listings.
                   (mapViewport.zoom ?? 0) >= SEARCH_AREA_MIN_ZOOM &&
-                  (mapMarkers.truncated || mapMarkers.total < browseTotals.total) && (
+                  (mapMarkers.truncated || mapMarkers.total < browseTotals.mappable) && (
                     <div className="pointer-events-none fixed bottom-20 left-1/2 z-[2100] -translate-x-1/2 px-4">
                       <button
                         type="button"

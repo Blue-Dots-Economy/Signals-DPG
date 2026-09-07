@@ -81,9 +81,18 @@ export interface CapForZoomOptions {
 /**
  * The zoom floor for offering "Search this area" (#644 QA).
  *
- * Below it, the viewport is not a *meaningful* area to search — at world zoom
- * "this area" is most of the planet, so narrowing to it says nothing, and the
- * count pill's "zoom in" is the honest advice.
+ * Below it, the viewport is not a *meaningful* area to search — narrowing the
+ * list to it says nothing a viewer would call "this area", so the count pill's
+ * "zoom in" is the honest advice.
+ *
+ * Set to STREET level, not city level. At 10 the whole of Bengaluru fits on
+ * screen and the button still appeared, which is not an "area" in any sense
+ * the user recognises — filtering a list to "Bengaluru and its outskirts" is
+ * indistinguishable from not filtering it. 15 is where Google's tiles start
+ * naming individual streets, and it sits just above
+ * `DEFAULT_CLUSTER_DISABLE_ZOOM` (14), so the button only shows once markers
+ * have broken out of their clusters and the viewer can see the individual
+ * items the rectangle would keep.
  *
  * The floor alone is not enough, though. The button is only worth offering
  * when searching this area would CHANGE something, which is either:
@@ -99,7 +108,7 @@ export interface CapForZoomOptions {
  * (1000) markers in a single viewport, so a network with tens of items never
  * qualified and the control never appeared at any zoom.
  */
-export const SEARCH_AREA_MIN_ZOOM = 10;
+export const SEARCH_AREA_MIN_ZOOM = 15;
 
 export function capForZoom(zoom: number, options?: CapForZoomOptions): number {
   const clusterDisableZoom = options?.clusterDisableZoom ?? CLUSTER_DISABLE_ZOOM;
