@@ -368,6 +368,21 @@ export function classifySuiteVsProduct(rawMessages) {
       reason: 'Playwright matched zero tests for this invocation — a suite/config wiring issue, not a product failure.',
     };
   }
+  // Missing browser binary. Meets this function's own bar — the text carries its
+  // own evidence and even names the remedy ("Please run ... npx playwright
+  // install"). Evidenced live: a first run on a host without browsers produced
+  // 22 identical failures that all landed as `unattributed`, i.e. 22 setup
+  // errors presented to a human as possible product defects. run.sh now
+  // preflights this, so reaching here means the browsers went missing mid-run;
+  // either way it is never a product failure.
+  if (/Executable doesn't exist/i.test(joined) && /playwright install/i.test(joined)) {
+    return {
+      verdict: 'suite-defect',
+      reason:
+        'the Playwright browser binary is missing on this host (the error names the fix: ' +
+        '`npx playwright install`) — an environment/setup gap, not a product defect.',
+    };
+  }
   // G5 rule 2 — a `waitForResponse` timeout on a KNOWN optional/env-gated
   // endpoint (evidenced live: journey-match-score.ui.spec.ts's
   // `/api/v1/match-score/calculate` wait, timing out because
@@ -387,6 +402,30 @@ export function classifySuiteVsProduct(rawMessages) {
         '(getMatchScoreClient() returns undefined with MATCH_SCORE_PROVIDER unset), so the UI never fires ' +
         'the request and there is no response to wait for. Gate the spec on the matchScore capability ' +
         'instead of asserting blind; not a suite or product defect.',
+    };
+  }
+  // G5 rule 2, second confirmed endpoint — same shape as the match-score rule
+  // above, and checked BEFORE the generic locator rule for the same reason.
+  // `GET /api/v1/support/config` reports `enabled: false` unless BOTH
+  // SUPPORT_EMAIL and NOTIFICATION_FROM_EMAIL are set (support_config.ts mirrors
+  // the submit route's 503 condition), and the UI gates the whole menu entry on
+  // it (`{supportConfig.enabled && ...}` in user-menu.tsx) — so the button never
+  // renders and a CORRECT locator times out. Evidenced: on a real run the recipe
+  // set neither var and this failure was reported as a selector defect.
+  // bring-stack-up.sh now sets both, so reaching here means support is off on
+  // the target being tested rather than the spec being wrong.
+  if (
+    /Timeout \d+ms exceeded/i.test(joined) &&
+    /(waiting for|locator|selector)/i.test(joined) &&
+    /Contact support/i.test(joined)
+  ) {
+    return {
+      verdict: 'capability-gap',
+      reason:
+        'a locator timeout on the "Contact support" entry — the UI hides it entirely when ' +
+        '/api/v1/support/config reports `enabled: false`, which happens unless BOTH SUPPORT_EMAIL and ' +
+        'NOTIFICATION_FROM_EMAIL are set on the target. The selector is correct; support is switched ' +
+        'off. Not a suite or product defect.',
     };
   }
   if (/Timeout \d+ms exceeded/i.test(joined) && /(waiting for|locator|selector)/i.test(joined)) {

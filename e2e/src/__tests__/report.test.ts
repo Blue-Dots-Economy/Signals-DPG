@@ -147,6 +147,32 @@ test('classifySuiteVsProduct only tags suite-defect on real evidence, never gues
   const locatorTimeout = classifySuiteVsProduct(['Timeout 15000ms exceeded waiting for locator(\'button\')']);
   assert.equal(locatorTimeout.verdict, 'suite-defect');
 
+  // A missing browser binary. The text names its own remedy, so it clears this
+  // function's evidence bar — and without the rule a first run on a host with no
+  // browsers reports every UI spec (22 of them, measured) as `unattributed`,
+  // handing a human 22 setup errors to triage as possible product defects.
+  const noBrowser = classifySuiteVsProduct([
+    "browserType.launch: Executable doesn't exist at /x/chromium_headless_shell-1228/chrome-headless-shell" +
+      ' — Please run the following command to download new browsers: npx playwright install',
+  ]);
+  assert.equal(noBrowser.verdict, 'suite-defect');
+  assert.match(noBrowser.reason, /playwright install/);
+
+  // Support is env-gated the same way match-score is: the UI hides the whole
+  // menu entry when /support/config reports `enabled: false`, so a CORRECT
+  // locator times out. Must be capability-gap, not suite-defect — a real run
+  // mislabelled it as the test's own selector being wrong.
+  const supportOff = classifySuiteVsProduct([
+    "locator.click: Timeout 15000ms exceeded. Call log: - waiting for getByRole('button', { name: 'Contact support' })",
+  ]);
+  assert.equal(supportOff.verdict, 'capability-gap');
+
+  // ...and the narrower rule must not swallow every other locator timeout.
+  const otherLocator = classifySuiteVsProduct([
+    "locator.click: Timeout 15000ms exceeded. Call log: - waiting for getByRole('button', { name: 'Resume profile' })",
+  ]);
+  assert.equal(otherLocator.verdict, 'suite-defect');
+
   // A plain assertion on a product invariant — no suite-noise shape at all.
   // This function must NEVER return "product-defect": a wrong "suite bug"
   // label is worse than none, so the honest answer here is "unattributed".

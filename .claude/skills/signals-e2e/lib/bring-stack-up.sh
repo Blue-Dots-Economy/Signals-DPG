@@ -72,6 +72,16 @@ cd "$REPO"
 
 # 1) Env. Idempotent (delete + append).
 #
+#    Back up first. These files are gitignored, so git will not save anyone from
+#    this, and the rewrite below is lossy in a way that is easy to miss: it
+#    DELETES lines it then re-adds with the recipe's own values. A real run took
+#    CREATE_TEST_OTP, SELF_SIGNUP_MODE and all three NOTIFICATION_SERVICE_* out
+#    of a developer's .env and repointed VITE_NETWORK_ID at another dot. One
+#    timestamped copy per run makes that recoverable instead of archaeology.
+for f in .env apps/ui/.env; do
+  [ -f "$f" ] && cp "$f" "$f.pre-e2e.$(date +%s)" 2>/dev/null
+done
+#
 #    ⚑ BLANK-UI GOTCHA #1 — the network id lives in TWO files. The turbo
 #    wrapper (scripts/turbo-with-root-env.mjs) injects root .env into Vite, and
 #    Vite gives that injected value PRECEDENCE over apps/ui/.env. A stale
@@ -122,7 +132,20 @@ for f in .env apps/ui/.env; do sed -i '' '/^VITE_API_URL=/d' "$f"; printf 'VITE_
 #                             key's PRESENCE, never its value (same as the
 #                             notification key/secret above), so a dummy is
 #                             fine.
-for k in CREATE_TEST_OTP SELF_SIGNUP_MODE NOTIFICATION_SERVICE_ENDPOINT NOTIFICATION_SERVICE_KEY_ID NOTIFICATION_SERVICE_SECRET SIGNALS_SEARCH_URL SIGNALS_SEARCH_API_KEY; do
+#      SUPPORT_EMAIL          BOTH, or `GET /api/v1/support/config` reports
+#      + NOTIFICATION_FROM_   `enabled: false` — it mirrors the submit route's
+#        EMAIL                503 condition exactly, `Boolean(recipients &&
+#                             fromEmail && getDefaultEmailSender())`
+#                             (support_config.ts). The UI then never renders the
+#                             "Contact support" entry at all
+#                             (user-menu.tsx: `{supportConfig.enabled && …}`),
+#                             so journey-l-support's locator times out and the
+#                             report blames the SELECTOR. Evidenced: the recipe
+#                             set neither var, and that failure was mislabelled
+#                             `suite-defect` on a real run. The sink already
+#                             captures whatever is sent, so with these two set
+#                             the journey TESTS support instead of skipping it.
+for k in CREATE_TEST_OTP SELF_SIGNUP_MODE NOTIFICATION_SERVICE_ENDPOINT NOTIFICATION_SERVICE_KEY_ID NOTIFICATION_SERVICE_SECRET SIGNALS_SEARCH_URL SIGNALS_SEARCH_API_KEY SUPPORT_EMAIL NOTIFICATION_FROM_EMAIL; do
   sed -i '' "/^$k=/d" .env
 done
 cat >> .env <<'ENVEOF'
@@ -133,6 +156,8 @@ NOTIFICATION_SERVICE_KEY_ID=e2e-local
 NOTIFICATION_SERVICE_SECRET=e2e-local-sink-ignores-hmac
 SIGNALS_SEARCH_URL=http://localhost:4546
 SIGNALS_SEARCH_API_KEY=e2e-local-stub-ignores-key-value
+SUPPORT_EMAIL=support@signals-e2e.test
+NOTIFICATION_FROM_EMAIL=no-reply@signals-e2e.test
 ENVEOF
 
 # 3) Infra
@@ -328,16 +353,27 @@ case "$SCHEMA_LINE" in
     ;;
 esac
 
+# Same retry ceiling as the API probe above, and for a sharper reason: Vite
+# prints "ready in 365 ms" and only THEN starts re-optimizing dependencies when
+# the lockfile has changed, which it has on any fresh checkout. A single probe
+# here caught that window and failed with "no Signals UI found" while the UI was
+# seconds from serving — reproduced on a cold checkout, passing on the very next
+# run once Vite's dep cache was warm. That is the worst possible shape: it fails
+# for the first-time user and works for everyone who has already run it.
 UI_LINE=""
-for p in 3000 5173; do
-  code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$p/" 2>/dev/null)
-  if [ "$code" = "200" ] && is_signals_ui "http://localhost:$p"; then
-    UI_LINE="http://localhost:$p"
-    break
-  fi
+for i in $(seq 1 40); do
+  for p in 3000 5173; do
+    code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$p/" 2>/dev/null)
+    if [ "$code" = "200" ] && is_signals_ui "http://localhost:$p"; then
+      UI_LINE="http://localhost:$p"
+      break
+    fi
+  done
+  [ -n "$UI_LINE" ] && break
+  sleep 1
 done
 if [ -z "$UI_LINE" ]; then
-  log "FAIL: no Signals UI found on :3000 or :5173 after starting it — see /tmp/signals-ui.log."
+  log "FAIL: no Signals UI found on :3000 or :5173 after starting it (waited 40s) — see /tmp/signals-ui.log."
   exit 1
 fi
 

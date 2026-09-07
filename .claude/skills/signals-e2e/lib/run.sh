@@ -129,6 +129,45 @@ if [ -z "$NODE_MAJOR" ] || ! [[ "$NODE_MAJOR" =~ ^[0-9]+$ ]] || [ "$NODE_MAJOR" 
   exit 1
 fi
 
+# The two installs this script does NOT perform, checked HERE rather than
+# discovered three layers down.
+#
+# Neither of these is optional and neither was preflighted, so a first-time run
+# failed twice in a row with the cause hidden:
+#
+#   * no e2e/node_modules  ->  the search stub dies on `Cannot find module 'pg'`
+#     inside a detached process, and the only symptom this script surfaces is
+#     "search-stub did not answer at http://localhost:4546/... within 30s". The
+#     real error sits in e2e/run/<id>/search-stub.log. Note run.sh already sets
+#     NODE_PATH="$E2E_DIR/node_modules" for the stubs (§6) — it just never
+#     ensured the directory exists.
+#   * no Playwright browsers  ->  every UI spec fails with "Executable doesn't
+#     exist", 22 of them on a full run, and they land in the report's "Not
+#     working" section as unattributed failures a human is asked to triage.
+#
+# Deliberately a refusal with the exact command, not an auto-install: `npm ci`
+# and a ~100 MB browser download are not side effects a test runner should
+# perform behind the operator's back, and the node check directly above sets the
+# precedent (it tells you to switch node rather than switching it for you).
+if [ ! -d "$E2E_DIR/node_modules" ]; then
+  log "FAIL: e2e/node_modules is missing — the stubs (search, mail sink, indexer) resolve"
+  log "  'pg' from there via NODE_PATH, so they cannot start without it. Run:"
+  log "    (cd '$E2E_DIR' && npm ci)"
+  exit 1
+fi
+# Launch-and-close rather than a path check: the suite failed on
+# `chromium_headless_shell`, which is a SEPARATE download from full chromium, so
+# `chromium.executablePath()` can point at a browser that exists while the one
+# Playwright actually launches does not. (`playwright install --dry-run` is no
+# use either — it prints what it WOULD download and exits 0 regardless.)
+# Costs ~0.5s and exercises the exact path every UI spec takes.
+if ! (cd "$E2E_DIR" && node -e "require('playwright').chromium.launch().then(b=>b.close())" >/dev/null 2>&1); then
+  log "FAIL: Playwright browsers are not installed for this host — every UI spec would fail"
+  log "  with \"Executable doesn't exist\". Run:"
+  log "    (cd '$E2E_DIR' && npx playwright install chromium)"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 0b. Worker count (field-test fix, G1). playwright.config.ts's own default
 #    is a flat 4 (`process.env.E2E_WORKERS ?? 4`) — sized for a CI box, not
