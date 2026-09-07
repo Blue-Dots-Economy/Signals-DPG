@@ -710,6 +710,7 @@
   "browse.area_custom_clear": "Clear the distance",
   "browse.area_custom_range": "Enter a whole number between {{min}} and {{max}}.",
   "browse.area_km_unit": "km",
+  "browse.area_km_placeholder": "ex: {{km}}",
   "browse.area_radius": "Within {{km}} km",
   "browse.area_radius_unavailable": "Needs your location to limit by area",
   "browse.no_filters": "No filters applied",

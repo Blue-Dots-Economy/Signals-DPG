@@ -256,7 +256,10 @@ export function LocationSelect({
                         max: MAX_RADIUS_KM,
                       })}
                       value={shown}
-                      placeholder={String(MIN_RADIUS_KM)}
+                      // An EXAMPLE, not the minimum. Showing "1" read as a
+                      // prefilled value rather than a hint, and it is not the
+                      // number the row prefills on engage either.
+                      placeholder={t('browse.area_km_placeholder', { km: DEFAULT_RADIUS_KM })}
                       onFocus={() => setPendingRadius(true)}
                       onChange={(e) =>
                         // Digits only. Decimals are BLOCKED, not rounded:

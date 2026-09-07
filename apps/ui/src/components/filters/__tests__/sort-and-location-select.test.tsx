@@ -420,4 +420,15 @@ describe('LocationSelect', () => {
     await userEvent.click(within(menu).getByRole('option', { name: /anywhere/i }));
     expect(onChange).toHaveBeenCalledWith({ mode: 'anywhere' });
   });
+
+  it('hints with an example, not the minimum', async () => {
+    // "1" read as a prefilled value rather than a hint — and it is not the
+    // number the row prefills on engage either, so it was doubly misleading.
+    render(<LocationSelect {...base} />);
+    await open();
+
+    expect(field()).toHaveAttribute('placeholder', 'ex: 5');
+    // Still empty until the row is engaged.
+    expect(field()).toHaveValue('');
+  });
 });

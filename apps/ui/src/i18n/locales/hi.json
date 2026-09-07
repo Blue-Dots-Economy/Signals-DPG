@@ -700,6 +700,7 @@
   "browse.area_custom_clear": "दूरी हटाएँ",
   "browse.area_custom_range": "{{min}} और {{max}} के बीच पूर्ण संख्या दर्ज करें।",
   "browse.area_km_unit": "किमी",
+  "browse.area_km_placeholder": "उदा: {{km}}",
   "browse.area_radius": "{{km}} किमी के भीतर",
   "browse.area_radius_unavailable": "क्षेत्र सीमित करने के लिए आपका स्थान आवश्यक है",
   "browse.no_filters": "कोई फ़िल्टर लागू नहीं",

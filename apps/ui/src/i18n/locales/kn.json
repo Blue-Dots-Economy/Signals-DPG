@@ -700,6 +700,7 @@
   "browse.area_custom_clear": "ದೂರವನ್ನು ತೆರವುಗೊಳಿಸಿ",
   "browse.area_custom_range": "{{min}} ಮತ್ತು {{max}} ನಡುವೆ ಪೂರ್ಣ ಸಂಖ್ಯೆ ನಮೂದಿಸಿ.",
   "browse.area_km_unit": "ಕಿಮೀ",
+  "browse.area_km_placeholder": "ಉದಾ: {{km}}",
   "browse.area_radius": "{{km}} ಕಿಮೀ ಒಳಗೆ",
   "browse.area_radius_unavailable": "ಪ್ರದೇಶ ಸೀಮಿತಗೊಳಿಸಲು ನಿಮ್ಮ ಸ್ಥಳ ಬೇಕು",
   "browse.no_filters": "ಯಾವುದೇ ಫಿಲ್ಟರ್ ಅನ್ವಯಿಸಿಲ್ಲ",
