@@ -384,7 +384,7 @@ describe('MyActionsPage', () => {
   it('bulk accept: the selection reaches the bulk dialog, and a clean settle clears select mode', async () => {
     const user = userEvent.setup();
     renderMyActions();
-    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('button', { name: 'Select items' }));
     const card = screen.getAllByRole('button').find((b) => b.getAttribute('aria-pressed') !== null);
     expect(card).toBeDefined();
     await user.click(card!);
@@ -395,13 +395,13 @@ describe('MyActionsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'settle-all-ok' }));
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select items' })).toBeInTheDocument();
   });
 
   it('bulk accept: a failed settle keeps the failed ids selected so they can be retried', async () => {
     const user = userEvent.setup();
     renderMyActions();
-    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('button', { name: 'Select items' }));
     const card = screen.getAllByRole('button').find((b) => b.getAttribute('aria-pressed') !== null);
     await user.click(card!);
     await user.click(screen.getByRole('button', { name: 'Accept' }));
@@ -414,14 +414,14 @@ describe('MyActionsPage', () => {
   it('leaves select mode when the tab changes so a hidden selection cannot go stale', async () => {
     const user = userEvent.setup();
     renderMyActions();
-    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('button', { name: 'Select items' }));
     const card = screen.getAllByRole('button').find((b) => b.getAttribute('aria-pressed') !== null);
     await user.click(card!);
     expect(screen.getByText('1 selected')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Initiated/ }));
     expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select items' })).toBeInTheDocument();
   });
 
   it('the header back button returns to the previous in-app page', async () => {

@@ -657,7 +657,7 @@ function setRuntimeConfig(config: Record<string, string> | undefined): void {
 }
 
 async function enterSelectMode(user: UserEvent): Promise<void> {
-  await user.click(screen.getByRole('button', { name: 'Select' }));
+  await user.click(screen.getByRole('button', { name: 'Select items' }));
   await screen.findByRole('button', { name: 'Done' });
 }
 
@@ -755,7 +755,7 @@ describe('HomePage — bulk connect submit', () => {
     // User-visible outcome first: the success toast, and select mode released.
     expect(await screen.findByText('Connected 2 requests')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('2 selected')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select items' })).toBeInTheDocument();
     expect(screen.queryByTestId('action-modal')).not.toBeInTheDocument();
 
     // …and the payload the page built for each target.
@@ -872,7 +872,7 @@ describe('HomePage — bulk connect submit', () => {
     expect(bulk.calls).toHaveLength(0);
     // Select mode is released rather than left showing a batch that can't send.
     await waitFor(() => expect(screen.queryByText('1 selected')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select items' })).toBeInTheDocument();
     expect(screen.queryByTestId('action-modal')).not.toBeInTheDocument();
   });
 });
@@ -940,7 +940,7 @@ describe('HomePage — batch guardian OTP for a minor ward', () => {
     expect(bulk.calls[1].otp).toBe('246810');
     expect(bulk.calls[1].payloads.map((p) => p.target_item.item_id)).toEqual(['p1', 'p2']);
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select items' })).toBeInTheDocument();
   });
 
   it('challenges only the guardian-gated items of a mixed batch, keeping the others selected', async () => {

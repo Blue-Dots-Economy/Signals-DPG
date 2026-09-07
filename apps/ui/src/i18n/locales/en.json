@@ -252,7 +252,7 @@
   "header.listings_other": "{{count}} listings",
   "header.no_profile_prompt": "You're browsing as a visitor. Create a profile to connect with others.",
   "header.create_profile_cta": "Create profile",
-  "selection.select": "Select",
+  "selection.select": "Select items",
   "selection.done": "Done",
   "selection.clear": "Clear",
   "selection.n_selected_one": "{{count}} selected",

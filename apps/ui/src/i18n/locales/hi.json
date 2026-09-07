@@ -209,7 +209,7 @@
   "header.listings_other": "{{count}} लिस्टिंग",
   "header.no_profile_prompt": "आप विज़िटर के रूप में ब्राउज़ कर रहे हैं। दूसरों से जुड़ने के लिए प्रोफ़ाइल बनाएं।",
   "header.create_profile_cta": "प्रोफ़ाइल बनाएं",
-  "selection.select": "चुनें",
+  "selection.select": "आइटम चुनें",
   "selection.done": "हो गया",
   "selection.clear": "हटाएँ",
   "selection.n_selected_one": "{{count}} चयनित",

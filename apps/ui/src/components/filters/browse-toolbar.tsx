@@ -1,7 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { AppliedFilterChips } from './applied-filter-chips';
 import { SortSelect } from './sort-select';
-import * as React from 'react';
 import { DomainControl } from './domain-control';
 import { LocationSelect } from './location-select';
 import type { AppliedChip } from './applied-filter-chips';
@@ -42,8 +41,6 @@ export interface BrowseToolbarProps {
   domainOptions: DomainOption[];
   selectedDomains: string[];
   onDomainsChange: (next: string[]) => void;
-  /** Trailing action (the list's "Select" mode), rendered after the count. */
-  trailing?: React.ReactNode;
   area: BrowseArea;
   /**
    * Which location source is in force, and whether each can supply one. Lives
@@ -84,7 +81,8 @@ export interface BrowseToolbarProps {
  * already edits.
  *
  * ONE row: the domain control, then sort (list only), location, filters, the
- * applied chips, clear-all, the count, and any trailing action.
+ * applied chips, clear-all, and the count. Actions that operate ON the
+ * results (bulk-select) deliberately live over the content instead.
  *
  * It always renders — showing "no filters applied" when nothing is set — so
  * the bar keeps a stable height and the list below does not shift under the
@@ -191,7 +189,6 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             )}
           </span>
         )}
-        {props.trailing}
       </div>
     </div>
   );

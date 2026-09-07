@@ -55,10 +55,11 @@ describe('BrowseToolbar', () => {
     );
   });
 
-  it('renders a trailing action after the count', () => {
-    // The list's "Select" toggle was the last thing keeping the third row.
-    render(<BrowseToolbar {...base} trailing={<button type="button">Select</button>} />);
-    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+  it('carries no action of its own — bulk-select sits over the results', () => {
+    // Select acts ON the results rather than choosing them, so grouping it
+    // with sort/location/filters implied it was another way to narrow.
+    render(<BrowseToolbar {...base} />);
+    expect(screen.queryByRole('button', { name: /select items/i })).toBeNull();
   });
 
   it('omits the count while it is still loading', () => {

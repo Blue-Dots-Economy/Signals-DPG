@@ -209,7 +209,7 @@
   "header.listings_other": "{{count}} ಲಿಸ್ಟಿಂಗ್‌ಗಳು",
   "header.no_profile_prompt": "ನೀವು ಅತಿಥಿಯಾಗಿ ಬ್ರೌಸ್ ಮಾಡುತ್ತಿದ್ದೀರಿ. ಇತರರೊಂದಿಗೆ ಸಂಪರ್ಕ ಹೊಂದಲು ಪ್ರೊಫೈಲ್ ರಚಿಸಿ.",
   "header.create_profile_cta": "ಪ್ರೊಫೈಲ್ ರಚಿಸಿ",
-  "selection.select": "ಆಯ್ಕೆಮಾಡಿ",
+  "selection.select": "ಐಟಂಗಳನ್ನು ಆಯ್ಕೆಮಾಡಿ",
   "selection.done": "ಮುಗಿದಿದೆ",
   "selection.clear": "ತೆರವುಗೊಳಿಸಿ",
   "selection.n_selected_one": "{{count}} ಆಯ್ಕೆಯಾಗಿದೆ",

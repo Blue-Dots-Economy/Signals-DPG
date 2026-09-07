@@ -1191,7 +1191,7 @@ describe('HomePage — bulk selection', () => {
     renderHome('/?view=list&domain=provider');
     await findCard('Acme Welding');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Select items' }));
     expect(await screen.findByRole('button', { name: 'Done' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Acme Welding/ }));
@@ -1204,7 +1204,7 @@ describe('HomePage — bulk selection', () => {
     state.myItems = [];
     renderHome('/?view=list&domain=provider');
 
-    expect(screen.queryByRole('button', { name: 'Select' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select items' })).not.toBeInTheDocument();
   });
 });
 

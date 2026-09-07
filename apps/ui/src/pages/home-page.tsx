@@ -2002,9 +2002,9 @@ export function HomePage() {
   // guest-vs-signed-in conditionals live inside a function, keeping HomePage's
   // cognitive complexity within bounds (SonarCloud S3776). Called each render, so
   // no memo dependency array to keep in sync.
-  // Bulk-select toggle. Lives in the browse toolbar's trailing slot rather
-  // than a header row of its own: it was the last thing keeping that row
-  // alive once the domain and location controls both moved into the toolbar.
+  // Bulk-select toggle, rendered over the results rather than in the filter
+  // bar: it acts ON the results instead of choosing them, so grouping it with
+  // sort/location/filters implied it was another way to narrow the list.
   const browseSelectButton =
     myItem && viewMode === 'list' ? (
       <Button
@@ -2105,7 +2105,6 @@ export function HomePage() {
               // Single-select: DomainControl always emits exactly one here.
               if (next[0]) handleDomainSelect(next[0]);
             }}
-            trailing={browseSelectButton}
             count={contentLoading ? undefined : contentCount}
             // Map only: names the items that can never be pins at any zoom, so
             // the part of the gap with the map's viewport pill that zooming
@@ -2304,6 +2303,14 @@ export function HomePage() {
                     scroll — so "shown" is just "however far you happen to have
                     scrolled", which tells the reader nothing and duplicated a
                     count sitting ~40px away. */}
+                {/* Bulk-select sits over the CONTENT, not in the filter bar:
+                    it acts on the results rather than choosing them, and
+                    grouping it with sort/location/filters implied it was
+                    another way to narrow the list. There is room here, and it
+                    keeps that bar to one job. */}
+                {browseSelectButton && (
+                  <div className="mb-2 flex justify-end">{browseSelectButton}</div>
+                )}
                 <CardGrid
                   schema={activeSchema!}
                   schemaName={selectedDomain ?? undefined}
