@@ -4,10 +4,15 @@
  * the reading column. No checkbox, no scroll gating, no consent capture —
  * that is the separate, landed `ConsentGateBody` surface.
  *
- * `/privacy` and `/terms` render the exact same page; the route only decides
- * which document the reader lands on (see the arrival effect below). Nothing
- * in the rail navigates to another route any more — every entry is a
- * same-page anchor, because both documents already live on the page.
+ * One route, `/legal`, holds both documents. `/privacy` and `/terms` used to
+ * be two routes rendering this same component and differing only in where they
+ * landed the reader; they are now redirects to `/legal#privacy` and
+ * `/legal#terms`, so an already-shared link still arrives at the right section
+ * (see `app.tsx`). Where the reader lands is therefore decided by the URL
+ * fragment alone — nothing about this page varies by route any more.
+ *
+ * Nothing in the rail navigates to another route: every entry is a same-page
+ * anchor, because both documents live on the page.
  *
  * Signals has one audience (plus the `u18` variant, which this read-only
  * page does not surface), so unlike the sibling aggregator repo the rail
@@ -51,13 +56,18 @@ interface RenderableDoc {
 }
 
 /**
- * Structural id for a document's own heading — built from the route key
- * (`privacy` / `terms`), never from document content. This is what the rail's
- * group header links to, and what an arrival with no hash (e.g. `/terms`)
- * scrolls to.
+ * Structural id for a document's own heading — the document key itself
+ * (`privacy` / `terms`), never anything derived from document content. It is
+ * deliberately the bare key: these are the ids `/legal#privacy` and
+ * `/legal#terms` address, so they are real fragments a browser can resolve on
+ * its own rather than something this component has to translate.
+ *
+ * `dedupeSectionIdsAcrossDocs` reserves both names so a section heading that
+ * happens to slugify to "privacy" cannot take one out from under a link that
+ * has already been shared.
  */
 function docHeadingId(doc: LegalDoc): string {
-  return `${doc}-document`;
+  return doc;
 }
 
 /**
@@ -149,7 +159,7 @@ function splitIntoSections(
 
 /**
  * Guarantees every section id on the page is unique once both documents are
- * rendered together.
+ * rendered together, and that neither can take a document's own id.
  *
  * `extractSections` only dedupes *within* a single document's markdown, so
  * two documents that happen to share a heading (e.g. both open a "Grievances"
@@ -160,13 +170,17 @@ function splitIntoSections(
  * an actual collision, and only for the later document in `DOC_ORDER`, so
  * existing deep links are unaffected unless a genuine collision exists.
  *
+ * The `seen` set starts seeded with the document ids themselves, so a section
+ * called "Privacy" becomes `privacy-2` rather than stealing the `#privacy`
+ * fragment that `/privacy` redirects to.
+ *
  * @param docs - Documents in rendering order.
  * @returns The same documents, with any colliding section ids renumbered.
  */
 function dedupeSectionIdsAcrossDocs(
   docs: { preamble: string; sections: RenderableSection[] }[],
 ): { preamble: string; sections: RenderableSection[] }[] {
-  const seen = new Set<string>();
+  const seen = new Set<string>(DOC_ORDER.map(docHeadingId));
   return docs.map((doc) => ({
     ...doc,
     sections: doc.sections.map((section) => {
@@ -211,17 +225,22 @@ function prefersReducedMotion(): boolean {
  * passed. Shared by the arrival landing and the scroll-spy so both fall back
  * to the same entry: the document's own first section, or its own heading if
  * it has none.
+ *
+ * Takes the document and derives its key, rather than accepting both: passing
+ * `availableDocs[0]` alongside `DOC_ORDER[0]` let the two disagree, so a
+ * network publishing only `terms` pilled a non-existent `#privacy`.
  */
-function pillFallbackId(renderableDoc: RenderableDoc | undefined, doc: LegalDoc): string {
-  return renderableDoc?.sections[0]?.id ?? docHeadingId(doc);
+function pillFallbackId(renderableDoc: RenderableDoc | undefined): string | undefined {
+  if (!renderableDoc) return undefined;
+  return renderableDoc.sections[0]?.id ?? docHeadingId(renderableDoc.doc);
 }
 
 /**
  * How close to the top of the viewport a heading must have scrolled to count
- * as "passed" — matches the `scroll-mt-6` (24px) offset headings already
- * carry, plus a little slack for the rest of the reading column's own top
- * padding, so the highlighted entry is the one actually sitting at the top of
- * the reading area, not one still a full viewport away.
+ * as "passed" — the `scroll-mt-20` (80px) offset headings carry so an anchor
+ * lands them clear of the sticky app bar, plus a little slack, so the
+ * highlighted entry is the one actually sitting at the top of the *readable*
+ * area rather than one still hidden behind the bar.
  */
 const READING_LINE_PX = 96;
 
@@ -237,21 +256,18 @@ const READING_LINE_PX = 96;
 const SCROLL_SETTLE_MS = 150;
 
 /**
- * Renders the shared layout for `/privacy` and `/terms`: loading state,
- * unavailable fallback, the app bar (back link + language/theme controls),
- * the two-document contents rail, and the reading column holding both
- * documents in order.
+ * Renders `/legal`: loading state, unavailable fallback, the app bar (back
+ * link + language/theme controls), the two-document contents rail, and the
+ * reading column holding both documents in order.
  *
- * @param props.doc - Which document this route lands the reader on:
- *   `privacy` or `terms`. Both documents render on the page either way.
+ * Takes no props: which section the reader lands on comes from the URL
+ * fragment, and both documents render either way.
  */
-export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.JSX.Element {
+export function LegalDocumentView(): React.JSX.Element {
   const { t } = useTranslation();
   const { config, isLoading } = useConsentConfig();
   const location = useLocation();
-  const [activeId, setActiveId] = useState<string>(docHeadingId(doc));
-
-  const routedVersion = getCurrentVersion(config?.documents[doc]);
+  const [activeId, setActiveId] = useState<string>(docHeadingId(DOC_ORDER[0]));
 
   const availableDocs: RenderableDoc[] = useMemo(() => {
     const resolved = DOC_ORDER.map((d) => {
@@ -310,7 +326,7 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
     // Nothing has passed yet — genuinely at the very top of the page. Same
     // "first document's first section" fallback as the "own heading, no
     // section yet" branch below, just spelled out for the empty case.
-    if (!lastPassed) return pillFallbackId(availableDocs[0], DOC_ORDER[0]);
+    if (!lastPassed) return pillFallbackId(availableDocs[0]) ?? activeIdRef.current;
 
     const currentDoc = availableDocs.find((d) => docHeadingId(d.doc) === lastPassed!.id);
     if (!currentDoc) {
@@ -323,7 +339,7 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
     // its first section instead of leaving the pill on a bare doc heading,
     // which would be the same "nothing really highlighted" gap this whole
     // fallback exists to close.
-    return pillFallbackId(currentDoc, currentDoc.doc);
+    return pillFallbackId(currentDoc) ?? lastPassed.id;
   }, [spyTargetIds, availableDocs]);
 
   // A just-clicked rail entry, or a programmatic (arrival/deep-link) scroll,
@@ -345,10 +361,9 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
   /**
    * Scrolls `targetElId` into view (if it exists) and pins the rail's
    * highlight to `pillId` for the duration of that scroll. The two can
-   * differ: a no-hash arrival at `/terms` scrolls to the *document* heading
-   * (`terms-document`) but pills its *first section* — otherwise the
-   * pinned value itself would be the bare doc heading the fallback above
-   * exists to avoid.
+   * differ: arriving at `/legal#terms` scrolls to the *document* heading
+   * (`terms`) but pills its *first section* — otherwise the pinned value
+   * itself would be the bare doc heading the fallback above exists to avoid.
    */
   const scrollAndPin = useCallback(
     (targetElId: string, pillId: string) => {
@@ -402,39 +417,43 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
   //       consent-config fetch resolves, which is almost always after the
   //       browser's one-shot fragment-scroll attempt (if any) has already run
   //       and found nothing.
-  // The target is either the hash (deep link) or, absent a hash, this
-  // route's own document heading — UNLESS that document is already the first
-  // one on the page, in which case it is already at the top and there is
-  // nothing to scroll to.
+  // The fragment is the only thing that decides where an arrival lands —
+  // `#privacy`, `#terms`, or any section id. It is re-run on every hash
+  // change, so a footer link to `/legal#terms` scrolls even when the reader is
+  // already on the page and the browser therefore performs no navigation.
   //
-  // No-hash arrival never highlights a section on its own: every document
-  // opens with intro prose before its first heading, so the scroll-spy
-  // has nothing "passed" at scroll-top and highlights nothing (see
-  // `pillFallbackId`). Rather than land with the rail showing no pill at
-  // all, default the highlight to the routed document's own first section
-  // (or its own heading, for a document with no sections) — the same
-  // fallback the spy uses once real scrolling starts. `scrollAndPin` also
-  // keeps the spy from fighting this scroll while it's in flight: a real
-  // browser fires genuine `scroll` events for a programmatic
-  // `scrollIntoView` exactly as it would for a user's own scrolling, and
-  // without the pin the spy would recompute mid-flight and briefly show
-  // whichever heading the animation happens to be passing through.
+  // Without it a deep link would not scroll at all: the content it targets
+  // only renders once the consent-config fetch resolves, which is almost
+  // always after the browser's one-shot fragment-scroll attempt has already
+  // run and found nothing.
+  //
+  // No-hash arrival highlights nothing on its own: every document opens with
+  // intro prose before its first heading, so the scroll-spy has nothing
+  // "passed" at scroll-top (see `pillFallbackId`). Rather than land with the
+  // rail showing no pill at all, default the highlight to the first
+  // document's first section — the same fallback the spy uses once real
+  // scrolling starts. `scrollAndPin` also keeps the spy from fighting a
+  // programmatic scroll while it's in flight: a real browser fires genuine
+  // `scroll` events for `scrollIntoView` exactly as it would for a user's own
+  // scrolling, and without the pin the spy would recompute mid-flight and
+  // briefly show whichever heading the animation happens to be passing
+  // through.
   useEffect(() => {
     if (!contentReady) return;
     const hashId = location.hash ? decodeURIComponent(location.hash.slice(1)) : null;
     if (hashId) {
-      if (document.getElementById(hashId)) scrollAndPin(hashId, hashId);
+      // A hash naming a document scrolls to that document but pills its first
+      // section: there is no rail entry for a bare document heading to
+      // highlight, so pinning one would show no pill at all.
+      const targetDoc = availableDocs.find((d) => docHeadingId(d.doc) === hashId);
+      const pillId = (targetDoc && pillFallbackId(targetDoc)) ?? hashId;
+      if (document.getElementById(hashId)) scrollAndPin(hashId, pillId);
       return;
     }
-    const routedDoc = availableDocs.find((d) => d.doc === doc);
-    const fallbackId = pillFallbackId(routedDoc, doc);
-    if (doc !== DOC_ORDER[0]) {
-      scrollAndPin(docHeadingId(doc), fallbackId);
-    } else {
-      // Already at the top — nothing to scroll to, so no pin needed either.
-      setActiveId(fallbackId);
-    }
-  }, [location.hash, contentReady, doc, availableDocs, scrollAndPin]);
+    // Top of the page, nothing to scroll to — just seed the pill.
+    const firstPill = pillFallbackId(availableDocs[0]);
+    if (firstPill) setActiveId(firstPill);
+  }, [location.hash, contentReady, availableDocs, scrollAndPin]);
 
   /**
    * `targetId` is what gets scrolled to; `pillId` (defaulting to the same
@@ -459,12 +478,13 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
     );
   }
 
-  if (!routedVersion) {
+  // Nothing to show only when NEITHER document resolved. Previously this
+  // keyed on the routed document alone, so a network missing just one of the
+  // two hid the other as well.
+  if (!contentReady) {
     return (
       <div className="flex min-h-svh items-center justify-center">
-        <p className="text-sm text-muted-foreground">
-          {doc === 'privacy' ? 'Privacy policy unavailable.' : 'Terms of service unavailable.'}
-        </p>
+        <p className="text-sm text-muted-foreground">{t('legal.unavailable')}</p>
       </div>
     );
   }
@@ -483,7 +503,20 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
             actually carries the logo, so it's composed here directly with
             the same language/theme controls, plus the back link — the only
             way back for someone mid-signup. */}
-        <header className="sticky top-0 z-40 flex min-h-14 items-center gap-3 border-b bg-gradient-to-r from-background to-primary/5 px-4 py-2 sm:px-6">
+        {/* `bg-background` under the gradient is load-bearing: `bg-gradient-to-r
+            from-background to-primary/5` is a *translucent* image (its right
+            stop is 5% alpha), and unlike `TopBar` — whose page content lives in
+            its own `overflow-y-auto` <main> and so never passes underneath —
+            this page scrolls the window itself, so without an opaque base the
+            reading column showed straight through the bar. Height and padding
+            still match `TopBar`.
+
+            `h-14` rather than `min-h-14`: a fixed height is what lets the
+            contents rail below park itself exactly under the bar via
+            `md:top-14` without the two measurements drifting apart. Nothing in
+            this bar wraps at any width — the back link collapses to its icon
+            below `sm` — so there is no row for a min-height to grow for. */}
+        <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background bg-gradient-to-r from-background to-primary/5 px-4 py-2 sm:px-6">
           <PortalHeader />
           {/* Label drops below `sm` (icon-only) so a long wordmark plus
               language/theme controls never wrap the row and overlap the
@@ -510,7 +543,18 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
           <div className="grid gap-6 md:grid-cols-[236px_1fr] md:gap-10">
             <nav
               aria-label={t('legal.contents_label')}
-              className="border-b border-border pb-6 mb-6 md:sticky md:top-6 md:mb-0 md:self-start md:border-b-0 md:border-r md:pb-0 md:pr-6"
+              // `md:top-14` parks the rail directly under the sticky app bar
+              // (`h-14`) rather than under the viewport top, where the bar was
+              // covering its first entries.
+              //
+              // `max-h` + `overflow-y-auto` are what make it usable at all: a
+              // sticky element is only as scrollable as the box it is given, and
+              // this rail is taller than the viewport on every network (two
+              // documents, ~25 sections). Without a bounded height its tail sat
+              // below the fold with no way — wheel, drag or keyboard — to reach
+              // it. `overscroll-contain` stops a wheel that reaches the rail's
+              // end from carrying on into the page behind it.
+              className="border-b border-border pb-6 mb-6 md:sticky md:top-14 md:mb-0 md:max-h-[calc(100svh-3.5rem)] md:self-start md:overflow-y-auto md:overscroll-contain md:border-b-0 md:border-r md:py-6 md:pr-6"
             >
               {availableDocs.map(({ doc: d, version, sections }) => {
                 const headingId = docHeadingId(d);
@@ -554,18 +598,18 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
             <div className="min-w-0 max-w-[72ch]">
               {availableDocs.map(({ doc: d, version, preamble, sections }, index) => {
                 const effectiveDate = new Date(version.effective_from).toLocaleDateString();
-                // The routed document (whichever one the reader arrived at) is
-                // the page's <h1> — there is only ever one per page. The other
-                // document, included below it for the continuous scroll, is an
-                // <h2>: a real heading, just not the page's primary one.
-                const DocHeading = d === doc ? 'h1' : 'h2';
+                // The first document on the page is its <h1> — there is only
+                // ever one per page — and the rest are <h2>s: real headings,
+                // just not the page's primary one. Fixed by position rather
+                // than by route, now that there is only one route.
+                const DocHeading = index === 0 ? 'h1' : 'h2';
                 return (
                   <div key={d}>
                     {index > 0 && <hr className="mt-11 border-t border-border" />}
                     <DocHeading
                       id={docHeadingId(d)}
                       className={cn(
-                        'text-2xl font-bold text-foreground scroll-mt-6',
+                        'text-2xl font-bold text-foreground scroll-mt-20',
                         index > 0 && 'mt-9',
                       )}
                     >
@@ -585,7 +629,7 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
                         <div key={section.id}>
                           <h2
                             id={section.id}
-                            className="mt-8 mb-2 text-lg font-semibold text-foreground scroll-mt-6"
+                            className="mt-8 mb-2 text-lg font-semibold text-foreground scroll-mt-20"
                           >
                             {section.heading}
                           </h2>
@@ -595,7 +639,7 @@ export function LegalDocumentView({ doc }: Readonly<{ doc: LegalDoc }>): React.J
                         <div key={section.id}>
                           <h3
                             id={section.id}
-                            className="mt-6 mb-2 text-base font-semibold text-foreground scroll-mt-6"
+                            className="mt-6 mb-2 text-base font-semibold text-foreground scroll-mt-20"
                           >
                             {section.heading}
                           </h3>

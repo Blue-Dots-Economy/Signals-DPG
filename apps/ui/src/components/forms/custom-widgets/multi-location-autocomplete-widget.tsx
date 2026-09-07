@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { WidgetProps } from '@rjsf/utils';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useSuggestionKeyboard } from './use-suggestion-keyboard';
 import { getGeoProvider } from '@/lib/geo/provider';
 import type { GeoSuggestion } from '@/lib/geo/types';
 
@@ -47,6 +48,107 @@ function rowsFromValue(value: string[]): LocationRow[] {
 /** Derive a stable string from rows for comparison so we don't clobber edits. */
 function rowNames(rows: LocationRow[]): string[] {
   return rows.map((r) => r.name);
+}
+
+interface RowComboboxProps {
+  id: string;
+  value: string;
+  disabled: boolean;
+  hasError: boolean;
+  suggestions: GeoSuggestion[];
+  open: boolean;
+  onInput: (next: string) => void;
+  onOpenChange: (open: boolean) => void;
+  onBlurClose: () => void;
+  onChoose: (suggestion: GeoSuggestion) => void;
+}
+
+/**
+ * One city row's text input and its suggestion list.
+ *
+ * Extracted from the row loop for one reason: `useSuggestionKeyboard` holds the
+ * active-option state, and a hook cannot be called inside `rows.map()`. Each
+ * row therefore needs its own component instance — which is also the right
+ * shape, since each row's highlight is independent of its siblings'.
+ */
+function RowCombobox({
+  id,
+  value,
+  disabled,
+  hasError,
+  suggestions,
+  open,
+  onInput,
+  onOpenChange,
+  onBlurClose,
+  onChoose,
+}: Readonly<RowComboboxProps>) {
+  const { activeIndex, setActiveIndex, optionId, activeDescendantId, listboxId, onKeyDown } =
+    useSuggestionKeyboard({
+      items: suggestions,
+      open,
+      onOpen: () => onOpenChange(true),
+      onClose: () => onOpenChange(false),
+      onSelect: (index) => {
+        const suggestion = suggestions[index];
+        if (suggestion) onChoose(suggestion);
+      },
+      idPrefix: id,
+    });
+
+  return (
+    <div className="relative flex-1">
+      <Input
+        id={id}
+        value={value}
+        disabled={disabled}
+        autoComplete="off"
+        placeholder="Search for a city…"
+        role="combobox"
+        aria-expanded={open && suggestions.length > 0}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeDescendantId}
+        className={cn(hasError && 'border-destructive')}
+        onChange={(e) => onInput(e.target.value)}
+        onKeyDown={onKeyDown}
+        onFocus={() => onOpenChange(suggestions.length > 0)}
+        onBlur={onBlurClose}
+      />
+      {open && suggestions.length > 0 && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md"
+        >
+          {suggestions.map((s, si) => (
+            // `role="option"` on the item itself rather than a nested <button>:
+            // an option is what `aria-activedescendant` can point at, and a
+            // listbox may only contain options.
+            <li
+              key={`${s.lat},${s.lng},${si}`}
+              id={optionId(si)}
+              role="option"
+              aria-selected={si === activeIndex}
+              className={cn(
+                'cursor-pointer px-3 py-2 text-sm',
+                si === activeIndex ? 'bg-accent' : 'hover:bg-accent',
+              )}
+              // onMouseDown so selection fires before the input's blur;
+              // preventDefault keeps focus from flicking away.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChoose(s);
+              }}
+              onMouseEnter={() => setActiveIndex(si)}
+            >
+              {s.label}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function MultiLocationAutocompleteWidget({
@@ -250,49 +352,23 @@ export function MultiLocationAutocompleteWidget({
         const search = searches[index] ?? { suggestions: [], open: false };
         return (
           <div key={row.id} className="relative flex items-start gap-2">
-            <div className="relative flex-1">
-              <Input
-                id={`${id}_${index}`}
-                value={row.name}
-                disabled={isDisabled}
-                autoComplete="off"
-                placeholder="Search for a city…"
-                className={cn(rawErrors && rawErrors.length > 0 && 'border-destructive')}
-                onChange={(e) => handleInput(index, e.target.value)}
-                onFocus={() =>
-                  updateSearch(index, { open: search.suggestions.length > 0 })
+            <RowCombobox
+              id={`${id}_${index}`}
+              value={row.name}
+              disabled={isDisabled}
+              hasError={Boolean(rawErrors && rawErrors.length > 0)}
+              suggestions={search.suggestions}
+              open={search.open}
+              onInput={(next) => handleInput(index, next)}
+              onOpenChange={(next) => updateSearch(index, { open: next })}
+              onBlurClose={() => {
+                const ref = refsArray.current[index];
+                if (ref) {
+                  ref.blur = window.setTimeout(() => updateSearch(index, { open: false }), 150);
                 }
-                onBlur={() => {
-                  const ref = refsArray.current[index];
-                  if (ref) {
-                    ref.blur = window.setTimeout(
-                      () => updateSearch(index, { open: false }),
-                      150,
-                    );
-                  }
-                }}
-              />
-              {search.open && search.suggestions.length > 0 && (
-                <ul className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
-                  {search.suggestions.map((s, si) => (
-                    <li key={`${s.lat},${s.lng},${si}`}>
-                      <button
-                        type="button"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
-                        // onMouseDown so selection fires before the input's blur;
-                        // preventDefault keeps focus from flicking away.
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          choose(index, s);
-                        }}
-                      >
-                        {s.label}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+              }}
+              onChoose={(s) => choose(index, s)}
+            />
             {/* Remove button — always show so all rows can be cleared */}
             <button
               type="button"

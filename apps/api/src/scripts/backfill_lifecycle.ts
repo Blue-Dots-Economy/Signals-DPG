@@ -129,6 +129,9 @@ async function main() {
         continue;
       }
       const current = row.lifecycle_status as LifecycleStatus;
+      // No `gates` passed, so `owner_required` (#640) is not evaluated here —
+      // a lifecycle backfill must not demote a population for want of an
+      // owning aggregator. See `GO_LIVE_GATE_CHECKS.owner_required`.
       const next = classify_item({
         schema,
         merged_state: (row.item_state ?? {}) as Record<string, unknown>,

@@ -191,10 +191,11 @@ describe('legal content pages', () => {
       }),
       isLoading: false,
     });
-    const { PrivacyPage } = await import('@/pages/legal/privacy-page');
+    const { LegalPage } = await import('@/pages/legal/legal-page');
 
-    render(<PrivacyPage />, { wrapper: MemoryRouter });
+    render(<LegalPage />, { wrapper: MemoryRouter });
 
+    // Privacy is first on the page, so it is the page's <h1>.
     expect(screen.getByRole('heading', { level: 1, name: 'Privacy Policy v2' })).toBeInTheDocument();
     // Markdown is actually rendered, not dumped as raw text.
     expect(
@@ -215,12 +216,14 @@ describe('legal content pages', () => {
       }),
       isLoading: false,
     });
-    const { TermsPage } = await import('@/pages/legal/terms-page');
+    const { LegalPage } = await import('@/pages/legal/legal-page');
 
-    render(<TermsPage />, { wrapper: MemoryRouter });
+    render(<LegalPage />, { wrapper: MemoryRouter });
 
+    // Terms follows Privacy on the page, so it is an <h2> — a real heading,
+    // just not the page's primary one.
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Terms of Service v2' }),
+      screen.getByRole('heading', { level: 2, name: 'Terms of Service v2' }),
     ).toBeInTheDocument();
     expect(screen.getByText('behave')).toBeInTheDocument();
     expect(screen.queryByText('Superseded terms text.')).not.toBeInTheDocument();
@@ -228,26 +231,23 @@ describe('legal content pages', () => {
 
   it('shows a spinner and no content while the consent config is loading', async () => {
     mockUseConsentConfig.mockReturnValue({ config: null, isLoading: true });
-    const { PrivacyPage } = await import('@/pages/legal/privacy-page');
+    const { LegalPage } = await import('@/pages/legal/legal-page');
 
-    const { container } = render(<PrivacyPage />, { wrapper: MemoryRouter });
+    const { container } = render(<LegalPage />, { wrapper: MemoryRouter });
 
     expect(container.querySelector('.animate-spin')).not.toBeNull();
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
-    expect(screen.queryByText('Privacy policy unavailable.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Legal documents unavailable.')).not.toBeInTheDocument();
   });
 
   it('falls back to an unavailable message when the instance publishes no consent config', async () => {
     mockUseConsentConfig.mockReturnValue({ config: null, isLoading: false });
-    const { PrivacyPage } = await import('@/pages/legal/privacy-page');
-    const { TermsPage } = await import('@/pages/legal/terms-page');
+    const { LegalPage } = await import('@/pages/legal/legal-page');
 
-    const privacy = render(<PrivacyPage />, { wrapper: MemoryRouter });
-    expect(screen.getByText('Privacy policy unavailable.')).toBeInTheDocument();
-    privacy.unmount();
-
-    render(<TermsPage />, { wrapper: MemoryRouter });
-    expect(screen.getByText('Terms of service unavailable.')).toBeInTheDocument();
+    // One page, one message — it no longer names whichever document the route
+    // happened to be for.
+    render(<LegalPage />, { wrapper: MemoryRouter });
+    expect(screen.getByText('Legal documents unavailable.')).toBeInTheDocument();
   });
 });
 

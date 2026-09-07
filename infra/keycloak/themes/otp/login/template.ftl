@@ -1,4 +1,21 @@
-<#macro registrationLayout displayInfo=false displayMessage=true displayRequiredFields=false showAnotherWayIfPresent=true bodyClass="">
+<#--
+    `subtitleKey` — message key for the line under the page title, or "" for
+    no line at all (the default).
+
+    It has to be per-page. This layout is the theme's ONLY template.ftl, so
+    every page rendered by this theme goes through it — not just the four
+    templates in this directory, but every page inherited from the parent
+    theme too (page-expired, error, and so on). A subtitle hardcoded here
+    therefore appeared on all of them, and it only ever described the
+    identifier step: the SMS/email code screens told the reader to "Continue
+    with email or mobile to receive a verification code" directly above the
+    boxes for a code they had already received.
+
+    Defaulting to "" rather than to the old string is deliberate: a page that
+    says nothing about how it wants to be introduced gets no subtitle, so an
+    inherited page cannot silently pick up copy written for a different step.
+-->
+<#macro registrationLayout displayInfo=false displayMessage=true displayRequiredFields=false showAnotherWayIfPresent=true bodyClass="" subtitleKey="">
     <#-- Loop variable `section` is bound by the caller's `<@layout.registrationLayout; section>` syntax. -->
 <!DOCTYPE html>
 <html lang="${locale.currentLanguageTag!'en'}">
@@ -83,7 +100,9 @@
                 </a>
 
                 <h2 class="bd-title"><#nested "header"></h2>
-                <p class="bd-subtitle">${msg("loginAccountSubtitle")}</p>
+                <#if subtitleKey?has_content>
+                    <p class="bd-subtitle">${msg(subtitleKey)}</p>
+                </#if>
 
                 <div class="bd-form-area">
                     <#nested "form">

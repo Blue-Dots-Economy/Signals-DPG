@@ -34,7 +34,7 @@ describe('LocationAutocompleteWidget — required validity', () => {
 
   it('emits the typed string while there is text', () => {
     const { onChange } = renderWidget();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Bengaluru' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Bengaluru' } });
     expect(onChange).toHaveBeenLastCalledWith('Bengaluru');
   });
 
@@ -42,7 +42,7 @@ describe('LocationAutocompleteWidget — required validity', () => {
     // Regression guard: an empty string counts as "present" for JSON-Schema
     // `required`, which previously let an emptied location publish an invalid profile.
     const { onChange } = renderWidget({ value: 'Bengaluru' });
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: '' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '' } });
     expect(onChange).toHaveBeenLastCalledWith(undefined);
   });
 });

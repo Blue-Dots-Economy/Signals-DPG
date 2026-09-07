@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { WrongPortalToast } from '@/components/auth/wrong-portal-toast';
@@ -11,8 +11,7 @@ import { LoginPage } from './pages/auth/login-page';
 import { OtpPage } from './pages/auth/otp-page';
 import { OidcCallbackPage } from './pages/auth/oidc-callback-page';
 import { MyActionsPage } from './pages/my-actions-page';
-import { PrivacyPage } from './pages/legal/privacy-page';
-import { TermsPage } from './pages/legal/terms-page';
+import { LegalPage } from './pages/legal/legal-page';
 import { PublicProfilePage } from './pages/public-profile-page';
 
 export function App() {
@@ -42,8 +41,13 @@ export function App() {
                 route exists the moment VITE_AUTH_PROVIDER is flipped, without
                 a rebuild — the page is inert if nobody redirects here. */}
             <Route path="/auth/callback" element={<OidcCallbackPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/legal" element={<LegalPage />} />
+            {/* Both documents live on one page now. These two paths are what
+                operators have already shared over SMS and email (see #637), so
+                they keep working — as redirects that carry the reader to the
+                right section of it. */}
+            <Route path="/privacy" element={<Navigate to="/legal#privacy" replace />} />
+            <Route path="/terms" element={<Navigate to="/legal#terms" replace />} />
             <Route path="/public/:network/:domain/:itemType/:itemId" element={<PublicProfilePage />} />
             <Route path="/my-actions" element={<RequireAuth><MyActionsPage /></RequireAuth>} />
             <Route path="/my-actions/*" element={<RequireAuth><MyActionsPage /></RequireAuth>} />

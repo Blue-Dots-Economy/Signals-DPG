@@ -178,7 +178,7 @@ describe('ReferenceAutocompleteWidget — dataset URL resolution', () => {
     const fetchMock = stubFetch(FLAT_ONE);
     renderReference({ options: {} });
 
-    expect(await screen.findByRole('textbox')).toBeInTheDocument();
+    expect(await screen.findByRole('combobox')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -193,13 +193,13 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source } });
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'A' } });
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
 
     fireEvent.change(input, { target: { value: 'Al' } });
     expect(
-      await screen.findByRole('button', { name: /Alpha Engineering College/ }),
+      await screen.findByRole('option', { name: /Alpha Engineering College/ }),
     ).toBeInTheDocument();
   });
 
@@ -209,10 +209,10 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     const { onChange } = renderReference({ options: { source } });
 
     const user = userEvent.setup();
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     await user.type(input, 'alpha');
 
-    const option = await screen.findByRole('button', { name: /Alpha Engineering College/ });
+    const option = await screen.findByRole('option', { name: /Alpha Engineering College/ });
     await user.click(option);
 
     // The key #433 invariant: the field stays `type: "string"`, so the widget
@@ -229,7 +229,7 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(FLAT_ONE);
     const { onChange } = renderReference({ options: { source } });
 
-    fireEvent.change(screen.getByRole('textbox'), {
+    fireEvent.change(screen.getByRole('combobox'), {
       target: { value: 'Some Unlisted Polytechnic' },
     });
 
@@ -243,12 +243,12 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     const props = referenceProps({ options: { source }, value: 'Legacy Free Text' });
     const { rerender } = render(<ReferenceAutocompleteWidget {...props} />);
 
-    expect(screen.getByRole('textbox')).toHaveValue('Legacy Free Text');
+    expect(screen.getByRole('combobox')).toHaveValue('Legacy Free Text');
 
     rerender(
       <ReferenceAutocompleteWidget {...referenceProps({ ...props, value: 'Edited Elsewhere' })} />,
     );
-    expect(screen.getByRole('textbox')).toHaveValue('Edited Elsewhere');
+    expect(screen.getByRole('combobox')).toHaveValue('Edited Elsewhere');
   });
 
   it('matches case-insensitively on a substring, not just a prefix', async () => {
@@ -256,9 +256,9 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'ENGINEERING' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ENGINEERING' } });
     expect(
-      await screen.findByRole('button', { name: /Alpha Engineering College/ }),
+      await screen.findByRole('option', { name: /Alpha Engineering College/ }),
     ).toBeInTheDocument();
   });
 
@@ -271,10 +271,10 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(many);
     renderReference({ options: { source } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'engineering' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'engineering' } });
 
-    await screen.findByRole('button', { name: /Engineering College 0/ });
-    expect(screen.getAllByRole('button')).toHaveLength(50);
+    await screen.findByRole('option', { name: /Engineering College 0/ });
+    expect(screen.getAllByRole('option')).toHaveLength(50);
   });
 
   it('closes the list shortly after blur', async () => {
@@ -282,9 +282,9 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source } });
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'alpha' } });
-    await screen.findByRole('button', { name: /Alpha Engineering College/ });
+    await screen.findByRole('option', { name: /Alpha Engineering College/ });
 
     fireEvent.blur(input);
     await waitFor(() => expect(screen.queryByRole('button')).not.toBeInTheDocument());
@@ -295,16 +295,16 @@ describe('ReferenceAutocompleteWidget — suggestions and stored value', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source } });
 
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'alpha' } });
-    await screen.findByRole('button', { name: /Alpha Engineering College/ });
+    await screen.findByRole('option', { name: /Alpha Engineering College/ });
 
     fireEvent.blur(input);
     await waitFor(() => expect(screen.queryByRole('button')).not.toBeInTheDocument());
 
     fireEvent.focus(input);
     expect(
-      await screen.findByRole('button', { name: /Alpha Engineering College/ }),
+      await screen.findByRole('option', { name: /Alpha Engineering College/ }),
     ).toBeInTheDocument();
   });
 });
@@ -335,14 +335,14 @@ describe('ReferenceAutocompleteWidget — dataset shapes', () => {
     });
     renderReference({ options: { source, subtitleFields: ['district', 'state'] } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'institute' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'institute' } });
 
     // Parent district/state inherited.
     expect(await screen.findByText('Mysuru, Karnataka')).toBeInTheDocument();
     // Organization-level fields win over the parents'.
     expect(screen.getByText('Mandya, Karnataka-South')).toBeInTheDocument();
     // The nameless entry is dropped entirely.
-    expect(screen.getAllByRole('button')).toHaveLength(2);
+    expect(screen.getAllByRole('option')).toHaveLength(2);
   });
 
   it('drops flat-dataset entries whose name is missing or not a string', async () => {
@@ -354,10 +354,10 @@ describe('ReferenceAutocompleteWidget — dataset shapes', () => {
     ]);
     renderReference({ options: { source } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'institute' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'institute' } });
 
-    expect(await screen.findByRole('button', { name: 'Valid Institute' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(1);
+    expect(await screen.findByRole('option', { name: 'Valid Institute' })).toBeInTheDocument();
+    expect(screen.getAllByRole('option')).toHaveLength(1);
   });
 
   it('degrades to a plain text input when the dataset fetch 404s', async () => {
@@ -367,7 +367,7 @@ describe('ReferenceAutocompleteWidget — dataset shapes', () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Alpha Engineering' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Alpha Engineering' } });
 
     // No suggestions, but the typed value is still captured.
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
@@ -387,7 +387,7 @@ describe('ReferenceAutocompleteWidget — dataset shapes', () => {
     const { onChange } = renderReference({ options: { source } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'anything' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'anything' } });
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(onChange).toHaveBeenLastCalledWith('anything');
@@ -404,7 +404,7 @@ describe('ReferenceAutocompleteWidget — subtitle config', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alpha' } });
 
     expect(await screen.findByText('Bengaluru Urban')).toBeInTheDocument();
     expect(screen.queryByText(/Karnataka/)).not.toBeInTheDocument();
@@ -415,7 +415,7 @@ describe('ReferenceAutocompleteWidget — subtitle config', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source, subtitleFields: ['state', 'district'] } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alpha' } });
 
     expect(await screen.findByText('Karnataka, Bengaluru Urban')).toBeInTheDocument();
   });
@@ -425,9 +425,9 @@ describe('ReferenceAutocompleteWidget — subtitle config', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source, subtitleFields: [] } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alpha' } });
 
-    await screen.findByRole('button', { name: 'Alpha Engineering College' });
+    await screen.findByRole('option', { name: 'Alpha Engineering College' });
     expect(screen.queryByText('Bengaluru Urban')).not.toBeInTheDocument();
     expect(screen.queryByText(/Karnataka/)).not.toBeInTheDocument();
   });
@@ -437,7 +437,7 @@ describe('ReferenceAutocompleteWidget — subtitle config', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source, subtitleFields: ['postcode', 'state'] } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'alpha' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'alpha' } });
 
     // `postcode` is not a supported option field, so only `state` survives.
     expect(await screen.findByText('Karnataka')).toBeInTheDocument();
@@ -448,9 +448,9 @@ describe('ReferenceAutocompleteWidget — subtitle config', () => {
     stubFetch([{ name: 'Bare Institute' }]);
     renderReference({ options: { source, subtitleFields: ['district', 'state'] } });
 
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bare' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'bare' } });
 
-    const option = await screen.findByRole('button', { name: 'Bare Institute' });
+    const option = await screen.findByRole('option', { name: 'Bare Institute' });
     expect(option.textContent).toBe('Bare Institute');
   });
 });
@@ -463,13 +463,13 @@ describe('ReferenceAutocompleteWidget — disabled state and errors', () => {
   it('disables the input when RJSF marks the field readonly', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source: uniqueSource() }, readonly: true });
-    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('combobox')).toBeDisabled();
   });
 
   it('disables the input when RJSF marks the field disabled', () => {
     stubFetch(FLAT_ONE);
     renderReference({ options: { source: uniqueSource() }, disabled: true });
-    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('combobox')).toBeDisabled();
   });
 
   it('renders the joined validation errors under the field', () => {
@@ -500,13 +500,13 @@ describe('ReferenceAutocompleteWidget — disabled state and errors', () => {
 describe('MultiLocationAutocompleteWidget — rows', () => {
   it('starts with one empty row on a fresh form', () => {
     renderMultiLocation();
-    expect(screen.getAllByRole('textbox')).toHaveLength(1);
-    expect(screen.getAllByRole('textbox')[0]).toHaveValue('');
+    expect(screen.getAllByRole('combobox')).toHaveLength(1);
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('');
   });
 
   it('renders one prefilled row per incoming value', () => {
     renderMultiLocation({ value: ['Bengaluru', 'Mysuru'] });
-    const inputs = screen.getAllByRole('textbox');
+    const inputs = screen.getAllByRole('combobox');
     expect(inputs).toHaveLength(2);
     expect(inputs[0]).toHaveValue('Bengaluru');
     expect(inputs[1]).toHaveValue('Mysuru');
@@ -514,7 +514,7 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
 
   it('ignores non-string entries in the incoming value', () => {
     renderMultiLocation({ value: ['Bengaluru', 7, null, 'Mysuru'] });
-    const inputs = screen.getAllByRole('textbox');
+    const inputs = screen.getAllByRole('combobox');
     expect(inputs).toHaveLength(2);
     expect(inputs[1]).toHaveValue('Mysuru');
   });
@@ -524,7 +524,7 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
 
     await userEvent.setup().click(screen.getByRole('button', { name: '+ Add city' }));
 
-    expect(screen.getAllByRole('textbox')).toHaveLength(2);
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
     // The blank new row must not leak an empty string into the stored array.
     expect(onChange).toHaveBeenLastCalledWith(['Bengaluru']);
   });
@@ -534,7 +534,7 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Remove city Bengaluru' }));
 
-    const inputs = screen.getAllByRole('textbox');
+    const inputs = screen.getAllByRole('combobox');
     expect(inputs).toHaveLength(1);
     expect(inputs[0]).toHaveValue('Mysuru');
     expect(onChange).toHaveBeenLastCalledWith(['Mysuru']);
@@ -549,11 +549,11 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Remove city Bengaluru' }));
-    expect(screen.queryAllByRole('textbox')).toHaveLength(0);
+    expect(screen.queryAllByRole('combobox')).toHaveLength(0);
     expect(onChange).toHaveBeenLastCalledWith([]);
 
     await user.click(screen.getByRole('button', { name: '+ Add city' }));
-    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
 
   it('labels an unnamed row by its position', () => {
@@ -579,7 +579,7 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
 
   it('resyncs rows when RJSF pushes a different value', () => {
     const { rerender, props } = renderMultiLocation({ value: ['Bengaluru'] });
-    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(screen.getAllByRole('combobox')).toHaveLength(1);
 
     rerender(
       <MultiLocationAutocompleteWidget
@@ -587,14 +587,14 @@ describe('MultiLocationAutocompleteWidget — rows', () => {
       />,
     );
 
-    const inputs = screen.getAllByRole('textbox');
+    const inputs = screen.getAllByRole('combobox');
     expect(inputs).toHaveLength(2);
     expect(inputs[1]).toHaveValue('Hubballi');
   });
 
   it('disables every control when the widget is disabled', () => {
     renderMultiLocation({ value: ['Bengaluru'], disabled: true });
-    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByRole('combobox')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Remove city Bengaluru' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '+ Add city' })).toBeDisabled();
   });
@@ -610,7 +610,7 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     geo.suggest.mockResolvedValue([]);
     renderMultiLocation();
 
-    const input = screen.getAllByRole('textbox')[0];
+    const input = screen.getAllByRole('combobox')[0];
     fireEvent.change(input, { target: { value: 'Be' } });
     fireEvent.change(input, { target: { value: 'Bengaluru' } });
 
@@ -620,7 +620,7 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
 
   it('emits the typed text immediately, before any geocoding resolves', () => {
     const { onChange } = renderMultiLocation();
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'Bengaluru' } });
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Bengaluru' } });
     expect(onChange).toHaveBeenLastCalledWith(['Bengaluru']);
   });
 
@@ -630,13 +630,13 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     ]);
     const { onChange, onLocationsResolved } = renderMultiLocation();
 
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'Bengaluru' } });
-    const option = await screen.findByRole('button', {
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Bengaluru' } });
+    const option = await screen.findByRole('option', {
       name: 'Bengaluru, Karnataka, India',
     });
     fireEvent.mouseDown(option);
 
-    expect(screen.getAllByRole('textbox')[0]).toHaveValue('Bengaluru, Karnataka, India');
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('Bengaluru, Karnataka, India');
     expect(onChange).toHaveBeenLastCalledWith(['Bengaluru, Karnataka, India']);
     expect(onLocationsResolved).toHaveBeenLastCalledWith([
       { lat: 12.97, lng: 77.59, label: 'Bengaluru, Karnataka, India' },
@@ -644,7 +644,7 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     // Picking closes the suggestion list.
     await waitFor(() =>
       expect(
-        screen.queryByRole('button', { name: 'Bengaluru, Karnataka, India' }),
+        screen.queryByRole('option', { name: 'Bengaluru, Karnataka, India' }),
       ).not.toBeInTheDocument(),
     );
   });
@@ -657,8 +657,8 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
       options: { isPrimaryLocation: false },
     });
 
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'Mysuru' } });
-    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Mysuru, Karnataka, India' }));
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Mysuru' } });
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'Mysuru, Karnataka, India' }));
 
     expect(onChange).toHaveBeenLastCalledWith(['Mysuru, Karnataka, India']);
     expect(onLocationsResolved).not.toHaveBeenCalled();
@@ -670,10 +670,10 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     ]);
     const { onLocationsResolved } = renderMultiLocation();
 
-    const input = screen.getAllByRole('textbox')[0];
+    const input = screen.getAllByRole('combobox')[0];
     fireEvent.change(input, { target: { value: 'Bengaluru' } });
     fireEvent.mouseDown(
-      await screen.findByRole('button', { name: 'Bengaluru, Karnataka, India' }),
+      await screen.findByRole('option', { name: 'Bengaluru, Karnataka, India' }),
     );
     expect(onLocationsResolved).toHaveBeenLastCalledWith([
       { lat: 12.97, lng: 77.59, label: 'Bengaluru, Karnataka, India' },
@@ -690,13 +690,13 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     const { onLocationsResolved } = renderMultiLocation();
     const user = userEvent.setup();
 
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'Bengaluru' } });
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Bengaluru' } });
     fireEvent.mouseDown(
-      await screen.findByRole('button', { name: 'Bengaluru, Karnataka, India' }),
+      await screen.findByRole('option', { name: 'Bengaluru, Karnataka, India' }),
     );
 
     await user.click(screen.getByRole('button', { name: '+ Add city' }));
-    fireEvent.change(screen.getAllByRole('textbox')[1], { target: { value: 'Hu' } });
+    fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'Hu' } });
 
     expect(onLocationsResolved).toHaveBeenLastCalledWith([
       { lat: 12.97, lng: 77.59, label: 'Bengaluru, Karnataka, India' },
@@ -707,10 +707,10 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     geo.suggest.mockResolvedValue([]);
     renderMultiLocation();
 
-    fireEvent.change(screen.getAllByRole('textbox')[0], { target: { value: 'Zzzzzz' } });
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'Zzzzzz' } });
     await waitFor(() => expect(geo.suggest).toHaveBeenCalledTimes(1));
 
-    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
   it('closes the dropdown shortly after the input blurs', async () => {
@@ -719,14 +719,14 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     ]);
     renderMultiLocation();
 
-    const input = screen.getAllByRole('textbox')[0];
+    const input = screen.getAllByRole('combobox')[0];
     fireEvent.change(input, { target: { value: 'Bengaluru' } });
-    await screen.findByRole('button', { name: 'Bengaluru, Karnataka, India' });
+    await screen.findByRole('option', { name: 'Bengaluru, Karnataka, India' });
 
     fireEvent.blur(input);
     await waitFor(() =>
       expect(
-        screen.queryByRole('button', { name: 'Bengaluru, Karnataka, India' }),
+        screen.queryByRole('option', { name: 'Bengaluru, Karnataka, India' }),
       ).not.toBeInTheDocument(),
     );
   });
@@ -743,8 +743,8 @@ describe('MultiLocationAutocompleteWidget — geocoding', () => {
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: '+ Add city' }));
-    fireEvent.change(screen.getAllByRole('textbox')[1], { target: { value: 'Mysuru' } });
-    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Mysuru, Karnataka, India' }));
+    fireEvent.change(screen.getAllByRole('combobox')[1], { target: { value: 'Mysuru' } });
+    fireEvent.mouseDown(await screen.findByRole('option', { name: 'Mysuru, Karnataka, India' }));
 
     expect(onChange).toHaveBeenLastCalledWith([
       'Bengaluru, Karnataka, India',

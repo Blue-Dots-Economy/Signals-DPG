@@ -1,6 +1,6 @@
 <#import "template.ftl" as layout>
 <#import "buttons.ftl" as buttons>
-<@layout.registrationLayout displayMessage=true; section>
+<@layout.registrationLayout displayMessage=true subtitleKey="loginAccountSubtitle"; section>
 <!-- template: login-otp-channel-select.ftl -->
 
     <#if section="header">

@@ -198,3 +198,57 @@ describe('classify_item — config-driven gates (go_live_required)', () => {
     ).toEqual({ lifecycle_status: 'paused' });
   });
 });
+
+describe('owner_required through classify_item (SS-3, #640)', () => {
+  const OWNER_GATES = ['schema_required', 'owner_required'] as const;
+  const complete = { a: 'x', b: 'y' };
+
+  const run = (
+    current: 'draft' | 'live',
+    owner_context?: { has_owner: boolean; default_configured: boolean },
+  ) =>
+    classify_item({
+      schema: schema(['a', 'b']),
+      merged_state: complete,
+      current_status: current,
+      consent_accepted: true,
+      gates: OWNER_GATES,
+      owner_context,
+    }).lifecycle_status;
+
+  it('goes live when the owner has an aggregator', () => {
+    expect(run('draft', { has_owner: true, default_configured: true })).toBe('live');
+  });
+
+  it('stays draft when a default exists but the owner has no aggregator', () => {
+    expect(run('draft', { has_owner: false, default_configured: true })).toBe('draft');
+  });
+
+  it('goes live while no default aggregator is nominated (guard 1)', () => {
+    expect(run('draft', { has_owner: false, default_configured: false })).toBe('live');
+  });
+
+
+  it('leaves an already-live unowned profile live (guard 2)', () => {
+    expect(run('live', { has_owner: false, default_configured: true })).toBe('live');
+  });
+
+  // A call site that configures the gate but forgets to resolve the context
+  // must leave profiles in draft (visible, recoverable) rather than silently
+  // publishing unowned ones.
+  it('fails closed when the gate is configured but no owner context is passed', () => {
+    expect(run('draft', undefined)).toBe('draft');
+  });
+
+  it('is not evaluated at all when the domain does not configure it', () => {
+    expect(
+      classify_item({
+        schema: schema(['a', 'b']),
+        merged_state: complete,
+        current_status: 'draft',
+        consent_accepted: true,
+        gates: ['schema_required'],
+      }).lifecycle_status,
+    ).toBe('live');
+  });
+});

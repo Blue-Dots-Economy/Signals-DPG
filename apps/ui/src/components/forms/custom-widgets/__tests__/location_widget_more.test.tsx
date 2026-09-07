@@ -363,30 +363,30 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
   it('opens the dropdown with the geocoded suggestions once the debounce fires', async () => {
     geoState.results = [BENGALURU, BENGALURU_SOUTH];
     renderWidget();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Beng' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Beng' } });
 
     expect(await screen.findByText('Bengaluru, Karnataka, India')).toBeInTheDocument();
     expect(screen.getByText('Bengaluru South, Karnataka, India')).toBeInTheDocument();
     // Debounced: one keystroke → one geocode, for the typed query.
     expect(suggestCalls).toEqual(['Beng']);
     // Room below the input → the list hangs downward.
-    expect(screen.getByRole('list').className).toContain('top-full');
+    expect(screen.getByRole('listbox').className).toContain('top-full');
   });
 
   it('keeps the dropdown shut when the geocoder finds nothing', async () => {
     geoState.results = [];
     renderWidget();
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Nowhere at all' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Nowhere at all' } });
 
     await waitFor(() => expect(suggestCalls).toEqual(['Nowhere at all']));
-    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.queryByRole('listbox')).toBeNull();
   });
 
   it('reports the picked place (point + components) and closes the list', async () => {
     geoState.results = [BENGALURU, BENGALURU_SOUTH];
     const onLocationResolved = vi.fn((_place: ResolvedPlace | null) => {});
     const { onChange } = renderWidget({}, { onLocationResolved });
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Beng' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Beng' } });
     const option = await screen.findByText('Bengaluru, Karnataka, India');
 
     // Typing first drops any previously resolved point for the primary field.
@@ -395,13 +395,13 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
     fireEvent.mouseDown(option);
 
     expect(onChange).toHaveBeenLastCalledWith('Bengaluru, Karnataka, India');
-    expect(screen.getByRole('textbox')).toHaveValue('Bengaluru, Karnataka, India');
+    expect(screen.getByRole('combobox')).toHaveValue('Bengaluru, Karnataka, India');
     expect(onLocationResolved).toHaveBeenLastCalledWith({
       lat: 12.9716,
       lng: 77.5946,
       components: { city: 'Bengaluru', state: 'Karnataka', country: 'India' },
     });
-    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.queryByRole('listbox')).toBeNull();
     // Selecting must not kick off another geocode (which would re-open the list).
     expect(suggestCalls).toEqual(['Beng']);
   });
@@ -410,7 +410,7 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
     geoState.results = [BENGALURU];
     const onLocationResolved = vi.fn((_place: ResolvedPlace | null) => {});
     const { onChange } = renderWidget({ options: {} }, { onLocationResolved });
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Beng' } });
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Beng' } });
     fireEvent.mouseDown(await screen.findByText('Bengaluru, Karnataka, India'));
 
     expect(onChange).toHaveBeenLastCalledWith('Bengaluru, Karnataka, India');
@@ -425,9 +425,9 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
       .mockReturnValue({ bottom: window.innerHeight - 40, top: 0, left: 0, right: 0, width: 200, height: 40, x: 0, y: 0, toJSON: () => ({}) });
     try {
       renderWidget();
-      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Beng' } });
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Beng' } });
       await screen.findByText('Bengaluru, Karnataka, India');
-      expect(screen.getByRole('list').className).toContain('bottom-full');
+      expect(screen.getByRole('listbox').className).toContain('bottom-full');
     } finally {
       rectSpy.mockRestore();
     }
@@ -437,7 +437,7 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
     geoState.results = [BENGALURU];
     geoState.delayMs = 150;
     const { onChange } = renderWidget();
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
 
     fireEvent.change(input, { target: { value: 'Bengaluru' } });
     // Wait until the debounce has fired and the (slow) geocode is in flight.
@@ -449,23 +449,23 @@ describe('LocationAutocompleteWidget — suggestions, selection, stale responses
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
     });
-    expect(screen.queryByRole('list')).toBeNull();
-    expect(screen.getByRole('textbox')).toHaveValue('');
+    expect(screen.queryByRole('listbox')).toBeNull();
+    expect(screen.getByRole('combobox')).toHaveValue('');
   });
 
   it('closes the list on blur and re-opens the same suggestions on refocus', async () => {
     geoState.results = [BENGALURU];
     renderWidget();
-    const input = screen.getByRole('textbox');
+    const input = screen.getByRole('combobox');
     fireEvent.change(input, { target: { value: 'Beng' } });
     await screen.findByText('Bengaluru, Karnataka, India');
 
     fireEvent.blur(input);
     // The close is delayed (so a suggestion mousedown still registers).
-    await waitFor(() => expect(screen.queryByRole('list')).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('listbox')).toBeNull());
 
     fireEvent.focus(input);
-    expect(screen.getByRole('list')).toBeInTheDocument();
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
     expect(screen.getByText('Bengaluru, Karnataka, India')).toBeInTheDocument();
     // Refocusing reuses the cached suggestions — no second geocode.
     expect(suggestCalls).toEqual(['Beng']);

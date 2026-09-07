@@ -1,5 +1,6 @@
 import type { RJSFSchema } from '@rjsf/utils';
 import type { LucideIcon } from 'lucide-react';
+import type { GoLiveGate } from '@dpg/schemas';
 
 // ─── Schema Types ───────────────────────────────────────────────
 
@@ -109,7 +110,10 @@ export interface DotNetworkDomain {
    * the profile goes live on completeness alone. Absent ⇒ treat as requiring
    * consent (safe default).
    */
-  go_live_required?: Array<'schema_required' | 'consent_required'>;
+  // Imported rather than re-declared: the vocabulary is owned by
+  // PROFILE_GO_LIVE_GATES in @dpg/schemas, so a new token cannot silently
+  // leave this union behind (it already had — `owner_required`, #640).
+  go_live_required?: GoLiveGate[];
   /**
    * Optional per-domain "why complete your profile" prompt shown at the top of
    * the create/edit page (#376), to motivate a first-time user to finish. The

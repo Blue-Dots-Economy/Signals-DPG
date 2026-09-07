@@ -3,6 +3,7 @@ import type { WidgetProps } from '@rjsf/utils';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { getGeoProvider } from '@/lib/geo/provider';
+import { useSuggestionKeyboard } from './use-suggestion-keyboard';
 import type { GeoComponents, GeoSuggestion } from '@/lib/geo/types';
 
 /** A selected place reported to the form: the exact point plus the address
@@ -123,6 +124,19 @@ export function LocationAutocompleteWidget({
     }
   }
 
+  const { activeIndex, setActiveIndex, optionId, activeDescendantId, listboxId, onKeyDown } =
+    useSuggestionKeyboard({
+      items: suggestions,
+      open,
+      onOpen: () => setOpen(true),
+      onClose: () => setOpen(false),
+      onSelect: (index) => {
+        const s = suggestions[index];
+        if (s) void choose(s);
+      },
+      idPrefix: id,
+    });
+
   return (
     <div className="relative space-y-2">
       <Input
@@ -131,8 +145,14 @@ export function LocationAutocompleteWidget({
         value={text}
         disabled={disabled || readonly}
         autoComplete="off"
+        role="combobox"
+        aria-expanded={open && suggestions.length > 0}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeDescendantId}
         className={cn(rawErrors && rawErrors.length > 0 && 'border-destructive')}
         onChange={(e) => handleInput(e.target.value)}
+        onKeyDown={onKeyDown}
         onFocus={() => setOpen(suggestions.length > 0)}
         onBlur={() => {
           // Delay the close so a suggestion mousedown still registers.
@@ -141,25 +161,38 @@ export function LocationAutocompleteWidget({
       />
       {open && suggestions.length > 0 && (
         <ul
+          id={listboxId}
+          role="listbox"
           className={cn(
             'absolute left-0 z-50 max-h-60 w-full overflow-auto rounded-md border bg-popover shadow-md',
             dropUp ? 'bottom-full mb-1' : 'top-full mt-1',
           )}
         >
           {suggestions.map((s, i) => (
-            <li key={`${s.lat},${s.lng},${i}`}>
-              <button
-                type="button"
-                className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
-                // onMouseDown (not onClick) so selection runs before the input's
-                // blur fires; preventDefault keeps focus from flicking away.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  void choose(s);
-                }}
-              >
-                {s.label}
-              </button>
+            // `role="option"` on the item itself, not a nested <button>: an
+            // option is what `aria-activedescendant` above can point at, and a
+            // listbox may only contain options. It keeps its own click handler,
+            // so a mouse behaves exactly as before.
+            <li
+              key={`${s.lat},${s.lng},${i}`}
+              id={optionId(i)}
+              role="option"
+              aria-selected={i === activeIndex}
+              className={cn(
+                'cursor-pointer px-3 py-2 text-sm',
+                i === activeIndex ? 'bg-accent' : 'hover:bg-accent',
+              )}
+              // onMouseDown (not onClick) so selection runs before the input's
+              // blur fires; preventDefault keeps focus from flicking away.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                void choose(s);
+              }}
+              // Hovering moves the keyboard highlight too, so the two never
+              // disagree about which option Enter would take.
+              onMouseEnter={() => setActiveIndex(i)}
+            >
+              {s.label}
             </li>
           ))}
         </ul>
