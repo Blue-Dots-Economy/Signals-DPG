@@ -116,9 +116,16 @@ export function resolveDiscoverSort(input: {
   }
   if (input.requested === 'newest') return 'newest';
 
-  // Unspecified: relevance is the useful default when we have an anchor to
-  // rank against, else there is nothing to rank by.
-  return input.hasAnchor ? 'relevance' : 'newest';
+  // Unspecified: relevance whenever there is a QUERY VECTOR to rank against —
+  // an anchor or the text, exactly as the explicit branch above decides it.
+  //
+  // `hasQ` was missing here, and because `buildSearchInput` now always sends
+  // `sort`, this default OVERRODE signals-search's own inference: a
+  // pre-existing caller POSTing just `{ item_network, item_domain, item_type,
+  // q }` got date-ordered rows where it used to get cosine, and still paid for
+  // the embed. `sort` is a new field, so no existing non-UI caller sets it —
+  // they are all in this path.
+  return input.hasAnchor || input.hasQ ? 'relevance' : 'newest';
 }
 
 /**
@@ -375,15 +382,26 @@ const discover_items_handler = async (
     // Either area mode counts as "the caller asked to be bounded". `radius`
     // sends a centre + distance; `viewport` sends a rectangle (contract §1.5).
     const hasBbox = body.min_lat !== undefined;
-    const hasAreaFilter =
-      (body.item_latitude !== undefined && body.item_longitude !== undefined) || hasBbox;
+    // A radius centre. Declared before `hasAreaFilter` because the reported
+    // radius keys off THIS, not off "some area filter exists".
+    const hasRadiusCenter =
+      body.item_latitude !== undefined && body.item_longitude !== undefined;
+    const hasAreaFilter = hasRadiusCenter || hasBbox;
 
-    // Effective reported radius (#394): only meaningful when an AREA FILTER
-    // exists. Precedence: the request's own override, then the configured env,
-    // then the documented constant that mirrors signals-search's own default —
-    // so the UI's "within X km" note is accurate whether or not
+    // Effective reported radius (#394): only meaningful for a RADIUS filter.
+    // Precedence: the request's own override, then the configured env, then the
+    // documented constant that mirrors signals-search's own default — so the
+    // UI's "within X km" note is accurate whether or not
     // SIGNALS_SEARCH_DISTANCE_METERS is set.
-    const effectiveDistanceMeters = hasAreaFilter
+    //
+    // Deliberately NOT `hasAreaFilter`: a VIEWPORT applies no radius, so
+    // reporting one is the same lie the ordering centre was split out to
+    // prevent. It was believed, too — `resolveListNote` shows its km note on
+    // `hasLocation && distanceMeters !== undefined` without consulting the area
+    // mode, so a viewer who zoomed to one street and hit "Search this area" was
+    // told "within 30 km of your profile location", and still 30 km after
+    // zooming out to a whole state.
+    const effectiveDistanceMeters = hasRadiusCenter
       ? (body.distance_meters ??
         signalsSearchConfig.distanceMeters ??
         DEFAULT_SEARCH_DISTANCE_METERS)
@@ -395,13 +413,12 @@ const discover_items_handler = async (
       body.ordering_latitude !== undefined && body.ordering_longitude !== undefined;
 
     // `nearest` needs a centre from somewhere. A RADIUS area's centre serves
-    // as one (signals-search reuses it, contract §1.3 rule 2) — a VIEWPORT
-    // does NOT: a bbox has no centre on the wire, and deriving one from the
-    // rectangle's midpoint would let "search this area" silently change the
-    // sort the user chose. So nearest-within-a-viewport requires the UI to
-    // send `ordering_latitude`/`ordering_longitude` alongside the bbox.
-    const hasRadiusCenter =
-      body.item_latitude !== undefined && body.item_longitude !== undefined;
+    // as one (`hasRadiusCenter` above; signals-search reuses it, contract §1.3
+    // rule 2) — a VIEWPORT does NOT: a bbox has no centre on the wire, and
+    // deriving one from the rectangle's midpoint would let "search this area"
+    // silently change the sort the user chose. So nearest-within-a-viewport
+    // requires the UI to send `ordering_latitude`/`ordering_longitude`
+    // alongside the bbox.
     const sortApplied = resolveDiscoverSort({
       requested: body.sort,
       hasAnchor: body.anchor_item_id !== undefined,
@@ -597,7 +614,10 @@ const discover_items_handler = async (
                   requested: body.sort,
                   hasAnchor: false,
                   hasQ: body.q !== undefined,
-                  hasOrderingCenter: hasOrderingCenter || hasAreaFilter,
+                  // `hasRadiusCenter`, matching the primary call above — a
+                  // viewport supplies no centre, so it cannot make `nearest`
+                  // satisfiable here either.
+                  hasOrderingCenter: hasOrderingCenter || hasRadiusCenter,
                 }),
             },
             items,

@@ -1283,6 +1283,34 @@ describe('POST /discover — viewport area mode (contract §1.5)', () => {
     expect(sent?.distanceMeters).toBeUndefined();
   });
 
+  it('reports NO radius for a viewport search — it never applied one', async () => {
+    // Review finding. `hasAreaFilter` folded the bbox in with the radius pair,
+    // so `effectiveDistanceMeters` resolved to DEFAULT_SEARCH_DISTANCE_METERS
+    // and went out as `meta.distance_meters`. The UI note is area-mode-blind
+    // (`resolveListNote` only checks hasLocation && distanceMeters), so a
+    // signed-in viewer who zoomed to one street and hit "Search this area" was
+    // told "within 30 km of your profile location" — and still 30 km after
+    // zooming out to a whole state. This is precisely the lie the ordering
+    // centre was split out to avoid: report a bound only where one applies.
+    const { body, sent } = await post(BOX);
+
+    expect(body.meta.distance_meters).toBeUndefined();
+    // The bbox itself must still be the filter that travels.
+    expect(sent?.minLat).toBe(12.8);
+    expect(sent?.distanceMeters).toBeUndefined();
+  });
+
+  it('still reports the radius when a viewport carries an ordering centre', async () => {
+    // An ordering centre bounds nothing either, so it must not resurrect a
+    // reported radius.
+    const { body } = await post(
+      { ...BOX, sort: 'nearest', ordering_latitude: 12.97, ordering_longitude: 77.59 },
+      'nearest',
+    );
+
+    expect(body.meta.distance_meters).toBeUndefined();
+  });
+
   it('a viewport contributes NO ordering centre, so nearest degrades', async () => {
     // Contract §1.3 rule 2 is `s_dwithin` only. Deriving a centre from the
     // rectangle's midpoint would let "search this area" silently change the
@@ -1531,5 +1559,36 @@ describe('POST /discover — signals-search and native parity (contract §7)', (
     // No bound of any kind.
     expect(native.filters.radius_meters).toBeUndefined();
     expect(native.filters.min_lat).toBeUndefined();
+  });
+});
+
+describe('resolveDiscoverSort — review findings', () => {
+  it('keeps relevance for an UNSPECIFIED sort when only text is present', () => {
+    // Compat regression. `hasQ` was honoured in the explicit-relevance branch
+    // but ignored in the unspecified default, which returned 'newest'. Since
+    // `buildSearchInput` now always sends `sort`, that default OVERRODE
+    // signals-search's own inference — so every pre-existing caller POSTing
+    // just `{ item_network, item_domain, item_type, q }` silently lost cosine
+    // ordering and got date-ordered rows, while still paying for the embed.
+    // `sort` is a new field, so no existing non-UI caller sets it.
+    expect(
+      resolveDiscoverSort({ hasAnchor: false, hasQ: true, hasOrderingCenter: false }),
+    ).toBe('relevance');
+  });
+
+  it('still degrades an unspecified sort to newest with neither anchor nor text', () => {
+    expect(
+      resolveDiscoverSort({ hasAnchor: false, hasQ: false, hasOrderingCenter: false }),
+    ).toBe('newest');
+  });
+
+  it('agrees with its own explicit-relevance branch about what a query vector is', () => {
+    // The two branches must not disagree: whatever makes explicit relevance
+    // satisfiable must make it the inferred default too.
+    for (const [hasAnchor, hasQ] of [[true, false], [false, true], [true, true]] as const) {
+      expect(resolveDiscoverSort({ requested: 'relevance', hasAnchor, hasQ, hasOrderingCenter: false })).toBe(
+        resolveDiscoverSort({ hasAnchor, hasQ, hasOrderingCenter: false }),
+      );
+    }
   });
 });

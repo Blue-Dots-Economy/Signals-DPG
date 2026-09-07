@@ -544,6 +544,56 @@ function parseFacetParams(searchParams: URLSearchParams): Record<string, string[
   return result;
 }
 
+/**
+ * Split the action-consent sentinel out of a submitted action form.
+ *
+ * `ConsentCheckbox` (inside `ActionModal`) stashes its acknowledgement under
+ * `ACTION_CONSENT_SENTINEL` in the same `formData` as the action's own
+ * requirement answers. It has to come back out: the sentinel is not a
+ * requirement and must never reach the server inside
+ * `requirements_snapshot`.
+ *
+ * The validation is deliberately structural rather than a cast — the value
+ * arrives as `unknown` from a schema-driven form, so an unacknowledged or
+ * malformed sentinel yields `undefined` (no consent claimed) instead of a
+ * half-built object. Both the single-action and bulk-action paths carried this
+ * same predicate inline.
+ */
+function splitActionConsent(formData: Record<string, unknown>): {
+  consent: { acknowledged: true; version: number; brand?: string | null } | undefined;
+  requirementsSnapshot: Record<string, unknown>;
+} {
+  const { [ACTION_CONSENT_SENTINEL]: consentRaw, ...requirementsSnapshot } = formData;
+  const ack = consentRaw as { acknowledged?: unknown; version?: unknown; brand?: string | null };
+  const valid =
+    !!consentRaw &&
+    typeof consentRaw === 'object' &&
+    ack.acknowledged === true &&
+    typeof ack.version === 'number';
+
+  return {
+    consent: valid
+      ? { acknowledged: true, version: ack.version as number, brand: ack.brand }
+      : undefined,
+    requirementsSnapshot,
+  };
+}
+
+/**
+ * Where an item actually lives, for an action payload.
+ *
+ * A stored `item_instance_url` pointing at localhost means the item was
+ * created on whichever API this build talks to, so the configured URL is the
+ * honest answer; anything else resolves through the network config. Four call
+ * sites had this same ternary inline — source and target, for both the single
+ * and the bulk action path.
+ */
+function instanceUrlForAction(item: Item, network: DotNetworkSchema): string {
+  return item.item_instance_url?.includes('localhost')
+    ? apiConfig.getUrl()
+    : resolveTargetInstanceUrl(item, network, apiConfig.getUrl());
+}
+
 export function HomePage() {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
@@ -1396,27 +1446,12 @@ export function HomePage() {
           return;
         }
 
-        const { [ACTION_CONSENT_SENTINEL]: consentRaw, ...requirementsSnapshot } = formData;
-        const consent =
-          consentRaw &&
-          typeof consentRaw === 'object' &&
-          (consentRaw as { acknowledged?: unknown }).acknowledged === true &&
-          typeof (consentRaw as { version?: unknown }).version === 'number'
-            ? {
-                acknowledged: true as const,
-                version: (consentRaw as { version: number }).version,
-                brand: (consentRaw as { brand?: string | null }).brand,
-              }
-            : undefined;
+        const { consent, requirementsSnapshot } = splitActionConsent(formData);
 
-        const sourceItemInstanceUrl = myItem.item_instance_url?.includes('localhost')
-          ? apiConfig.getUrl()
-          : resolveTargetInstanceUrl(myItem, network, apiConfig.getUrl());
+        const sourceItemInstanceUrl = instanceUrlForAction(myItem, network);
 
         const payloads = targets.map((targetItem) => {
-            const targetItemInstanceUrl = targetItem.item_instance_url?.includes('localhost')
-              ? apiConfig.getUrl()
-              : resolveTargetInstanceUrl(targetItem, network, apiConfig.getUrl());
+            const targetItemInstanceUrl = instanceUrlForAction(targetItem, network);
             return {
               action_type: actionType,
               source_item: {
@@ -2185,31 +2220,14 @@ export function HomePage() {
 
             // Extract consent sentinel placed by ConsentCheckbox inside ActionModal.
             // Must not appear in requirements_snapshot sent to the server.
-            const { [ACTION_CONSENT_SENTINEL]: consentRaw, ...requirementsSnapshot } = formData;
-            const consent =
-              consentRaw &&
-              typeof consentRaw === 'object' &&
-              (consentRaw as { acknowledged?: unknown }).acknowledged === true &&
-              typeof (consentRaw as { version?: unknown }).version === 'number'
-                ? ({
-                    acknowledged: true as const,
-                    version: (consentRaw as { version: number }).version,
-                    brand: (consentRaw as { brand?: string | null }).brand,
-                  })
-                : undefined;
+            const { consent, requirementsSnapshot } = splitActionConsent(formData);
 
             // Resolve source item instance URL (where my profile is stored)
             // IMPORTANT: If the source item has localhost as instance_url,
             // it means it was created on the current API instance
-            const sourceItemInstanceUrl = myItem.item_instance_url?.includes('localhost')
-              ? apiConfig.getUrl()  // Use current API where the item was actually created
-              : resolveTargetInstanceUrl(myItem, network, apiConfig.getUrl());
+            const sourceItemInstanceUrl = instanceUrlForAction(myItem, network);
 
-            // Resolve target item instance URL dynamically
-            // IMPORTANT: If target item has localhost, use current API as fallback
-            const targetItemInstanceUrl = targetItem.item_instance_url?.includes('localhost')
-              ? apiConfig.getUrl()  // Use current API where the item was actually fetched from
-              : resolveTargetInstanceUrl(targetItem, network, apiConfig.getUrl());
+            const targetItemInstanceUrl = instanceUrlForAction(targetItem, network);
 
             await performAction(
               {
