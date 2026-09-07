@@ -3644,6 +3644,13 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "unavailable_reason": {
+                      "type": "string",
+                      "enum": [
+                        "not_indexed",
+                        "not_comparable"
+                      ]
+                    },
                     "signals": {
                       "type": "array",
                       "items": {

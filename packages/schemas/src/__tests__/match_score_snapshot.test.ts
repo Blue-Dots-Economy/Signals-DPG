@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ItemSnapshotSchema } from '../api/item_schemas';
-import { MatchScoreRequestSchema } from '../api/match_score_schemas';
+import { MatchScoreRequestSchema, MatchScoreResponseSchema } from '../api/match_score_schemas';
 
 const UUID_A = '550e8400-e29b-41d4-a716-446655440000';
 const UUID_B = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
@@ -94,5 +94,39 @@ describe('MatchScoreRequestSchema', () => {
     const incomplete = { item_id: UUID_A };
     const result = MatchScoreRequestSchema.safeParse({ itemA: incomplete, itemB: incomplete });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('MatchScoreResponseSchema — what survives serialization', () => {
+  it('keeps unavailable_reason, which the UI depends on to explain a missing score', () => {
+    // This schema is the RESPONSE serializer (calculate_match_score.ts:30), and
+    // Zod strips unnamed keys — so a field the provider sets and the UI
+    // declares still never arrives unless it is listed here.
+    const parsed = MatchScoreResponseSchema.parse({
+      provider: 'signals_search',
+      unavailable_reason: 'not_indexed',
+      raw_response: {},
+    });
+    expect(parsed.unavailable_reason).toBe('not_indexed');
+  });
+
+  it('rejects an unavailable_reason outside the two the provider can emit', () => {
+    expect(() =>
+      MatchScoreResponseSchema.parse({
+        provider: 'signals_search',
+        unavailable_reason: 'because_reasons',
+        raw_response: {},
+      }),
+    ).toThrow();
+  });
+
+  it('still allows a normal scored response with no reason', () => {
+    const parsed = MatchScoreResponseSchema.parse({
+      provider: 'signals_search',
+      score: 62,
+      raw_response: {},
+    });
+    expect(parsed.score).toBe(62);
+    expect(parsed.unavailable_reason).toBeUndefined();
   });
 });
