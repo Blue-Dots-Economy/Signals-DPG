@@ -152,6 +152,53 @@ So bbox is index-backed on the same path as the radius filter, and cheaper. It
 touches only the `WHERE`; `ORDER BY` is untouched and HNSW is not involved in a
 geo query at all.
 
+
+**The prefilter is applied ONLY below a hemisphere in each direction
+(AMENDED 2026-09-07).** A geography polygon's edges follow the SHORTER
+great-circle arc, so an envelope wider than 180° is read as going the other way
+round the globe and becomes its own complement. The prefilter — whose whole
+justification is that it strictly CONTAINS the planar rectangle — then excludes
+everything, and because the two clauses are ANDed the query returns nothing.
+Worse, an envelope edge whose endpoints are exactly antipodal makes the
+`::geography` cast **throw** `Antipodal (180 degrees long) edge detected!`,
+which surfaces as a 500 rather than an empty page.
+
+Measured (point at 12.9°N, 77.6°E, inside every box):
+
+| box | prefilter | exact planar |
+| --- | --- | --- |
+| lng span 160° / 178° / 179° / **180°** | matches | matches |
+| lng span 180.002° and wider | **no match** | matches |
+| lat span exactly 180° (pole to pole) | **THROWS** | matches |
+| lng span 180° with an edge on the equator | **THROWS** | matches |
+
+So the predicate becomes:
+
+```sql
+-- both spans < 180: index-accelerated, as before
+s.geo && ST_MakeEnvelope(...)::geography
+  AND ST_Intersects(s.geo::geometry, ST_MakeEnvelope(...))
+
+-- either span >= 180: exact test only
+ST_Intersects(s.geo::geometry, ST_MakeEnvelope(...))
+```
+
+The exact planar test is correct at **any** box size, so dropping the prefilter
+costs only index acceleration — and a box that wide selects almost everything
+anyway. The `< 180` bound on BOTH spans excludes every case in the table at
+once: it rules out the silent-empty band, the pole-to-pole meridian edge, and
+the equatorial 180° edge, without touching realistic viewports.
+
+Not reachable through the Signals-DPG UI — "Search this area" is gated to
+zoom >= 15, which cannot produce a box that wide, and the global-box caller
+(`useBrowseTotals`) goes to DPG's native `/markers`, not to signals-search. It
+is reachable by any direct caller sending a wide viewport.
+
+**Note the two implementations fail on DISJOINT inputs and are not being made
+to match.** DPG's native `/markers` path has no 180° limit but returns 0 for an
+exact ±90/±180 envelope, which DPG works around by insetting its global box to
+±85/±179. signals-search now handles the full globe.
+
 **Consequence for Signals-DPG.** `bbox` filters, `orderingCenter` orders — the
 two never derive from each other. So `sort: 'nearest'` scoped to a viewport
 requires DPG to send `orderingCenter` (the viewport centre) ALONGSIDE the bbox;
@@ -499,3 +546,4 @@ Expect   - NO ST_DWithin predicate in the SQL (nearest must not filter)
 | 2026-09-03 | Correction to the above: an earlier draft claimed relevance paging was inherently approximate (differing candidate sets per page). Measurement disproved it — paging is deterministic and partitions cleanly. §3.1 corrected; §3.2 added for the real defect (silent HNSW truncation at the default `ef_search`). |
 | 2026-09-03 | Note on §5: the radius Signals-DPG SENDS is `distance_meters ?? env` and is legitimately **absent** when neither is set — signals-search then applies `SEARCH_DEFAULT_DISTANCE_METERS`. `meta.distance_meters` folds in DPG's mirror of that default for **reporting only**; it is never put on the wire. |
 | 2026-09-07 | **AMENDMENT (§4): the text predicate is TOKENIZED and applies only when an anchor is present.** Review found the whole-query `%q%` form matched nothing for any multi-word query (`'solar training'` against `service_details: 'solar installation'` + `services_offered: ['Solar','Training']` returned zero), and that narrowing the anchorless path — where `q` is itself the query vector — deleted semantic recall. Terms are now ANDed, each ORed across fields, with `%`/`_`/`\` escaped; the anchorless path ranks without filtering, as before #148. See §4.1. |
+| 2026-09-07 | **AMENDMENT (§1.5): the bbox `&&` prefilter applies only when BOTH spans are < 180°.** A geography envelope wider than a hemisphere inverts (edges take the shorter great-circle arc), so the prefilter excluded every row; and an exactly antipodal edge — pole-to-pole latitude, or a 180° longitude span with an edge on the equator — made the `::geography` cast THROW, i.e. a 500. Measured: lng span 180° matches, 180.002° silently matches nothing. The exact planar test is correct at any size, so wide boxes now use it alone and lose only index acceleration. |
