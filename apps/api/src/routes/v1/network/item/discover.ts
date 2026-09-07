@@ -555,6 +555,21 @@ const discover_items_handler = async (
     try {
       const searchResult = await searchSignals(searchInput);
 
+      if (searchResult.meta.sort_applied === undefined) {
+        // Otherwise INVISIBLE: a 200 with a missing field and no trace. Only
+        // reachable against a signals-search predating the explicit sort, so
+        // the message names the version skew rather than the symptom.
+        request.log.warn(
+          {
+            itemNetwork: body.item_network,
+            itemDomain: body.item_domain,
+            requestedSort: body.sort,
+            resolvedSort: sortApplied,
+          },
+          'signals-search reported no sort_applied; it predates explicit sort, so the applied order is unknown and is reported as unknown'
+        );
+      }
+
       // signals-search's order is already the ranked order — mapped straight
       // through, no local-DB hydrate/re-read by id (see module doc comment).
       const items = searchResult.items.map(mapSignalsSearchItemToDiscoverItem);
@@ -567,10 +582,15 @@ const discover_items_handler = async (
           source: 'signals_search' as const,
           degraded: false,
           distance_meters: effectiveDistanceMeters,
-          // signals-search is the authority on what it actually did. Absent
-          // when talking to a version without #644's sort support, in which
-          // case our own resolved value is the best available answer.
-          sort_applied: searchResult.meta.sort_applied ?? sortApplied,
+          // signals-search is the authority on what it actually did, and
+          // absent means UNKNOWN — never our own guess. A version predating
+          // its sort support ignores `intent.sort` entirely rather than just
+          // omitting the field, so no resolution here could predict its order;
+          // claiming ours would put distance pills over a recency-ordered list
+          // for `nearest`, and a recency label over a cosine order for
+          // `newest` with an anchor. Left undefined, the UI shows no card
+          // metric and stops short of naming an order.
+          sort_applied: searchResult.meta.sort_applied,
         },
         items,
       });
@@ -627,22 +647,16 @@ const discover_items_handler = async (
               source: 'signals_search' as const,
               degraded: false,
               distance_meters: effectiveDistanceMeters,
-              // Anchor-less retry: `sortApplied` was resolved WITH the
-              // anchor, so it may say `relevance` when the retry has no
-              // query vector left to rank by. Re-resolve without the anchor
-              // for the fallback, so an older signals-search that sends no
-              // sort_applied doesn't make us claim an order we didn't get.
-              sort_applied:
-                retryResult.meta.sort_applied ??
-                resolveDiscoverSort({
-                  requested: body.sort,
-                  hasAnchor: false,
-                  hasQ: body.q !== undefined,
-                  // `hasRadiusCenter`, matching the primary call above — a
-                  // viewport supplies no centre, so it cannot make `nearest`
-                  // satisfiable here either.
-                  hasOrderingCenter: hasOrderingCenter || hasRadiusCenter,
-                }),
+              // Same rule as the primary path: absent means UNKNOWN.
+              //
+              // This used to re-resolve without the anchor, which is the right
+              // instinct — `sortApplied` was resolved WITH one, so it may say
+              // `relevance` when the retry has no query vector left to rank
+              // by. But a re-resolution is still OUR answer, and a
+              // signals-search old enough to omit this field never read
+              // `intent.sort` at all, so its order cannot be predicted from
+              // here either. Left undefined instead of guessed.
+              sort_applied: retryResult.meta.sort_applied,
             },
             items,
           });

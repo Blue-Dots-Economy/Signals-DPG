@@ -153,7 +153,7 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
     // caught by asserting this exact order.
     searchSignalsMock.mockResolvedValueOnce({
       items: [FULL_ITEM_B, FULL_ITEM_A],
-      meta: { total: 2, limit: 20, offset: 0 },
+      meta: { total: 2, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -241,7 +241,7 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
   it('returns an empty items array (with meta) when signals-search has no matches, without touching a DB', async () => {
     searchSignalsMock.mockResolvedValueOnce({
       items: [],
-      meta: { total: 0, limit: 20, offset: 0 },
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -301,7 +301,7 @@ describe('POST /api/v1/network/item/discover — profile anchor relevance (#394)
     searchSignalsMock.mockRejectedValueOnce(notFoundErr);
     searchSignalsMock.mockResolvedValueOnce({
       items: [FULL_ITEM_A],
-      meta: { total: 1, limit: 20, offset: 0 },
+      meta: { total: 1, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -1197,9 +1197,12 @@ describe('POST /discover — sort defaulting and reporting (#644)', () => {
     );
   });
 
-  it('falls back to its own resolved sort when the upstream omits sort_applied', async () => {
-    // A signals-search deployed BEFORE #644 sends no sort_applied; the BFF must
-    // still answer with a valid value rather than fail serialization.
+  it('reports NO order when the upstream omits sort_applied, rather than its own', async () => {
+    // This used to assert the opposite — that the BFF substituted its own
+    // resolution "rather than fail serialization". Review of #665 showed that
+    // is a claim, not a fallback: a signals-search old enough to omit the
+    // field also ignores `intent.sort`, so our resolution describes nothing it
+    // did. The response field is optional precisely so absence can travel.
     searchSignalsMock.mockResolvedValueOnce({
       items: [],
       meta: { total: 0, limit: 20, offset: 0 },
@@ -1211,9 +1214,7 @@ describe('POST /discover — sort defaulting and reporting (#644)', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { meta: { sort_applied: string } }).meta.sort_applied).toBe(
-      'newest',
-    );
+    expect((res.json() as { meta: { sort_applied?: string } }).meta.sort_applied).toBeUndefined();
   });
 });
 
@@ -1619,6 +1620,95 @@ describe('POST /discover — signals-search and native parity (contract §7)', (
     // No bound of any kind.
     expect(native.filters.radius_meters).toBeUndefined();
     expect(native.filters.min_lat).toBeUndefined();
+  });
+});
+
+describe('an unreported sort stays unreported (review of #665)', () => {
+  /**
+   * A signals-search predating the explicit sort does not merely omit
+   * `sort_applied` — it ignores `intent.sort` and falls back to its own
+   * inferred precedence, so nothing here can predict its order. Substituting
+   * our resolution claimed an order we never got: `nearest` drew distance
+   * pills over a recency-ordered list, and `newest` with an anchor labelled a
+   * cosine order as recency.
+   *
+   * Merge order is not deploy order — `api` and `search` carry independently
+   * pinned image tags, so either half can reach a cluster first and a
+   * search-only rollback reopens the window.
+   */
+  let app: FastifyInstance;
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  const postWithUpstreamMeta = async (
+    meta: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ) => {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, ...meta },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return { res, body: res.json() as { meta: Record<string, unknown> } };
+  };
+
+  it('omits sort_applied rather than echoing the request back as fact', async () => {
+    const { res, body } = await postWithUpstreamMeta({}, { sort: 'nearest' });
+
+    expect(res.statusCode).toBe(200);
+    expect(body.meta.sort_applied).toBeUndefined();
+    // Emphatically NOT the requested sort.
+    expect(body.meta.sort_applied).not.toBe('nearest');
+  });
+
+  it('does not claim newest either, when an anchor could have driven cosine', async () => {
+    const { body } = await postWithUpstreamMeta({}, {
+      sort: 'newest',
+      anchor_item_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(body.meta.sort_applied).toBeUndefined();
+  });
+
+  it('still reports the order when the service DOES state one', async () => {
+    const { body } = await postWithUpstreamMeta({ sort_applied: 'newest' }, { sort: 'relevance' });
+
+    expect(body.meta.sort_applied).toBe('newest');
+  });
+
+  it('leaves a log trail, since a 200 with a missing field is otherwise invisible', async () => {
+    // Captured off a real Fastify logger stream rather than a stubbed
+    // `request.log`, so this asserts what actually reaches the logs.
+    const written: string[] = [];
+    const logged = Fastify({
+      logger: {
+        level: 'warn',
+        stream: { write: (chunk: string) => { written.push(chunk); } },
+      },
+    }).withTypeProvider<ZodTypeProvider>();
+    logged.setValidatorCompiler(validatorCompiler);
+    logged.setSerializerCompiler(serializerCompiler);
+    await logged.register(discover, { prefix: '/api/v1/network' });
+
+    searchSignalsMock.mockResolvedValueOnce({ items: [], meta: { total: 0, limit: 20, offset: 0 } });
+    const res = await logged.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'nearest' }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const warned = written.join('\n');
+    expect(warned).toContain('no sort_applied');
+    expect(warned).toContain('"requestedSort":"nearest"');
   });
 });
 

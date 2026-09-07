@@ -24,6 +24,8 @@ export interface BrowseToolbarProps {
   sort: BrowseSort;
   /** `meta.sort_applied` — what the server actually did. */
   sortApplied?: BrowseSort;
+  /** A response arrived reporting no order at all — see `SortSelect`. */
+  sortUnreported?: boolean;
   nearestAvailable: boolean;
   /**
    * False when the server cannot rank by relevance for this request (no anchor
@@ -141,6 +143,7 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
           <SortSelect
             value={props.sort}
             applied={props.sortApplied}
+            appliedUnreported={props.sortUnreported}
             nearestAvailable={props.nearestAvailable}
             relevanceAvailable={props.relevanceAvailable}
             nearestFromLabel={t(

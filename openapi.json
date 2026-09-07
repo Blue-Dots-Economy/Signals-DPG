@@ -5280,8 +5280,7 @@
                         "limit",
                         "offset",
                         "source",
-                        "degraded",
-                        "sort_applied"
+                        "degraded"
                       ],
                       "additionalProperties": false
                     },

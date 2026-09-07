@@ -102,6 +102,69 @@ describe('SortSelect', () => {
   });
 });
 
+describe('SortSelect — when the server reported NO order', () => {
+  /**
+   * Review of #665. A signals-search predating the explicit sort omits
+   * `meta.sort_applied` AND ignores `intent.sort`, so the applied order cannot
+   * be reconstructed. The BFF now passes the absence through instead of
+   * substituting the request, and this control must not fill the gap back in:
+   * naming `nearest` over a recency-ordered list is precisely the claim it
+   * exists to prevent.
+   */
+  const unreported = (value: 'relevance' | 'newest' | 'nearest') => (
+    <SortSelect
+      value={value}
+      applied={undefined}
+      appliedUnreported
+      nearestAvailable
+      basis="profile"
+      relevanceAvailable
+      onChange={() => {}}
+    />
+  );
+
+  it('names no order on the trigger', async () => {
+    render(unreported('nearest'));
+    const trigger = screen.getByRole('button', { name: /sort/i });
+    expect(trigger).not.toHaveTextContent(/nearest/i);
+    expect(trigger).not.toHaveTextContent(/newest/i);
+    expect(trigger).not.toHaveTextContent(/relevance/i);
+  });
+
+  it('still ticks the choice in the menu, so it stays discoverable', async () => {
+    render(unreported('nearest'));
+    await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+    expect(screen.getByRole('option', { name: /nearest/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('marks relevance unavailable, since it cannot be confirmed either', async () => {
+    render(unreported('relevance'));
+    await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+
+    const relevance = screen.getByRole('option', { name: /your profile/i });
+    expect(relevance).toHaveAttribute('aria-disabled', 'true');
+    expect(relevance).toHaveTextContent(/not available/i);
+  });
+
+  it('behaves normally once an order IS reported', async () => {
+    render(
+      <SortSelect
+        value="nearest"
+        applied="nearest"
+        nearestAvailable
+        basis="profile"
+        relevanceAvailable
+        onChange={() => {}}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /sort/i })).toHaveTextContent(/nearest/i);
+  });
+});
+
 describe('Sort and Location go icon-only on a phone', () => {
   /**
    * Reported from a real phone: "Sort Relevance to your profile" is so wide it

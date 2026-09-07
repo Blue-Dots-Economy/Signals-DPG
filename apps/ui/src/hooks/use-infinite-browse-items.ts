@@ -79,6 +79,8 @@ interface UseInfiniteBrowseItemsResult {
   // text degrades to `newest`. The UI must label from THIS, never from the
   // requested value, or it will claim an order it did not get.
   sortApplied?: BrowseSort;
+  /** A response arrived without an order — see the return value's comment. */
+  sortUnreported: boolean;
 }
 
 interface BrowsePage {
@@ -319,5 +321,11 @@ export function useInfiniteBrowseItems(
     // Same reasoning as distanceMeters: a property of the current request, so
     // the latest loaded page's value is the correct one to surface.
     sortApplied: lastPage?.meta.sortApplied,
+    // A page HAS arrived and it carried no order. Distinct from `sortApplied`
+    // being undefined because nothing has loaded yet, which is why this cannot
+    // be derived from `sortApplied` alone — and the difference matters: before
+    // the first response the UI optimistically shows what it asked for (no
+    // flicker), whereas afterwards an absent order must not be assumed.
+    sortUnreported: lastPage !== undefined && lastPage.meta.sortApplied === undefined,
   };
 }

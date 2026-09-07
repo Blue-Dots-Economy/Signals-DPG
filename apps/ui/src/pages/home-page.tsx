@@ -1334,6 +1334,9 @@ export function HomePage() {
   // #644: label from what the server DID, never from what we asked for — a
   // `relevance` request with no anchor and no text degrades to `newest`.
   const listSortApplied = singleDomainList.sortApplied;
+  // A response arrived carrying no order — see the hook. Kept separate from
+  // `listSortApplied === undefined`, which also covers "nothing loaded yet".
+  const listSortUnreported = singleDomainList.sortUnreported;
   // #394 (review fix): whether the viewer actually has a profile anchor being
   // sent for the browsed domain(s) — derived from the SAME rule that gates
   // the anchor itself (`anchorFor`/`anchorItemIdForTarget`, both built on
@@ -1360,8 +1363,10 @@ export function HomePage() {
   const listNote = resolveListNote({
     hasProfileAnchor,
     // What the server DID. Optimistic before the first response lands, so the
-    // note does not flicker in on arrival.
-    relevanceApplied: (listSortApplied ?? sort) === 'relevance',
+    // note does not flicker in on arrival — but NOT once a response has come
+    // back without an order, because then the ranking basis is unknown and the
+    // note must not claim profile-relevance for it.
+    relevanceApplied: !listSortUnreported && (listSortApplied ?? sort) === 'relevance',
     hasLocation,
     degraded: listDegraded,
     distanceMeters: listDistanceMeters,
@@ -2090,6 +2095,7 @@ export function HomePage() {
         notMappable={viewMode === 'map' ? browseTotals.notMappable : undefined}
         sort={sort}
         sortApplied={listSortApplied}
+        sortUnreported={listSortUnreported}
         // `nearest` needs a centre to order around.
         nearestAvailable={browseCoords !== null}
         relevanceAvailable={relevanceAvailable}

@@ -13,6 +13,17 @@ export interface SortSelectProps {
    * the request would claim an order we did not get (#644 §3.2).
    */
   applied?: BrowseSort;
+  /**
+   * A response arrived and reported NO order (`meta.sort_applied` absent),
+   * which means the search service predates the explicit sort and ignored what
+   * we asked for. The order is therefore unknowable from here, so the trigger
+   * names none — showing the requested value would be the exact claim this
+   * control exists to avoid, and merge order is not deploy order, so the two
+   * halves can genuinely run at different ages.
+   *
+   * The choice itself stays discoverable: the popover still ticks it.
+   */
+  appliedUnreported?: boolean;
   /** False when no viewer location resolves — `nearest` then has no centre. */
   nearestAvailable: boolean;
   /**
@@ -54,6 +65,7 @@ export interface SortSelectProps {
 export function SortSelect({
   value,
   applied,
+  appliedUnreported = false,
   nearestAvailable,
   basis,
   relevanceAvailable = true,
@@ -80,7 +92,9 @@ export function SortSelect({
 
   // Label from what happened, falling back to the request only before the
   // first response has arrived.
-  const effective = applied ?? value;
+  // `undefined` when the server reported nothing — the trigger then shows its
+  // name with no value rather than echoing the request back as fact.
+  const effective = appliedUnreported ? undefined : (applied ?? value);
 
   /**
    * The server asked for relevance and got something else.
@@ -100,16 +114,22 @@ export function SortSelect({
    * looked broken.
    */
   const relevanceRefused =
-    value === 'relevance' && applied !== undefined && applied !== 'relevance';
+    // Unreported counts as refused: we cannot claim relevance was applied, and
+    // this is the "listed, with a reason" state that already exists for it.
+    appliedUnreported ||
+    (value === 'relevance' && applied !== undefined && applied !== 'relevance');
 
   return (
     <OptionSelect<BrowseSort>
       name={t('browse.sort_label')}
-      displayLabel={labelFor(effective)}
+      displayLabel={effective ? labelFor(effective) : ''}
       icon={ArrowDownUp}
       // The APPLIED order, not the requested one — otherwise the trigger and
-      // the tick can disagree, which is exactly the bug above.
-      value={effective}
+      // the tick can disagree, which is exactly the bug above. When the server
+      // reported nothing, fall back to the request for the TICK only: the
+      // popover should still show what was chosen, while the trigger above
+      // stays silent about what was actually applied.
+      value={effective ?? value}
       onChange={onChange}
       options={[
         // Listed-with-a-reason rather than omitted when the server refuses it:

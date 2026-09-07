@@ -292,9 +292,14 @@ export interface DiscoverResponse {
     // results (`resolveListNote`) uses this to show "within X km".
     distance_meters?: number;
     // #644: the order the server ACTUALLY applied, after its own defaulting
-    // and fallbacks. Always present. The UI labels from this rather than from
-    // what it requested, so it can never claim an order it did not get.
-    sort_applied: DiscoverSortMode;
+    // and fallbacks. The UI labels from this rather than from what it
+    // requested, so it can never claim an order it did not get.
+    //
+    // ABSENT means the search service did not report one — see the BFF's
+    // `DiscoverResponseSchema`. Treated as UNKNOWN, not as "assume what we
+    // asked for": a `?? requestedSort` here is exactly the claim this field
+    // exists to prevent.
+    sort_applied?: DiscoverSortMode;
   };
 }
 

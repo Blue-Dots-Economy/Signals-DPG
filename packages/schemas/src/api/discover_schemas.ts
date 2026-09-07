@@ -206,10 +206,24 @@ export const DiscoverResponseSchema = z.object({
     // search.
     distance_meters: z.number().optional(),
     // The order actually applied, after the BFF's defaulting and fallbacks
-    // (#644). Always present. A `relevance` request with neither an anchor nor
-    // typed text degrades to `newest`, so the UI must label from THIS rather
-    // than from what it asked for.
-    sort_applied: DiscoverSortSchema,
+    // (#644). A `relevance` request with neither an anchor nor typed text
+    // degrades to `newest`, so the UI must label from THIS rather than from
+    // what it asked for.
+    //
+    // OPTIONAL, and its absence is meaningful: it means "the search service
+    // did not tell us". A signals-search predating #152 does not merely omit
+    // the field — it ignores `intent.sort` altogether and falls back to its own
+    // inferred precedence, so no client-side resolution can predict what it
+    // did. Substituting our own requested sort there would claim an order we
+    // never got: `nearest` would draw distance pills over a recency-ordered
+    // list, and `newest` with an anchor would label a cosine-ordered list as
+    // recency. Absent therefore stays absent, and the UI treats it as unknown
+    // rather than assuming.
+    //
+    // Merge order is not deploy order: `api` and `search` carry independently
+    // pinned tags, so a search-only rollback or a DPG image landing first
+    // opens this window.
+    sort_applied: DiscoverSortSchema.optional(),
   }),
   items: DiscoverResponseItemSchema.array(),
 });

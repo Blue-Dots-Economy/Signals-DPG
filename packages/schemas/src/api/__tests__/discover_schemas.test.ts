@@ -529,14 +529,31 @@ describe('DiscoverResponseSchema — sort_applied (#644 contract §6)', () => {
     degraded: false,
   };
 
-  it('requires sort_applied', () => {
-    expect(DiscoverResponseSchema.safeParse({ meta, items: [] }).success).toBe(false);
+  it('allows sort_applied to be ABSENT, because absence means "unknown"', () => {
+    // It used to be required. Review of #665: a signals-search predating the
+    // explicit sort omits the field AND ignores `intent.sort`, so the BFF
+    // cannot reconstruct the order — and substituting its own request claimed
+    // an order it never got (distance metrics over a recency-ordered list for
+    // `nearest`; a recency label over a cosine order for `newest` + anchor).
+    // The field is optional so that absence can travel to the UI as unknown.
+    expect(DiscoverResponseSchema.safeParse({ meta, items: [] }).success).toBe(true);
     expect(
       DiscoverResponseSchema.safeParse({
         meta: { ...meta, sort_applied: 'newest' },
         items: [],
       }).success
     ).toBe(true);
+  });
+
+  it('still rejects a sort_applied outside the three known orders', () => {
+    // Optional must not mean "anything goes" — an unrecognised order would
+    // reach the card-metric switch and silently render nothing.
+    expect(
+      DiscoverResponseSchema.safeParse({
+        meta: { ...meta, sort_applied: 'whatever' },
+        items: [],
+      }).success
+    ).toBe(false);
   });
 
   it('rejects an unknown sort_applied', () => {

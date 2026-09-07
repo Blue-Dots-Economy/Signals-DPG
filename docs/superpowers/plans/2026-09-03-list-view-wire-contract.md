@@ -211,7 +211,22 @@ ordering centre that #644 separated on purpose.
 
 ## 2. signals-search `POST /v1/search` — response
 
-One **new field**, always present.
+One **new field**, always present **from this version**.
+
+**Version skew matters here, and the wording above is why (AMENDED
+2026-09-07).** A signals-search predating this contract does not merely omit
+`sort_applied` — it ignores `intent.sort` altogether and falls back to its own
+inferred precedence (cosine → distance → `indexed_at`). A consumer therefore
+cannot reconstruct what it did, and **MUST NOT substitute its own requested
+sort**: doing so claims an order it never got. `nearest` would draw distance
+metrics over a recency-ordered list; `newest` with an anchor would label a
+cosine-ordered list as recency.
+
+Signals-DPG parses this field as optional for exactly that reason, and when it
+is absent reports its own `meta.sort_applied` as absent too (§6) rather than
+guessing. Merge order is not deploy order — the two services carry
+independently pinned image tags, so either can reach a cluster first, and a
+search-only rollback reopens the window.
 
 ```ts
 // signals-search/src/api/schemas.ts — SearchResponseSchema
@@ -482,9 +497,15 @@ meta: {
    */
   distance_meters?: number,
 
-  /** NEW, always present. Passed through from signals-search
-   *  meta.sort_applied; on the native fallback, whatever the fallback did. */
-  sort_applied: 'relevance' | 'newest' | 'nearest',
+  /** NEW. Passed through from signals-search meta.sort_applied; on the
+   *  native fallback, whatever the fallback actually did.
+   *
+   *  OPTIONAL, and its absence is meaningful (AMENDED 2026-09-07): it means
+   *  the search service reported no order, so the applied order is UNKNOWN.
+   *  Consumers must treat it as unknown — never as "assume what was
+   *  requested". The UI then names no order on its sort control and shows no
+   *  per-card metric. See §2 for why no guess is possible. */
+  sort_applied?: 'relevance' | 'newest' | 'nearest',
 }
 ```
 
@@ -547,3 +568,4 @@ Expect   - NO ST_DWithin predicate in the SQL (nearest must not filter)
 | 2026-09-03 | Note on §5: the radius Signals-DPG SENDS is `distance_meters ?? env` and is legitimately **absent** when neither is set — signals-search then applies `SEARCH_DEFAULT_DISTANCE_METERS`. `meta.distance_meters` folds in DPG's mirror of that default for **reporting only**; it is never put on the wire. |
 | 2026-09-07 | **AMENDMENT (§4): the text predicate is TOKENIZED and applies only when an anchor is present.** Review found the whole-query `%q%` form matched nothing for any multi-word query (`'solar training'` against `service_details: 'solar installation'` + `services_offered: ['Solar','Training']` returned zero), and that narrowing the anchorless path — where `q` is itself the query vector — deleted semantic recall. Terms are now ANDed, each ORed across fields, with `%`/`_`/`\` escaped; the anchorless path ranks without filtering, as before #148. See §4.1. |
 | 2026-09-07 | **AMENDMENT (§1.5): the bbox `&&` prefilter applies only when BOTH spans are < 180°.** A geography envelope wider than a hemisphere inverts (edges take the shorter great-circle arc), so the prefilter excluded every row; and an exactly antipodal edge — pole-to-pole latitude, or a 180° longitude span with an edge on the equator — made the `::geography` cast THROW, i.e. a 500. Measured: lng span 180° matches, 180.002° silently matches nothing. The exact planar test is correct at any size, so wide boxes now use it alone and lose only index acceleration. |
+| 2026-09-07 | **AMENDMENT (§2, §6): `meta.sort_applied` is "always present **from this version**", and Signals-DPG's own `sort_applied` is OPTIONAL.** Review of signals-dpg#665 found the BFF substituting its own resolved sort when signals-search omitted the field. A pre-#152 search does not just omit it — it ignores `intent.sort` and uses its own inferred precedence, so no consumer can predict the order: `nearest` drew distance metrics over a recency-ordered list, `newest` with an anchor labelled a cosine order as recency. Absence now propagates as UNKNOWN and is logged. Merge order is not deploy order — independently pinned image tags mean either half can land first. |
