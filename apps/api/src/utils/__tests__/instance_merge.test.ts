@@ -168,3 +168,52 @@ describe('mergeSortAndSlice — offset/limit slicing', () => {
     expect(rows).toEqual(copy);
   });
 });
+
+describe('mergeSortAndSlice — order_by federation (#644)', () => {
+  // A centre is present whenever a RADIUS FILTER is, not only for a distance
+  // sort. Keying the merge off `center` alone meant a federated
+  // `sort: 'newest'` request carrying a radius came back distance-ordered —
+  // the same infer-from-coordinates bug `order_by` killed on the SQL side,
+  // reappearing in the cross-instance merge.
+  const center = { lat: 12.9716, lng: 77.5946 };
+  // `near` is closest but oldest; `far` is furthest but newest.
+  const near = row('near', [{ lat: 12.9716, lng: 77.5946 }], '2020-01-01T00:00:00Z');
+  const mid = row('mid', [{ lat: 13.05, lng: 77.62 }], '2023-01-01T00:00:00Z');
+  const far = row('far', [{ lat: 13.4, lng: 77.9 }], '2026-01-01T00:00:00Z');
+
+  it('orders by recency when the request asked for created_at, despite a centre', () => {
+    const out = mergeSortAndSlice([near, mid, far], {
+      center,
+      offset: 0,
+      limit: 10,
+      orderBy: 'created_at',
+    });
+    expect(out.map((r) => r.id)).toEqual(['far', 'mid', 'near']);
+  });
+
+  it('orders by distance when the request asked for distance', () => {
+    const out = mergeSortAndSlice([far, mid, near], {
+      center,
+      offset: 0,
+      limit: 10,
+      orderBy: 'distance',
+    });
+    expect(out.map((r) => r.id)).toEqual(['near', 'mid', 'far']);
+  });
+
+  it('infers distance from the centre when order_by is absent, as before', () => {
+    // Every caller predating the explicit sort omits it and must not change.
+    const out = mergeSortAndSlice([far, mid, near], { center, offset: 0, limit: 10 });
+    expect(out.map((r) => r.id)).toEqual(['near', 'mid', 'far']);
+  });
+
+  it('still ignores a centre it was never given', () => {
+    const out = mergeSortAndSlice([near, mid, far], {
+      center: null,
+      offset: 0,
+      limit: 10,
+      orderBy: 'distance',
+    });
+    expect(out.map((r) => r.id)).toEqual(['far', 'mid', 'near']);
+  });
+});

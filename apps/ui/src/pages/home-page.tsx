@@ -76,7 +76,7 @@ import { useAppliedFilterChips } from '@/hooks/use-applied-filter-chips';
 import { useBrowseTotals } from '@/hooks/use-browse-totals';
 import { resolveFacetFieldLabels } from '@/lib/facet-fields';
 import type { DomainOption } from '@/components/filters/domain-control';
-import { resolveDefaultDomain } from '@/lib/browse-domain';
+import { resolveDefaultDomain, collapseToSingleDomain } from '@/lib/browse-domain';
 import { getServedScope } from '@/lib/served-binding';
 import { computeVisibleDomains } from '@/lib/visible-domains';
 import { useUserLocation } from '@/hooks/use-user-location';
@@ -1703,9 +1703,33 @@ export function HomePage() {
   };
 
   const handleViewModeChange = (mode: ViewMode) => {
+    // Spec D27: the map is multi-domain, the list takes exactly one. Carry the
+    // map's selection across so the list shows something the viewer was just
+    // looking at. `collapseToSingleDomain` existed for this and was never
+    // called, so the collapse never happened — pick two domains on the map,
+    // switch to list, and you landed on whatever `selectedDomain` happened to
+    // hold, possibly a domain outside the map selection entirely.
+    //
+    // Only when the current list domain is NOT already one of the map's, so
+    // toggling map↔list does not reshuffle a choice the viewer already made.
+    // An empty map selection means "all visible", which any list domain
+    // already satisfies.
+    const collapsed =
+      mode === 'list' &&
+      mapSelectedDomains.length > 0 &&
+      (selectedDomain === null || !mapSelectedDomains.includes(selectedDomain))
+        ? collapseToSingleDomain(mapSelectedDomains, visibleDomains)
+        : null;
+
+    // Deliberately NOT `handleDomainSelect`: that clears `map_domains` and the
+    // facet params, which would throw away the map selection the viewer is
+    // about to switch back to.
+    if (collapsed) setSelectedDomain(collapsed);
+
     setViewMode(mode);
     setSearchParams((prev) => {
       prev.set('view', mode);
+      if (collapsed) prev.set('domain', collapsed);
       return prev;
     });
   };

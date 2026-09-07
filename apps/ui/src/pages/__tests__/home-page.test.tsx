@@ -764,6 +764,39 @@ describe('HomePage — map/list view toggle', () => {
   });
 });
 
+describe('HomePage — map→list domain collapse (spec D27)', () => {
+  it('carries a map-only domain selection into the single-domain list', async () => {
+    // `collapseToSingleDomain` was exported and unit-tested but never called,
+    // so switching map→list left `selectedDomain` untouched — potentially a
+    // domain the viewer had just deselected on the map.
+    signedInSeeker();
+    renderHome('/?view=map&domain=provider&map_domains=mentor');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
+
+    expect(url()).toContain('domain=mentor');
+  });
+
+  it('leaves the list domain alone when it is already in the map selection', async () => {
+    // Toggling map↔list must not reshuffle a choice the viewer already made.
+    signedInSeeker();
+    renderHome('/?view=map&domain=provider&map_domains=provider,mentor');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
+
+    expect(url()).toContain('domain=provider');
+  });
+
+  it('keeps the map selection so switching back does not lose it', async () => {
+    signedInSeeker();
+    renderHome('/?view=map&domain=provider&map_domains=mentor');
+
+    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
+
+    expect(url()).toContain('map_domains=mentor');
+  });
+});
+
 describe('HomePage — map view', () => {
   it('fetches no markers until the map reports its first viewport', async () => {
     signedInSeeker();

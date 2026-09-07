@@ -678,6 +678,66 @@ describe('POST /api/v1/network/item/discover — native fallback (#203 List PR, 
     expect(fetchItemsAcrossInstancesMock).not.toHaveBeenCalled();
   });
 
+  // Natively, item_latitude/longitude is BOTH the filter centre and the
+  // distance origin — buildWhereClause and buildDistanceOrderBy read the same
+  // pair. signals-search can separate them; the native path cannot. Preferring
+  // the ordering centre moved the radius onto a different point, so this path
+  // filtered a DIFFERENT CIRCLE than signals-search would for the same
+  // request — two result sets for one query, depending on whether the search
+  // service happened to be up.
+  it('nearest filters around the AREA centre, not the ordering centre', async () => {
+    searchSignalsMock.mockRejectedValueOnce(new Error('signals-search unreachable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+      items: [],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({
+        sort: 'nearest',
+        item_latitude: 12.9,
+        item_longitude: 77.5,
+        distance_meters: 4000,
+        ordering_latitude: 13.4,
+        ordering_longitude: 77.9,
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const callArgs = fetchItemsAcrossInstancesMock.mock.calls[0][0] as {
+      filters: Record<string, unknown>;
+    };
+    expect(callArgs.filters.item_latitude).toBe(12.9);
+    expect(callArgs.filters.item_longitude).toBe(77.5);
+    expect(callArgs.filters.radius_meters).toBe(4000);
+    expect(callArgs.filters.order_by).toBe('distance');
+  });
+
+  it('nearest uses the ordering centre UNBOUNDED when no area was requested', async () => {
+    // An ordering centre bounds nothing — that is the whole point of #644.
+    searchSignalsMock.mockRejectedValueOnce(new Error('signals-search unreachable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+      items: [],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'nearest', ordering_latitude: 13.4, ordering_longitude: 77.9 }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const callArgs = fetchItemsAcrossInstancesMock.mock.calls[0][0] as {
+      filters: Record<string, unknown>;
+    };
+    expect(callArgs.filters.item_latitude).toBe(13.4);
+    expect(callArgs.filters.radius_meters).toBeUndefined();
+    expect(callArgs.filters.order_by).toBe('distance');
+  });
+
   it('returns a clean 500 (never throws) when BOTH signals-search and the native fallback fail', async () => {
     searchSignalsMock.mockRejectedValueOnce(new Error('signals-search unreachable'));
     fetchItemsAcrossInstancesMock.mockRejectedValueOnce(new Error('db unreachable'));

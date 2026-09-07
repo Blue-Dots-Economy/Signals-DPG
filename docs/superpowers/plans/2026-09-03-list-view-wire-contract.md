@@ -299,31 +299,81 @@ decision recorded in spec §3.5.
 
 ## 4. signals-search text predicate (#148) — exact behaviour
 
-`textSearch` becomes an **additional `WHERE` predicate**, ANDed with existing
-conditions, and is applied **whether or not an anchor is present.**
+**AMENDED 2026-09-07** — two corrections to the original shape, both from
+review. The predicate is now **tokenized**, and it applies **only when an
+anchor is present**. See 4.1 for why.
 
-- The gate at `search_route.ts:74` (`!message.intent.item?.id &&`) is removed.
+`textSearch` becomes an **additional `WHERE` predicate**, ANDed with existing
+conditions, applied **only when `intent.item.id` is also present.**
+
+- The gate at `search_route.ts` no longer keys off the anchor for the QUERY
+  VECTOR (`!queryVector && textSearch` — an anchor's embedding still wins), but
+  the narrowing predicate itself is passed to `searchItems` **only** when an
+  anchor supplied that vector.
 - When an anchor IS present: the anchor's embedding remains the query vector;
   text only narrows.
-- When no anchor is present: text continues to become the query vector **and**
-  now also narrows.
+- When NO anchor is present: text becomes the query vector and **RANKS ONLY —
+  it does not narrow.** This is the pre-#148 behaviour on that path, restored
+  deliberately (see 4.1).
 - Fields matched: the `vectorize: true` set,
   `deps.registry.vectorizeFields(networkId, domain, itemType)` — the same
-  content that defines semantic relevance (spec §3.3).
+  content that defines semantic relevance (spec §3.3). A `private` field can
+  never be in that set: `vectorizeFields` throws on one.
 - `item_search` does not store serialized text, so the predicate runs against
   `i.item_state` via the existing `JOIN items i`.
 
-Shape (OR across fields, ANDed into `conds`):
+Shape — **AND across whitespace-separated terms, each an OR across fields**:
 
 ```sql
-(COALESCE(i.item_state->>'field_a','') ILIKE '%' || :q || '%'
- OR COALESCE(i.item_state->>'field_b','') ILIKE '%' || :q || '%')
+-- q = 'solar training'
+(   (COALESCE(i.item_state->>'field_a','') ILIKE '%solar%'
+  OR COALESCE(i.item_state->>'field_b','') ILIKE '%solar%')
+AND (COALESCE(i.item_state->>'field_a','') ILIKE '%training%'
+  OR COALESCE(i.item_state->>'field_b','') ILIKE '%training%') )
 ```
+
+Every term must appear in SOME vectorized field; the terms need not share a
+field, nor appear in the stored order. Repeated whitespace is collapsed, and a
+whitespace-only query yields no predicate at all.
+
+`%`, `_` and `\` in a term are **escaped** so they match themselves. The value
+was always bound (no injection risk), but unescaped, `"50%"` barely narrowed
+anything and a lone `"_"` matched every row.
 
 **Known looseness, accepted:** for an array-valued field, `->>'f'` yields the
 serialized JSON array as text (`["solar","wind"]`), so `ILIKE` matches against
 that text form. Acceptable for a narrowing predicate; documented, not fixed
 here.
+
+### 4.1 Why tokenized, and why anchor-only (measured, not assumed)
+
+**The whole-query form fell off a cliff at two words.** The original shape used
+`q` as a single contiguous `%q%`. With `service_details: 'solar installation'`
+and `services_offered: ['Solar','Training']`, the query `'solar training'`
+matched **nothing** — no single field holds that contiguous string. So did
+`'installation of solar'` and `'renewable energy'`. Any realistic multi-word
+search returned an empty list. The original §4 specified this SQL exactly, so
+the implementation was faithful; the cliff simply was not in the "known
+looseness" note and was never a conscious trade-off.
+
+**Narrowing on the anchorless path deleted semantic recall.** On that path `q`
+is *simultaneously* the query vector. A literal predicate therefore meant
+cosine could only ever reorder rows that already contained the typed string —
+the opposite of what an embedding search is for, on the main browse path (a
+signed-out or unanchored viewer sends `q` with no anchor). #148's actual bug
+was text being **discarded** when an anchor existed; it never asked for
+filtering where text already ranks. So the predicate is scoped to the
+anchor-present case and the anchorless path returns to ranking only.
+
+Consequence, stated plainly: with no anchor, `meta.total` is the whole
+candidate set and cosine decides the order — a text search **ranks** rather
+than **filters** there. That is the pre-#644 contract for that path.
+
+Tests that would have caught both, now present in
+`search_route_text_narrow.test.ts`: a two-word query whose terms span two
+fields, a term-order-reversed query, a multi-word query that must still exclude
+an item missing one term, and a semantically-related-but-literally-absent query
+on the anchorless path.
 
 ---
 
@@ -448,3 +498,4 @@ Expect   - NO ST_DWithin predicate in the SQL (nearest must not filter)
 | 2026-09-03 | **AMENDMENT (§3, §9): the `relevance` ORDER BY drops the `s.item_id` tiebreaker.** Measured: it destroys the HNSW index (2.8 ms → 316 ms, full seq scan, O(corpus)) because pgvector supplies a pathkey only for the exact single-expression ordering, and an approximate scan cannot support an incremental sort. It also buys almost nothing: a cosine tie needs byte-identical embeddings, and the traversal is deterministic anyway. `newest`/`nearest` keep the tiebreaker at zero cost. |
 | 2026-09-03 | Correction to the above: an earlier draft claimed relevance paging was inherently approximate (differing candidate sets per page). Measurement disproved it — paging is deterministic and partitions cleanly. §3.1 corrected; §3.2 added for the real defect (silent HNSW truncation at the default `ef_search`). |
 | 2026-09-03 | Note on §5: the radius Signals-DPG SENDS is `distance_meters ?? env` and is legitimately **absent** when neither is set — signals-search then applies `SEARCH_DEFAULT_DISTANCE_METERS`. `meta.distance_meters` folds in DPG's mirror of that default for **reporting only**; it is never put on the wire. |
+| 2026-09-07 | **AMENDMENT (§4): the text predicate is TOKENIZED and applies only when an anchor is present.** Review found the whole-query `%q%` form matched nothing for any multi-word query (`'solar training'` against `service_details: 'solar installation'` + `services_offered: ['Solar','Training']` returned zero), and that narrowing the anchorless path — where `q` is itself the query vector — deleted semantic recall. Terms are now ANDed, each ORed across fields, with `%`/`_`/`\` escaped; the anchorless path ranks without filtering, as before #148. See §4.1. |

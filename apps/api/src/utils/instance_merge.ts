@@ -27,9 +27,17 @@ function createdAtMillis(createdAt: Date | string | undefined): number {
 /**
  * Merge the union of per-instance rows into a single ordered page.
  *
- * - `opts.center` set: ascending nearest-distance (no-location rows last via
- *   `Infinity`), tie-broken by `created_at` descending (newer first).
- * - `opts.center` null: `created_at` descending only.
+ * - `opts.center` set AND the order is distance: ascending nearest-distance
+ *   (no-location rows last via `Infinity`), tie-broken by `created_at`
+ *   descending (newer first).
+ * - otherwise: `created_at` descending only.
+ *
+ * `opts.orderBy` exists because a centre is present for a RADIUS FILTER too,
+ * not just for a distance sort. Keying the merge off `center` alone meant a
+ * federated `sort: 'newest'` request that also carried a radius came back
+ * distance-ordered — the same infer-from-coordinates bug `order_by` was added
+ * to kill on the SQL side (#644 P3), reappearing in the merge. Omitted means
+ * "infer from `center`", which is what every pre-sort caller expects.
  *
  * Ties that are fully equal on the sort key(s) preserve original relative
  * order (stable), by decorating each row with its original index and using
@@ -41,14 +49,20 @@ function createdAtMillis(createdAt: Date | string | undefined): number {
  */
 export function mergeSortAndSlice<T extends MergeableRow>(
   rows: T[],
-  opts: { center: LatLng | null; offset: number; limit: number }
+  opts: {
+    center: LatLng | null;
+    offset: number;
+    limit: number;
+    orderBy?: 'distance' | 'created_at';
+  }
 ): T[] {
   const { center, offset, limit } = opts;
+  const byDistance = center !== null && opts.orderBy !== 'created_at';
 
   const decorated = rows.map((row, index) => ({ row, index }));
 
   decorated.sort((x, y) => {
-    if (center) {
+    if (byDistance && center) {
       const dx = nearestLocationMeters(center, x.row.item_locations);
       const dy = nearestLocationMeters(center, y.row.item_locations);
       if (dx !== dy) return dx - dy;

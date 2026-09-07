@@ -191,12 +191,36 @@ function resolveNativeGeoFilters(input: {
   }
 
   if (sortApplied === 'nearest') {
-    return {
-      item_latitude: body.ordering_latitude ?? body.item_latitude,
-      item_longitude: body.ordering_longitude ?? body.item_longitude,
-      radius_meters: effectiveDistanceMeters,
-      order_by: 'distance',
-    };
+    // Natively, `item_latitude`/`item_longitude` is BOTH the filter centre and
+    // the distance origin — `buildWhereClause` and `buildDistanceOrderBy` read
+    // the same pair. signals-search can separate them; the native path cannot.
+    //
+    // So when a RADIUS area was requested, the area's centre wins for both.
+    // Preferring the ordering centre here (the old `ordering_latitude ??`)
+    // moved the radius onto a different point, which quietly filtered a
+    // DIFFERENT CIRCLE than the signals-search path would for the same
+    // request — two result sets for one query, depending on whether the search
+    // service happened to be up. The user's explicit area filter is the thing
+    // that must not move; losing the separate distance origin is a documented
+    // native limitation, and the order stays truthful because the response
+    // still reports `nearest`.
+    //
+    // With no radius area there is nothing to filter, so the ordering centre
+    // is used for ordering alone and the set stays unbounded — which is the
+    // whole point of an ordering centre (#644).
+    const hasRadius = effectiveDistanceMeters !== undefined;
+    return hasRadius
+      ? {
+          item_latitude: body.item_latitude,
+          item_longitude: body.item_longitude,
+          radius_meters: effectiveDistanceMeters,
+          order_by: 'distance',
+        }
+      : {
+          item_latitude: body.ordering_latitude,
+          item_longitude: body.ordering_longitude,
+          order_by: 'distance',
+        };
   }
   if (hasAreaFilter) {
     return {
