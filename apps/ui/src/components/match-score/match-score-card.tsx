@@ -5,6 +5,7 @@ import { DomainCard } from '@/components/cards/domain-card';
 import { MatchScoreModal } from './match-score-modal';
 import { useMatchScore } from '@/hooks/use-match-score';
 import type { Item } from '@/lib/item-api';
+import type { BrowseSort } from '@/lib/browse-discover';
 
 export interface MatchScoreCardProps {
   schema: RJSFSchema;
@@ -23,6 +24,9 @@ export interface MatchScoreCardProps {
   /** Disable the action CTA — an open action already exists for this pair (#370/#422). */
   actionsDisabled?: boolean;
   actionsDisabledReason?: string;
+  /** #646 C1: decides which quantity the card's pill shows. */
+  sortApplied?: BrowseSort;
+  relevanceBasis?: 'profile' | 'search' | null;
 }
 
 export function MatchScoreCard({
@@ -41,6 +45,8 @@ export function MatchScoreCard({
   selectionMode = false,
   actionsDisabled = false,
   actionsDisabledReason,
+  sortApplied,
+  relevanceBasis,
 }: Readonly<MatchScoreCardProps>) {
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   
@@ -114,6 +120,8 @@ export function MatchScoreCard({
         actionsDisabled={actionsDisabled}
         actionsDisabledReason={actionsDisabledReason}
         matchScore={score}
+        sortApplied={sortApplied}
+        relevanceBasis={relevanceBasis}
         matchScoreLoading={matchScoreLoading}
         matchScoreError={matchScoreError}
         onCalculateMatch={handleCalculate}

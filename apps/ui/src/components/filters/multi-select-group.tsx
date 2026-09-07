@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 /**
  * Option-count above which an enum filter field renders as a compact,
  * collapsible, searchable dropdown instead of an inline list/chips. Shared by
- * the map/list filter panel (`map-filters-panel.tsx`) and the My Actions
+ * the map/list filter panel (`browse-filters-panel.tsx`) and the My Actions
  * filters sheet (`action-filters-sheet.tsx`) so both treat "large" fields the
  * same way and stay compact.
  */

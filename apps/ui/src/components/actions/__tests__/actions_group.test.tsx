@@ -753,7 +753,7 @@ describe('ActionList', () => {
 
   it('hides the Select button when nothing in view is actionable', () => {
     renderWithClient(<ListHarness received={[rejectedReceived]} />);
-    expect(screen.queryByRole('button', { name: /^select$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^select items$/i })).not.toBeInTheDocument();
   });
 
   it('bulk accept/reject: selecting a pending received card shows the batch bar and locks out accepted cards', async () => {
@@ -763,7 +763,7 @@ describe('ActionList', () => {
       <ListHarness received={[pendingReceived, acceptedReceived]} onBulkAction={onBulkAction} />,
     );
 
-    await user.click(screen.getByRole('button', { name: /^select$/i }));
+    await user.click(screen.getByRole('button', { name: /^select items$/i }));
     // In select mode each card becomes a pressable selection target.
     const targets = selectionTargets();
     const pendingTarget = targets.find((el) => el.textContent?.includes('Alice Seeker'));
@@ -796,7 +796,7 @@ describe('ActionList', () => {
       <ListHarness received={[pendingReceived, acceptedReceived]} onBulkAction={onBulkAction} />,
     );
 
-    await user.click(screen.getByRole('button', { name: /^select$/i }));
+    await user.click(screen.getByRole('button', { name: /^select items$/i }));
     const acceptedTarget = selectionTargets().find((el) =>
       el.textContent?.includes('Dave Accepted'),
     );
@@ -819,7 +819,7 @@ describe('ActionList', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /^select$/i }));
+    await user.click(screen.getByRole('button', { name: /^select items$/i }));
     const target = selectionTargets()[0];
     await user.click(target as HTMLElement);
 
@@ -831,7 +831,7 @@ describe('ActionList', () => {
     const user = userEvent.setup();
     renderWithClient(<ListHarness received={[pendingReceived]} />);
 
-    await user.click(screen.getByRole('button', { name: /^select$/i }));
+    await user.click(screen.getByRole('button', { name: /^select items$/i }));
     const target = selectionTargets()[0];
     await user.click(target as HTMLElement);
     expect(screen.getByText('1 selected')).toBeInTheDocument();
@@ -848,7 +848,7 @@ describe('ActionList', () => {
       <ListHarness status="Pending" received={[pendingReceived, rejectedReceived]} />,
     );
 
-    await user.click(screen.getByRole('button', { name: /^select$/i }));
+    await user.click(screen.getByRole('button', { name: /^select items$/i }));
     const target = selectionTargets()[0];
     await user.click(target as HTMLElement);
     expect(screen.getByText('1 selected')).toBeInTheDocument();

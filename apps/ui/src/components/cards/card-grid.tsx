@@ -1,4 +1,5 @@
 import type React from 'react';
+import type { BrowseSort } from '@/lib/browse-discover';
 import type { RJSFSchema } from '@rjsf/utils';
 import type { DotActionSchema, DotCardConfig } from '@/engine/types';
 import { DomainCard } from './domain-card';
@@ -32,6 +33,13 @@ interface CardGridProps {
    */
   openActionItemIds?: Set<string>;
   openActionReason?: string;
+  /**
+   * #646 C1: the sort the SERVER applied. Threaded down so each card's pill
+   * shows the quantity that actually drove its position, rather than a cosine
+   * score badged onto a distance- or date-ordered list.
+   */
+  sortApplied?: BrowseSort;
+  relevanceBasis?: 'profile' | 'search' | null;
   /** Selection mode passthrough (browse bulk connect). */
   selection?: {
     selectMode: boolean;
@@ -60,6 +68,8 @@ export function CardGrid({
   openActionItemIds,
   openActionReason,
   selection,
+  sortApplied,
+  relevanceBasis,
 }: Readonly<CardGridProps>) {
   const gridRef = useEqualRowHeights<HTMLDivElement>();
 
@@ -120,6 +130,8 @@ export function CardGrid({
               networkItem={networkItem}
               actionsDisabled={actionsDisabled}
               actionsDisabledReason={openActionReason}
+              sortApplied={sortApplied}
+              relevanceBasis={relevanceBasis}
             />
           ) : (
             <DomainCard
@@ -135,6 +147,13 @@ export function CardGrid({
               shareItem={networkItem}
               actionsDisabled={actionsDisabled}
               actionsDisabledReason={openActionReason}
+              // #646 C1: this is the branch a viewer WITHOUT a profile gets.
+              // It still needs the sort, so a distance or an age can render —
+              // neither is a match score, so neither should require an account.
+              networkItem={networkItem}
+              localItem={localItem ?? null}
+              sortApplied={sortApplied}
+              relevanceBasis={relevanceBasis}
             />
           );
 

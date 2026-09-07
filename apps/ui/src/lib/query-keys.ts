@@ -100,4 +100,16 @@ export const queryKeys = {
    */
   markers: (networkId: string, domain: string, filters: Record<string, unknown>) =>
     ['markers', networkId, domain, filters] as const,
+
+  /**
+   * Filter-scoped, LOCATION-INDEPENDENT totals for a domain (N5).
+   *
+   * Distinct from `browseItems`: that key carries paging, sort and the
+   * relevance anchor because it fetches a page of the feed. This one fetches
+   * no feed at all — just `meta.total` for the active filters — so its key is
+   * only the facets and the text query. Keeping it separate means the map's
+   * count does not invalidate, or get invalidated by, the list's pages.
+   */
+  browseTotals: (networkId: string, domain: string, filters: Record<string, unknown>) =>
+    ['browseTotals', networkId, domain, filters] as const,
 };

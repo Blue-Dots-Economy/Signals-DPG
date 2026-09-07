@@ -105,7 +105,8 @@ const FetchItemsSchemaBase = z.object({
 
 type FetchItemsSchemaShape = z.infer<typeof FetchItemsSchemaBase>;
 
-function withGeoSearchRefinement<T extends z.ZodTypeAny>(schema: T) {
+// `z.ZodType` rather than the deprecated `z.ZodTypeAny` (zod 4).
+function withGeoSearchRefinement<T extends z.ZodType>(schema: T) {
   return schema.refine(
     (rawData) => {
       const data = rawData as Partial<FetchItemsSchemaShape>;
@@ -162,6 +163,25 @@ export const FetchItemsBodySchema = withGeoSearchRefinement(FetchItemsSchemaBase
   limit: z.number().int().min(1).max(1000),
   offset: z.number().int().min(0),
   cache_ttl_seconds: z.number().int().positive().optional(),
+  /**
+   * Which order the caller wants — forwarded peer-to-peer (#644).
+   *
+   * Load-bearing for TWO reasons. First, `buildDistanceOrderBy` keys off this
+   * rather than inferring from the presence of coordinates, so without it a
+   * peer serving `sort: 'newest'` alongside a radius returns
+   * DISTANCE-ordered rows — and because each peer over-fetches only its top N,
+   * genuinely-newest items can be missing from the page rather than merely
+   * misordered.
+   *
+   * Second, `fetchRemotePage` signs the serialized `ItemFetchFilters` and the
+   * receiver re-hashes what this schema parsed. A field the schema does not
+   * name is stripped before that re-hash, so an unlisted `order_by` breaks
+   * peer auth outright.
+   *
+   * Absent means "infer", preserving the behaviour of every caller that
+   * predates the explicit sort.
+   */
+  order_by: z.enum(['distance', 'created_at']).optional(),
 }));
 
 const MarkersSchemaBase = FetchItemsSchemaBase.extend({

@@ -8,12 +8,6 @@ import type {
 
 const DEFAULT_RELEVANCE_PATH = 'v1/relevance';
 
-// signals-search returns relevance as a percentage (0-100). The rest of the
-// match-score stack — MatchScoreResponseSchema and the UI banding/formatting
-// (getMatchScoreBand / formatScorePercentage both treat score as 0-10) — expects
-// a 0-10 score, so we divide by 10 here. This is the single scale-conversion point.
-const PERCENTAGE_TO_SCORE_DIVISOR = 10;
-
 // signals-search's /v1/relevance identifies each item by its composite primary
 // key only (with the item_ prefix dropped), and looks the stored embeddings up
 // itself — item_state / coordinates from the snapshot are not sent (the score
@@ -62,7 +56,7 @@ export class SignalsSearchClient implements MatchScoreClient {
         return {
           provider: 'signals_search',
           score: undefined,
-          reasoning: response.status === 404 ? 'not_indexed' : 'not_comparable',
+          unavailable_reason: response.status === 404 ? 'not_indexed' : 'not_comparable',
           raw_response: rawResponse,
         };
       }
@@ -75,10 +69,10 @@ export class SignalsSearchClient implements MatchScoreClient {
 
     return {
       provider: 'signals_search',
-      score:
-        percentage === undefined
-          ? undefined
-          : percentage / PERCENTAGE_TO_SCORE_DIVISOR,
+      // #646 §5.2: one scale end to end. signals-search already emits 0-100,
+      // so this passes it through — the divide-by-10 here and the multiply-by-10
+      // in the /discover seed together meant three scales for one quantity.
+      score: percentage,
       raw_response: rawResponse,
     };
   }

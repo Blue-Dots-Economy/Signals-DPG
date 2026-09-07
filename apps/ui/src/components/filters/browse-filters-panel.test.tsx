@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { RJSFSchema } from '@rjsf/utils';
 import type { DotNetworkDomain } from '@/engine/types';
-import { MapFiltersPanel } from './map-filters-panel';
+import { BrowseFiltersPanel } from './browse-filters-panel';
 
 // #394: dropped the `filterable: true` gate that used to make the MAP
 // (`viewMode="map"`) offer a narrower facet set than the LIST. The panel now
@@ -26,14 +26,12 @@ function domainWithPlainEnum(): DotNetworkDomain {
   } as DotNetworkDomain;
 }
 
-describe('MapFiltersPanel — same enum-field set on map and list (#394)', () => {
+describe('BrowseFiltersPanel — same enum-field set on map and list (#394)', () => {
   it('renders the Filters trigger on the MAP for a plain (non-private) enum field with no filterable marker', () => {
     const domain = domainWithPlainEnum();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[domain]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
         viewMode="map"
@@ -45,10 +43,8 @@ describe('MapFiltersPanel — same enum-field set on map and list (#394)', () =>
   it('renders the Filters trigger on the LIST for that same enum field (no regression)', () => {
     const domain = domainWithPlainEnum();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[domain]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
         viewMode="list"
@@ -72,10 +68,8 @@ describe('MapFiltersPanel — same enum-field set on map and list (#394)', () =>
     } as DotNetworkDomain;
 
     const { container } = render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[domain]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
         viewMode="map"

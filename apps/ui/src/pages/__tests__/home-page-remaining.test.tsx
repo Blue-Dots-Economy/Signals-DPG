@@ -58,6 +58,11 @@ const providerSchema: RJSFSchema = {
   properties: {
     company: { type: 'string', title: 'Company' },
     gender: { type: 'string', title: 'Gender', enum: ['female', 'male'] },
+    // Declared so the facet-replacement test below filters on a field this
+    // domain actually honours. An undeclared facet is now pruned before it
+    // reaches the URL or the feed, mirroring the server's silent drop
+    // (`resolveAllowedFacetFields`) — see `resolveFacetFieldLabels`.
+    city: { type: 'string', title: 'City', enum: ['Mysuru', 'Bengaluru'] },
   },
 };
 
@@ -296,6 +301,10 @@ const state = {
   u18Status: ADULT_STATUS as U18StatusResponse | null,
   browserSupported: false,
   browserStatus: 'idle' as 'idle' | 'loading' | 'error' | 'success',
+  // Settable so a test can resolve a centre — `nearest` and the Location
+  // control's source section both depend on one existing.
+  location: null as { lat: number; lng: number } | null,
+  locationSource: 'profile' as string,
 };
 
 interface ActionCall {
@@ -384,8 +393,8 @@ vi.mock('@/hooks/use-user-location', () => ({
   ) => {
     preferredSources.push(preferred);
     return {
-      location: null,
-      source: 'none',
+      location: state.location,
+      source: state.location ? state.locationSource : 'none',
       browser: {
         location: null,
         status: state.browserStatus,
@@ -588,8 +597,8 @@ function FiltersStub({ filterFieldDomains, selectedFields, onFieldsChange }: Fil
   );
 }
 
-vi.mock('@/components/map/map-filters-panel', () => ({
-  MapFiltersPanel: (props: FiltersStubProps) => <FiltersStub {...props} />,
+vi.mock('@/components/filters/browse-filters-panel', () => ({
+  BrowseFiltersPanel: (props: FiltersStubProps) => <FiltersStub {...props} />,
 }));
 
 // RJSF doesn't submit under happy-dom (and ActionModal has its own suite), so
@@ -1063,11 +1072,12 @@ describe('HomePage — browse scope and view defaults', () => {
     // browseable tab for them — the stale param must be discarded.
     renderHome('/?view=list&domain=seeker');
 
-    expect(await screen.findByRole('heading', { name: 'Browse All' })).toBeInTheDocument();
-    await waitFor(() => expect(route()).not.toContain('domain=seeker'));
-    // …and the "All" feed is what actually renders.
+    // #644 (spec D8/D19): the stale param is REPAIRED to a valid default
+    // rather than dropped back to an all-domains view — there is no longer an
+    // "All" tab to fall back to.
+    await waitFor(() => expect(route()).toContain('domain=provider'));
+    expect(route()).not.toContain('domain=seeker');
     expect(await findCard('Acme Welding')).toBeInTheDocument();
-    expect(cardFor('Rita Mentor')).not.toBeNull();
     // Sanity: a legitimate tab still survives.
     await user.click(screen.getByRole('button', { name: 'Mentor' }));
     await waitFor(() => expect(route()).toContain('domain=mentor'));
@@ -1122,10 +1132,20 @@ describe('HomePage — browse scope and view defaults', () => {
     state.myItems = [myLocatedProfile];
     state.browserSupported = true;
     state.browserStatus = 'loading';
+    // A resolved centre, or `nearest` is unavailable and the source section
+    // legitimately does not render.
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     renderHome('/?view=list&domain=provider');
     await findCard('Acme Welding');
 
-    await user.click(screen.getByRole('radio', { name: 'Current location' }));
+    // The source now lives inside the one Location control (#644 QA
+    // redesign), and its section renders only when a centre is used — so
+    // pick `nearest` first, then open Location.
+    await user.click(screen.getByRole('button', { name: /sort/i }));
+    await user.click(screen.getByRole('option', { name: /nearest/i }));
+    await user.click(screen.getByRole('button', { name: /location/i }));
+    await user.click(screen.getByRole('button', { name: /current location/i }));
 
     // The preference switched (so results re-resolve), but no duplicate prompt.
     expect(preferredSources[preferredSources.length - 1]).toBe('browser');

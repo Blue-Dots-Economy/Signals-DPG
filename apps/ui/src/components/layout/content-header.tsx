@@ -5,7 +5,14 @@ import { Button } from '@/components/ui/button';
 import { UserPlus } from 'lucide-react';
 
 interface ContentHeaderProps {
-  title: string;
+  /**
+   * Optional since #645. The browse page omits it: the toolbar's domain
+   * control (or its "Showing <domain>" label when only one is selectable)
+   * already names what is on screen, and this heading was BOTH a duplicate of
+   * that and wrong on the map, where it showed a single domain while several
+   * were selected.
+   */
+  title?: string;
   description?: string;
   count?: number;
   noProfilePrompt?: { show: boolean; networkId: string };
@@ -13,20 +20,43 @@ interface ContentHeaderProps {
   actions?: ReactNode;
 }
 
-export function ContentHeader({ title, description, count, noProfilePrompt, actions }: ContentHeaderProps) {
+export function ContentHeader({
+  title,
+  description,
+  count,
+  noProfilePrompt,
+  actions,
+}: Readonly<ContentHeaderProps>) {
   const { t } = useTranslation();
+
+  // Render NOTHING when there is nothing to show. Since #645 stripped the
+  // title, description and count out of this header, a signed-in viewer who
+  // already has a profile left every slot empty — and the wrapper's `mb-6`
+  // then drew a dead band between the filter bar and the results.
+  const hasContent =
+    Boolean(title) ||
+    count !== undefined ||
+    Boolean(description) ||
+    Boolean(actions) ||
+    Boolean(noProfilePrompt?.show);
+  if (!hasContent) return null;
+
   return (
     <div className="mb-6 space-y-3">
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
-            {count !== undefined && count > 0 && (
-              <span className="shrink-0 rounded-full bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 leading-none">
-                {t('header.listings', { count })}
-              </span>
-            )}
-          </div>
+          {(title || count !== undefined) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {title && (
+                <h1 className="text-xl font-semibold tracking-tight text-foreground">{title}</h1>
+              )}
+              {count !== undefined && count > 0 && (
+                <span className="shrink-0 rounded-full bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 leading-none">
+                  {t('header.listings', { count })}
+                </span>
+              )}
+            </div>
+          )}
           {description && (
             <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
           )}

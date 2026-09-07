@@ -58,6 +58,15 @@ export type ItemFetchFilters = {
   item_latitude?: number;
   item_longitude?: number;
   radius_meters?: number;
+  /**
+   * The ORDER, stated rather than inferred (#644 P3). `'distance'` needs
+   * `item_latitude`/`item_longitude`; `'created_at'` ignores them, which is
+   * what lets an area filter narrow the set WITHOUT also reordering it.
+   *
+   * Omit to keep the historical behaviour (coordinates present ⇒ nearest
+   * first) — `/network/item/fetch` and the markers path rely on it.
+   */
+  order_by?: 'distance' | 'created_at';
   // Bounding-box viewport search (#203 Task 2 schema, Task 3 SQL), mutually
   // exclusive with the radius-center params above — see
   // withGeoSearchRefinement in packages/schemas/src/api/item_schemas.ts.
@@ -250,6 +259,10 @@ async function buildWhereClause(
     // text comparison rather than the JSON-typed equality `@>` used to do.
     // Not an issue while facets stay string enums; revisit if a non-string
     // facet is ever declared.
+    //
+    // The `= ANY` text comparison is ALSO wrong for a field whose schema type
+    // is `array`, which is why a guarded containment clause is OR'd in below —
+    // see the comment at that predicate.
     const facetEntries: Array<[string, unknown[]]> = Object.entries(
       filters.item_state
     ).map(([field, value]) => [field, Array.isArray(value) ? value : [value]]);
@@ -284,8 +297,42 @@ async function buildWhereClause(
           values.map((value) => sql`${value}`),
           sql.raw(', ')
         );
+
+        // ARRAY-valued facets need containment, not text equality.
+        //
+        // `->> field` extracts the field as TEXT, and for a field whose schema
+        // type is `array` the stored value is a JSON array — so `->>` yields
+        // `["Full-time","Flexible"]` and comparing that to `'Full-time'` is
+        // false for every row, always. Two array facets on blue_dot's seeker
+        // schema (`natureOfJobsInterestedIn`, `otherHelpNeeded`) were therefore
+        // matching NOTHING natively while matching correctly through
+        // signals-search: the map lost all its pins the moment you filtered on
+        // one, and `useBrowseTotals` reported every match as "not on the map"
+        // because its `mappable` count comes from this path.
+        //
+        // `-> field @> to_jsonb(value)` is true when the stored array CONTAINS
+        // the value, and also when the stored scalar EQUALS it (a jsonb scalar
+        // contains itself), so it covers both shapes. One clause per value,
+        // OR'd, because `@>` with a multi-element array would mean "contains
+        // ALL of these" — the wrong quantifier for a facet.
+        //
+        // Kept alongside the `->>` equality rather than replacing it: the
+        // scalar path has per-field btree expression indexes
+        // (`items_item_state_*_idx`), while `@>` is served by the GIN index on
+        // `item_state`. Both stay index-backed.
+        //
+        // This is containment for a GUARDED field only — the field has already
+        // passed `allowedFacetFields` above, which is what the unguarded
+        // whole-object `@> {...}` branch removed in #394 lacked.
+        const arrayContainment = sql.join(
+          values.map(
+            (value) => sql`${items.item_state} -> ${field} @> to_jsonb(${value}::text)`
+          ),
+          sql.raw(' OR ')
+        );
+
         conditions.push(
-          sql`${items.item_state} ->> ${field} = ANY(ARRAY[${valuesArrayLiteral}])`
+          sql`(${items.item_state} ->> ${field} = ANY(ARRAY[${valuesArrayLiteral}]) OR ${arrayContainment})`
         );
       }
     }
@@ -455,28 +502,53 @@ export async function countLocalItems(
 }
 
 /**
- * §4.1/§4.3 shared ORDER BY: nearest-first when a lat/lng center is present
- * (ties broken by created_at DESC; no-location rows sort last), otherwise
- * plain created_at DESC. Shared by fetchLocalItems and fetchLocalMarkers so
- * the ordering behavior can never drift between the two projections.
+ * §4.1/§4.3 shared ORDER BY, used by both fetchLocalItems and
+ * fetchLocalMarkers so the ordering can never drift between the two
+ * projections.
+ *
+ * `order_by` makes the choice EXPLICIT. Without it the order was inferred
+ * from whether a lat/lng happened to be present, which is #644's P3 defect
+ * ("ordering is implicit and unchangeable... inferred from which inputs
+ * happen to be present") reproduced on the native path: an AREA filter sends
+ * coordinates to FILTER by radius, and this then also ORDERED by distance, so
+ * `sort: 'newest'` plus an area silently returned distance-ordered rows.
+ * Measured before the fix: seeker/50 km inverted created_at at index 42
+ * (2026-07-14 followed by 2026-08-03) while the first rows looked correctly
+ * dated, which is exactly why it hid.
+ *
+ * Omitting `order_by` keeps the historical inference, because callers other
+ * than discover (`/network/item/fetch`, markers) depend on "coordinates mean
+ * nearest-first" and must not change behaviour here.
  */
 function buildDistanceOrderBy(
-  filters: Pick<ItemFetchFilters, 'item_latitude' | 'item_longitude'>
+  filters: Pick<ItemFetchFilters, 'item_latitude' | 'item_longitude' | 'order_by'>
 ) {
-  return filters.item_latitude !== undefined && filters.item_longitude !== undefined
-    ? sql`
-        (
-          SELECT MIN(
-            earth_distance(
-              ll_to_earth(${filters.item_latitude}, ${filters.item_longitude}),
-              ll_to_earth((loc->>'lat')::float8, (loc->>'lng')::float8)
-            )
-          )
-          FROM jsonb_array_elements(${items.item_locations}) loc
-        ) ASC NULLS LAST,
-        ${items.created_at} DESC
-      `
-    : sql`${items.created_at} DESC`;
+  const hasCenter =
+    filters.item_latitude !== undefined && filters.item_longitude !== undefined;
+  // Explicit wins; absent `order_by` falls back to the historical inference.
+  const byDistance =
+    filters.order_by === 'distance' || (filters.order_by === undefined && hasCenter);
+
+  // A distance order needs a centre to measure from. Asking for one without
+  // coordinates is a caller bug, but degrading to recency beats emitting SQL
+  // that cannot run.
+  if (!byDistance || !hasCenter) {
+    return sql`${items.created_at} DESC, ${items.item_id} ASC`;
+  }
+
+  return sql`
+    (
+      SELECT MIN(
+        earth_distance(
+          ll_to_earth(${filters.item_latitude}, ${filters.item_longitude}),
+          ll_to_earth((loc->>'lat')::float8, (loc->>'lng')::float8)
+        )
+      )
+      FROM jsonb_array_elements(${items.item_locations}) loc
+    ) ASC NULLS LAST,
+    ${items.created_at} DESC,
+    ${items.item_id} ASC
+  `;
 }
 
 const markerColumns = {

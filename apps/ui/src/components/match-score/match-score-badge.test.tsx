@@ -1,56 +1,128 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { MatchScoreResult } from '@/lib/match-score-api';
 import { MatchScoreBadge } from './match-score-badge';
 
-const score = (overrides: Partial<MatchScoreResult> = {}): MatchScoreResult => ({
-  provider: 'signals_search',
-  score: 7.1,
-  ...overrides,
+/**
+ * #646 C1 — the pill shows the RANKING BASIS, so the number and the order can
+ * never disagree. It is icon-only (spec D22): the basis is stated once in the
+ * sticky browse toolbar rather than repeated on every card.
+ *
+ * The previous suite asserted Excellent/Good/Moderate/Low bands. Those are
+ * deliberately gone (#646 §5.5) — their 0.85/0.70/0.50 thresholds implied a
+ * calibration BGE-M3 similarities do not have.
+ */
+
+describe('MatchScoreBadge — metric kinds', () => {
+  it('renders a relevance percentage', () => {
+    render(<MatchScoreBadge metric={{ kind: 'relevance', percent: 62 }} basis="profile" />);
+    expect(screen.getByTestId('card-metric-pill')).toHaveTextContent('62%');
+  });
+
+  it('renders a distance in km at or above 1000 m', () => {
+    render(<MatchScoreBadge metric={{ kind: 'distance', meters: 4200 }} basis={null} />);
+    expect(screen.getByTestId('card-metric-pill')).toHaveTextContent('4.2');
+  });
+
+  it('renders a distance in metres below 1000', () => {
+    render(<MatchScoreBadge metric={{ kind: 'distance', meters: 850 }} basis={null} />);
+    expect(screen.getByTestId('card-metric-pill')).toHaveTextContent('850');
+  });
+
+  it('renders a relative age', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-03T00:00:00Z'));
+    render(
+      <MatchScoreBadge
+        metric={{ kind: 'age', createdAt: new Date('2026-08-29T00:00:00Z') }}
+        basis={null}
+      />,
+    );
+    expect(screen.getByTestId('card-metric-pill')).toHaveTextContent('5');
+    vi.useRealTimers();
+  });
+
+  it('renders nothing when no metric determined the position', () => {
+    const { container } = render(<MatchScoreBadge metric={null} basis={null} />);
+    expect(container).toBeEmptyDOMElement();
+  });
 });
 
-describe('MatchScoreBadge', () => {
-  // #394: the backend's internal scale is 0-10, not 0-1. `getScoreStyles`
-  // used to compare the raw 0-10 score directly against the 0.85/0.70/0.50
-  // thresholds, so any real score above ~1 was misclassified "Excellent".
-  it('bands a 0-10 score by normalizing to 0-1 before thresholding (mirrors getMatchScoreBand)', () => {
-    render(<MatchScoreBadge score={score({ score: 7.1 })} showLabel />);
-    expect(screen.getByText('71% Good')).toBeInTheDocument();
+describe('MatchScoreBadge — icon-only, basis in the label', () => {
+  it('does NOT print the basis label on the pill itself', () => {
+    // It would not survive translation in the footer slot it shares with
+    // Connect, and the sticky toolbar already says it once.
+    render(<MatchScoreBadge metric={{ kind: 'relevance', percent: 62 }} basis="profile" />);
+    const pill = screen.getByTestId('card-metric-pill');
+    expect(pill).toHaveTextContent('62%');
+    expect(pill.textContent).not.toMatch(/profile/i);
   });
 
-  it('labels a high 0-10 score "Excellent" only once actually >= 8.5/10', () => {
-    render(<MatchScoreBadge score={score({ score: 9 })} showLabel />);
-    expect(screen.getByText('90% Excellent')).toBeInTheDocument();
+  it('carries the basis in its accessible name', () => {
+    render(<MatchScoreBadge metric={{ kind: 'relevance', percent: 62 }} basis="profile" />);
+    expect(screen.getByTestId('card-metric-pill').getAttribute('aria-label')).toMatch(/62%/);
   });
 
-  it('labels a low 0-10 score "Low", not "Excellent"', () => {
-    render(<MatchScoreBadge score={score({ score: 2 })} showLabel />);
-    expect(screen.getByText('20% Low')).toBeInTheDocument();
+  it('distinguishes the search basis from the profile basis', () => {
+    const { rerender } = render(
+      <MatchScoreBadge metric={{ kind: 'relevance', percent: 62 }} basis="profile" />,
+    );
+    const profileLabel = screen.getByTestId('card-metric-pill').getAttribute('aria-label');
+
+    rerender(<MatchScoreBadge metric={{ kind: 'relevance', percent: 62 }} basis="search" />);
+    expect(screen.getByTestId('card-metric-pill').getAttribute('aria-label')).not.toBe(profileLabel);
   });
 
-  // #394: a discover-seeded score (`source: 'discover'`) has no `confidence`
-  // — only a real `/v1/relevance` result does. The tooltip must hide the
-  // confidence line rather than render `Confidence: NaN%`.
-  it('hides the confidence line in the tooltip when confidence is absent', async () => {
-    const user = userEvent.setup();
-    render(<MatchScoreBadge score={score({ confidence: undefined })} />);
+  it('shows no band words at all', () => {
+    render(<MatchScoreBadge metric={{ kind: 'relevance', percent: 95 }} basis="profile" />);
+    expect(screen.getByTestId('card-metric-pill').textContent).not.toMatch(
+      /excellent|good|moderate|low/i,
+    );
+  });
+});
 
-    await user.hover(screen.getByRole('button'));
-    // Radix renders the tooltip content twice (visible popper + sr-only
-    // accessible span), so wait via findAllByText rather than a singular
-    // findByText, which throws on multiple matches.
-    await screen.findAllByText(/Good Match/i);
+describe('MatchScoreBadge — interaction', () => {
+  it('invokes onClick', async () => {
+    const onClick = vi.fn();
+    render(
+      <MatchScoreBadge
+        metric={{ kind: 'relevance', percent: 62 }}
+        basis="profile"
+        onClick={onClick}
+      />,
+    );
+    await userEvent.click(screen.getByTestId('card-metric-pill'));
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+});
 
-    expect(screen.queryAllByText(/Confidence:/i)).toHaveLength(0);
+describe('MatchScoreBadge — only relevance is interactive', () => {
+  it('renders a plain span, not a button, when there is nothing to open', () => {
+    // A date or a distance pill used to render as a <button> advertising
+    // "Tap for details", and clicking it opened "Match Score Details" — a
+    // panel that explains a cosine score, so with no score computed it showed
+    // an empty "No match score available" dialog.
+    render(
+      <MatchScoreBadge
+        metric={{ kind: 'age', createdAt: new Date('2026-08-29T00:00:00Z') }}
+        basis={null}
+      />,
+    );
+
+    const pill = screen.getByTestId('card-metric-pill');
+    expect(pill.tagName).toBe('SPAN');
+    expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('shows the confidence line in the tooltip when confidence is present', async () => {
-    const user = userEvent.setup();
-    render(<MatchScoreBadge score={score({ confidence: 0.82 })} />);
+  it('renders a button when a details handler is supplied', () => {
+    render(
+      <MatchScoreBadge
+        metric={{ kind: 'relevance', percent: 62 }}
+        basis="profile"
+        onClick={() => {}}
+      />,
+    );
 
-    await user.hover(screen.getByRole('button'));
-    const matches = await screen.findAllByText(/Confidence: 82%/i);
-    expect(matches.length).toBeGreaterThan(0);
+    expect(screen.getByTestId('card-metric-pill').tagName).toBe('BUTTON');
   });
 });

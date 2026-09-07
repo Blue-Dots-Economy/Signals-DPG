@@ -28,7 +28,6 @@ const item = (id: string, overrides: Partial<Item> = {}): Item =>
 const result = (score: number): MatchScoreResult => ({
   provider: 'test',
   score,
-  signals: [{ name: 'x', impact: 'high', summary: 'y' }],
 });
 
 const dest = item('dest-1');
@@ -82,17 +81,16 @@ describe('useMatchScore', () => {
   // #394: `/discover` already returns a raw ~0-1 relevance score on the item
   // (`Item.score`) — the SAME quantity `/v1/relevance` computes. Seed the
   // badge from it, scaled to the 0-10 internal scale, without a click.
-  it('seeds the score from networkItem.score (0-1 discover scale → 0-10 internal) without calling the match-score API', () => {
-    const discoverDest = item('dest-2', { score: 0.71 } as Partial<Item>);
+  it('seeds the score straight from networkItem.score (one 0-100 scale) without calling the match-score API', () => {
+    const discoverDest = item('dest-2', { score: 71 } as Partial<Item>);
 
     const { result: hook } = renderHook(() =>
       useMatchScore({ localItem: item('profile-A'), networkItem: discoverDest }),
     );
 
     expect(hook.current.score).toEqual(
-      expect.objectContaining({ score: 7.1, source: 'discover' }),
+      expect.objectContaining({ score: 71, source: 'discover' }),
     );
-    expect(hook.current.score?.confidence).toBeUndefined();
     expect(calculateMatchScore).not.toHaveBeenCalled();
   });
 
@@ -106,8 +104,10 @@ describe('useMatchScore', () => {
   });
 
   it('re-seeds the discover score when the (local, network) pair changes', () => {
-    const destA = item('dest-a', { score: 0.4 } as Partial<Item>);
-    const destB = item('dest-b', { score: 0.9 } as Partial<Item>);
+    // #646 §5.2: /discover already returns 0-100, so the seed passes it
+    // through — these used to be 0.4/0.9 multiplied by 10 on the way in.
+    const destA = item('dest-a', { score: 40 } as Partial<Item>);
+    const destB = item('dest-b', { score: 90 } as Partial<Item>);
 
     const { result: hook, rerender } = renderHook(
       ({ networkItem }: { networkItem: Item }) =>
@@ -115,9 +115,9 @@ describe('useMatchScore', () => {
       { initialProps: { networkItem: destA } },
     );
 
-    expect(hook.current.score?.score).toBe(4);
+    expect(hook.current.score?.score).toBe(40);
 
     rerender({ networkItem: destB });
-    expect(hook.current.score?.score).toBe(9);
+    expect(hook.current.score?.score).toBe(90);
   });
 });

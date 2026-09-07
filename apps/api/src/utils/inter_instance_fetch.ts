@@ -104,7 +104,7 @@ export async function scatterGatherPage<T extends MergeableRow>(input: {
     filters: ItemFetchFilters;
   }) => Promise<T[]>;
 }): Promise<{ rows: T[]; unavailableInstances: Set<string> }> {
-  const { offset, limit, item_latitude, item_longitude } = input.filters;
+  const { offset, limit, item_latitude, item_longitude, order_by } = input.filters;
 
   // Every active instance is asked for its own top `offset + limit` rows —
   // the requesting instance can't know in advance how many of any peer's
@@ -144,7 +144,9 @@ export async function scatterGatherPage<T extends MergeableRow>(input: {
   // mergeSortAndSlice re-sorts the union by haversine on the same 6371km sphere
   // (geo_distance.ts) — the same great-circle metric, so this is a true global
   // k-way merge of already-sorted per-instance runs, not a re-approximation.
-  const rows = mergeSortAndSlice(union, { center, offset, limit });
+  // `order_by` forwarded so the union is ordered the way the request asked,
+  // not the way the mere presence of a radius centre implies.
+  const rows = mergeSortAndSlice(union, { center, offset, limit, orderBy: order_by });
 
   return { rows, unavailableInstances };
 }

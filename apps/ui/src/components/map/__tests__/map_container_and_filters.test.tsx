@@ -11,7 +11,7 @@ import {
   getRegisteredProviders,
 } from '@/engine/map/map-registry';
 import { FALLBACK_CENTER, FALLBACK_ZOOM, MapView } from '../map-container';
-import { MapFiltersPanel } from '../map-filters-panel';
+import { BrowseFiltersPanel } from '@/components/filters/browse-filters-panel';
 
 /**
  * Component-level tests for the two remaining uncovered halves of the map UI:
@@ -24,8 +24,8 @@ import { MapFiltersPanel } from '../map-filters-panel';
  *    provider is registered instead and renders every prop it receives as text
  *    so assertions stay DOM-level rather than mock-level.
  *
- *  - `MapFiltersPanel` (`map-filters-panel.tsx`) — the interactive branches the
- *    existing `map-filters-panel.test.tsx` deliberately does not touch (it only
+ *  - `BrowseFiltersPanel` (`browse-filters-panel.tsx`) — the interactive branches the
+ *    existing `browse-filters-panel.test.tsx` deliberately does not touch (it only
  *    asserts the trigger's presence): domain chips, enum chip toggling, the
  *    >8-option searchable dropdown, clear-all, close, the help-text variants
  *    and the mobile bottom-sheet chrome.
@@ -175,10 +175,15 @@ describe('MapView — active map provider resolution', () => {
         </Boundary>,
       );
 
-      // Default active name comes from VITE_MAP_PROVIDER (unset in tests →
-      // 'leaflet'), and nothing has registered it, so MapView must fail loudly
-      // rather than silently rendering a map-less page.
-      expect(screen.getByText(/caught: No active map provider "leaflet"/)).toBeInTheDocument();
+      // The active name comes from VITE_MAP_PROVIDER, so it is NOT hardcoded
+      // here: a developer with `VITE_MAP_PROVIDER=google-maps` in their local
+      // .env would otherwise see this fail for a reason that has nothing to do
+      // with the behaviour under test. What matters is that MapView fails
+      // LOUDLY for an unregistered name rather than silently rendering a
+      // map-less page.
+      expect(
+        screen.getByText(/caught: No active map provider "[^"]+"/),
+      ).toBeInTheDocument();
     } finally {
       consoleError.mockRestore();
     }
@@ -597,7 +602,7 @@ describe('MapView — loading, empty state and maximize', () => {
   });
 });
 
-// ─── MapFiltersPanel ─────────────────────────────────────────────────────────
+// ─── BrowseFiltersPanel ─────────────────────────────────────────────────────────
 
 function domain(id: string, properties: Record<string, unknown>): DotNetworkDomain {
   return {
@@ -635,7 +640,7 @@ const MANY_OPTION_DOMAIN = domain('seeker', {
 
 /** Opens the desktop popover / mobile sheet by clicking the Filters pill. */
 async function openPanel() {
-  await userEvent.click(screen.getByRole('button', { name: 'Open map filters' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Open filters' }));
 }
 
 /**
@@ -645,81 +650,35 @@ async function openPanel() {
  */
 const districtToggle = () => screen.getByRole('button', { name: /^District/ });
 
-describe('MapFiltersPanel — domain chips', () => {
+describe('BrowseFiltersPanel — domain chips', () => {
   beforeEach(() => {
     bridge().isMobile = false;
   });
 
-  it('humanises each domain id into a chip and toggles it on selection', async () => {
-    const onDomainsChange = vi.fn();
+  it('offers NO domain group — domain moved to the toolbar DomainControl', async () => {
+    // #645 D10: domain is selected in the browse toolbar, not here. The panel
+    // kept a second, multi-select copy that was already unreachable
+    // (`showDomainToggle` was `selectedDomain === null`, and a domain is now
+    // always selected), while still counting toward the trigger badge.
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={onDomainsChange}
         selectedFields={{}}
         onFieldsChange={() => {}}
-      />,
-    );
-    await openPanel();
-
-    const chip = screen.getByRole('button', { name: 'Filter by domain: Job Provider' });
-    expect(chip).toHaveAttribute('aria-pressed', 'false');
-    expect(chip).toHaveTextContent('Job Provider');
-
-    await userEvent.click(chip);
-
-    expect(onDomainsChange).toHaveBeenCalledWith(['job_provider']);
-  });
-
-  it('deselects an already-selected domain chip', async () => {
-    const onDomainsChange = vi.fn();
-    render(
-      <MapFiltersPanel
-        domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={['seeker', 'job_provider']}
-        onDomainsChange={onDomainsChange}
-        selectedFields={{}}
-        onFieldsChange={() => {}}
-      />,
-    );
-    await openPanel();
-
-    const chip = screen.getByRole('button', { name: 'Filter by domain: Seeker' });
-    expect(chip).toHaveAttribute('aria-pressed', 'true');
-
-    await userEvent.click(chip);
-
-    expect(onDomainsChange).toHaveBeenCalledWith(['job_provider']);
-  });
-
-  it('hides the domain group when the sidebar already scopes browse to one domain', async () => {
-    render(
-      <MapFiltersPanel
-        domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
-        selectedFields={{}}
-        onFieldsChange={() => {}}
-        showDomainToggle={false}
       />,
     );
     await openPanel();
 
     expect(screen.queryByText('Domain')).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'Filter by domain: Seeker' }),
+      screen.queryByRole('button', { name: /^Filter by domain:/ }),
     ).not.toBeInTheDocument();
-    // The enum groups are still offered.
-    expect(screen.getByRole('button', { name: 'Filter by Looking For: Job' })).toBeInTheDocument();
   });
 
-  it('renders nothing at all when there is neither a domain group nor an enum group', () => {
+  it('renders nothing at all when the domain declares no enum field', () => {
     const { container } = render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[domain('seeker', { bio: { type: 'string' } })]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -729,18 +688,16 @@ describe('MapFiltersPanel — domain chips', () => {
   });
 });
 
-describe('MapFiltersPanel — enum chip groups', () => {
+describe('BrowseFiltersPanel — enum chip groups', () => {
   beforeEach(() => {
     bridge().isMobile = false;
   });
 
   it('derives the group label from the schema title, humanising the key when absent', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER]}
         filterFieldDomains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -756,10 +713,8 @@ describe('MapFiltersPanel — enum chip groups', () => {
   it('adds a value to the field selection', async () => {
     const onFieldsChange = vi.fn();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{ looking_for: ['Job'] }}
         onFieldsChange={onFieldsChange}
       />,
@@ -776,10 +731,8 @@ describe('MapFiltersPanel — enum chip groups', () => {
   it('drops the field key entirely when its last value is deselected', async () => {
     const onFieldsChange = vi.fn();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{ looking_for: ['Job'] }}
         onFieldsChange={onFieldsChange}
       />,
@@ -791,26 +744,24 @@ describe('MapFiltersPanel — enum chip groups', () => {
     expect(onFieldsChange).toHaveBeenCalledWith({});
   });
 
-  it('badges the trigger with the total active count across domains and fields', () => {
+  it('badges the trigger with the FACET count only, never the domain', () => {
+    // Was `selectedDomains.length + enumActiveCount`, so a single facet read
+    // as "2" on the badge (Q9). Domain is not one of this panel's groups.
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={['seeker']}
-        onDomainsChange={() => {}}
         selectedFields={{ looking_for: ['Job', 'Internship'] }}
         onFieldsChange={() => {}}
       />,
     );
 
-    expect(screen.getByLabelText('3 selected')).toHaveTextContent('3');
+    expect(screen.getByLabelText('2 selected')).toHaveTextContent('2');
   });
 
   it('shows no count badge when nothing is selected', () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -820,19 +771,19 @@ describe('MapFiltersPanel — enum chip groups', () => {
   });
 });
 
-describe('MapFiltersPanel — clear all, close and help text', () => {
+describe('BrowseFiltersPanel — clear all, close and help text', () => {
   beforeEach(() => {
     bridge().isMobile = false;
   });
 
-  it('clears both the domain and field selections from one link', async () => {
-    const onDomainsChange = vi.fn();
+  it('clears the field selections from one link, leaving domain alone', async () => {
+    // Clear-all used to also fire `onDomainsChange([])`. The list needs
+    // exactly one domain at all times (#645 D11), so resetting it to "none"
+    // is not a state the browse feed can fetch from.
     const onFieldsChange = vi.fn();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={['seeker']}
-        onDomainsChange={onDomainsChange}
         selectedFields={{ looking_for: ['Job'] }}
         onFieldsChange={onFieldsChange}
       />,
@@ -841,16 +792,13 @@ describe('MapFiltersPanel — clear all, close and help text', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear all' }));
 
-    expect(onDomainsChange).toHaveBeenCalledWith([]);
     expect(onFieldsChange).toHaveBeenCalledWith({});
   });
 
   it('offers no Clear all link while nothing is selected', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -862,32 +810,30 @@ describe('MapFiltersPanel — clear all, close and help text', () => {
 
   it('closes the panel from its own X button', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
     );
     await openPanel();
-    expect(screen.getByRole('button', { name: 'Filter by domain: Seeker' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Filter by Looking For: Job' }),
+    ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Close filters' }));
 
     await waitFor(() =>
       expect(
-        screen.queryByRole('button', { name: 'Filter by domain: Seeker' }),
+        screen.queryByRole('button', { name: 'Filter by Looking For: Job' }),
       ).not.toBeInTheDocument(),
     );
   });
 
   it('tailors the empty-selection help text to the map view', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
         viewMode="map"
@@ -902,10 +848,8 @@ describe('MapFiltersPanel — clear all, close and help text', () => {
 
   it('tailors the empty-selection help text to the list view', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
         viewMode="list"
@@ -918,11 +862,9 @@ describe('MapFiltersPanel — clear all, close and help text', () => {
 
   it('hides the help text once a filter is active', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={['seeker']}
-        onDomainsChange={() => {}}
-        selectedFields={{}}
+        selectedFields={{ looking_for: ['Job'] }}
         onFieldsChange={() => {}}
       />,
     );
@@ -934,17 +876,15 @@ describe('MapFiltersPanel — clear all, close and help text', () => {
   });
 });
 
-describe('MapFiltersPanel — searchable dropdown for large option sets', () => {
+describe('BrowseFiltersPanel — searchable dropdown for large option sets', () => {
   beforeEach(() => {
     bridge().isMobile = false;
   });
 
   it('collapses a >8-option field into a dropdown that expands on click', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[MANY_OPTION_DOMAIN]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -966,10 +906,8 @@ describe('MapFiltersPanel — searchable dropdown for large option sets', () => 
 
   it('summarises the selection count on the collapsed header', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[MANY_OPTION_DOMAIN]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{ district: ['Mysuru', 'Ballari'] }}
         onFieldsChange={() => {}}
       />,
@@ -984,10 +922,8 @@ describe('MapFiltersPanel — searchable dropdown for large option sets', () => 
 
   it('filters the checklist by the search box, case-insensitively', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[MANY_OPTION_DOMAIN]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -1004,10 +940,8 @@ describe('MapFiltersPanel — searchable dropdown for large option sets', () => 
 
   it('shows a no-matches message when the query excludes every option', async () => {
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[MANY_OPTION_DOMAIN]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -1024,10 +958,8 @@ describe('MapFiltersPanel — searchable dropdown for large option sets', () => 
   it('toggles an option from the checklist and reflects its selected state', async () => {
     const onFieldsChange = vi.fn();
     render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[MANY_OPTION_DOMAIN]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{ district: ['Mysuru'] }}
         onFieldsChange={onFieldsChange}
       />,
@@ -1050,7 +982,7 @@ describe('MapFiltersPanel — searchable dropdown for large option sets', () => 
   });
 });
 
-describe('MapFiltersPanel — mobile bottom sheet', () => {
+describe('BrowseFiltersPanel — mobile bottom sheet', () => {
   beforeEach(() => {
     bridge().isMobile = true;
   });
@@ -1060,10 +992,8 @@ describe('MapFiltersPanel — mobile bottom sheet', () => {
 
   it('opens the filter groups in a drawer instead of a popover, with a single close control', async () => {
     const { baseElement } = render(
-      <MapFiltersPanel
+      <BrowseFiltersPanel
         domains={[SEEKER, JOB_PROVIDER]}
-        selectedDomains={[]}
-        onDomainsChange={() => {}}
         selectedFields={{}}
         onFieldsChange={() => {}}
       />,
@@ -1071,7 +1001,7 @@ describe('MapFiltersPanel — mobile bottom sheet', () => {
 
     expect(baseElement.querySelector('[data-slot="drawer-content"]')).toBeFalsy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open map filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open filters' }));
 
     expect(baseElement.querySelector('[data-slot="drawer-content"]')).toBeTruthy();
     expect(baseElement.querySelector('[data-slot="popover-content"]')).toBeFalsy();
@@ -1079,7 +1009,7 @@ describe('MapFiltersPanel — mobile bottom sheet', () => {
     expect(baseElement.querySelector('[data-slot="drawer-close"]')).toBeFalsy();
     expect(screen.getByRole('button', { name: 'Close filters' })).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Filter by domain: Job Provider' }),
+      screen.getByRole('button', { name: 'Filter by Looking For: Job' }),
     ).toBeInTheDocument();
   });
 });

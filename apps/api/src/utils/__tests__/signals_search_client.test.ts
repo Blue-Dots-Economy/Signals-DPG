@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('SignalsSearchClient', () => {
-  it('POSTs item PKs to /v1/relevance with x-api-key and maps percentage → 0-10 score', async () => {
+  it('POSTs item PKs to /v1/relevance with x-api-key and passes the 0-100 score through', async () => {
     let capturedUrl: string | undefined;
     let capturedInit: RequestInit | undefined;
     const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
@@ -46,7 +46,8 @@ describe('SignalsSearchClient', () => {
     });
 
     expect(result.provider).toBe('signals_search');
-    expect(result.score).toBeCloseTo(8.734, 5); // 87.34% → 0-10 scale
+    // #646 §5.2: one scale end to end — the provider no longer divides by 10.
+    expect(result.score).toBeCloseTo(87.34, 5);
     expect(result.raw_response).toEqual({ score: 87.34 });
   });
 
@@ -56,7 +57,7 @@ describe('SignalsSearchClient', () => {
     const result = await client.calculate(req);
     expect(result.provider).toBe('signals_search');
     expect(result.score).toBeUndefined();
-    expect(result.reasoning).toBe('not_indexed');
+    expect(result.unavailable_reason).toBe('not_indexed');
   });
 
   it('returns a scoreless result (not a throw) on 409 not-comparable', async () => {
@@ -64,7 +65,7 @@ describe('SignalsSearchClient', () => {
     const client = new SignalsSearchClient({ baseUrl: 'http://search:3100', apiKey: 'sk_test' });
     const result = await client.calculate(req);
     expect(result.score).toBeUndefined();
-    expect(result.reasoning).toBe('not_comparable');
+    expect(result.unavailable_reason).toBe('not_comparable');
   });
 
   it('throws on a genuine (non-404/409) failure so the handler maps it to 502', async () => {

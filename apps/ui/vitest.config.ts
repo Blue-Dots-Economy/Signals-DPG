@@ -30,6 +30,12 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
+      // Still emit the lcov report when some tests fail, matching apps/api.
+      // Vitest defaults this to false, so one failing ui test wrote NO
+      // lcov at all — SonarCloud then scored every changed ui line as
+      // uncovered (a PR's new_coverage fell to 2% and failed the gate) while
+      // the coverage step itself passed, because CI runs it continue-on-error.
+      reportOnFailure: true,
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       exclude: [

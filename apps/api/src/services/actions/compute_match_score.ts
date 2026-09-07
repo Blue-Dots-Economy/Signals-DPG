@@ -46,7 +46,17 @@ export async function computeActionMatchScore(
       itemA: toMatchScoreItem(source),
       itemB: toMatchScoreItem(target),
     });
-    return typeof result.score === 'number' ? result.score : null;
+    // #646 §5.2 converts the DISPLAY path to a single 0-100 scale, so the
+    // provider now returns 0-100. `item_actions.match_score` is a different
+    // artifact: a persisted REAL column, documented 0-10, already holding
+    // rows on that scale and sortable in SQL (fetch_actions.ts orders by it).
+    //
+    // Converting here keeps that column's meaning stable and needs no
+    // backfill. Writing 0-100 into it instead would leave the table holding
+    // BOTH scales with nothing in a row to say which — every pre-existing My
+    // Actions score would then render 10x too small. One conversion at a
+    // storage boundary is the cheaper correct answer than a migration.
+    return typeof result.score === 'number' ? result.score / 10 : null;
   } catch (err) {
     log.warn({ err }, 'action match-score compute failed — storing null');
     return null;

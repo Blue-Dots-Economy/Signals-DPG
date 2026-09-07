@@ -15,21 +15,26 @@ export interface MatchScoreRequest {
   itemB: MatchScoreItem;
 }
 
+/**
+ * #646 §5.5: `band`, `confidence`, `reasoning`, `signals`, `prompt_version`,
+ * `model_provider` and `model` are gone. They are dpg-scoring-era fields that
+ * the `signals_search` provider never populates, so the detail modal offered
+ * affordances that could never fill — a confidence line and a reasoning
+ * paragraph that were always absent in practice.
+ *
+ * The one real signal they were carrying is preserved as
+ * `unavailable_reason`: /v1/relevance answers 404 (one side not indexed yet —
+ * common, since indexing is async) and 409 (embedded with different model
+ * versions, so not comparable), and both are expected states rather than
+ * outages. That used to be smuggled through `reasoning`.
+ */
 export interface MatchScoreResult {
   provider: string;
+  /** 0-100 (#646 §5.2 — one scale end to end). */
   score?: number;
-  band?: string;
-  confidence?: number;
   version?: string;
-  prompt_version?: string;
-  model_provider?: string;
-  model?: string;
-  reasoning?: string;
-  signals?: Array<{
-    name: string;
-    impact: string;
-    summary: string;
-  }>;
+  /** Why no score is available, for the two expected non-outage states. */
+  unavailable_reason?: 'not_indexed' | 'not_comparable';
   raw_response: unknown;
 }
 

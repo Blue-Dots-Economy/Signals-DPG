@@ -5,7 +5,7 @@ import { MatchScoreModal } from './match-score-modal';
 
 const score = (overrides: Partial<MatchScoreResult> = {}): MatchScoreResult => ({
   provider: 'signals_search',
-  score: 7.1,
+  score: 71,
   ...overrides,
 });
 
@@ -31,12 +31,12 @@ describe('MatchScoreModal', () => {
   // (`components/ui/progress.tsx`'s indicator style, independent of the
   // underlying Radix root's own aria-valuenow computation), so it's the most
   // direct way to assert the settled percent.
-  it('sets the progress bar to score/10 as a percent, not score*100', () => {
+  it('sets the progress bar to the score itself, now that scores are 0-100', () => {
     render(
       <MatchScoreModal
         isOpen
         onClose={() => {}}
-        score={score({ score: 7.1 })}
+        score={score({ score: 71 })}
         isLoading={false}
         localItemName="Me"
         networkItemName="Them"
@@ -46,16 +46,20 @@ describe('MatchScoreModal', () => {
 
     const progressbar = screen.getByRole('progressbar');
     const indicator = progressbar.querySelector('div') as HTMLElement;
-    // 71%, not 710% (score.score * 100 without the /10 normalization).
+    // #646 §5.2: the score IS the percent — no normalization step left.
     expect(indicator.style.transform).toBe('translateX(-29%)');
   });
 
-  it('hides the confidence line when confidence is absent (e.g. a discover-seeded score)', () => {
+  // #646 §5.5: confidence, reasoning, signals and the band are gone. The
+  // `signals_search` provider never populated them, so the modal advertised a
+  // confidence line and a reasoning paragraph that were always absent in
+  // practice. These two cases replace the pair that asserted them.
+  it('renders no confidence line at all', () => {
     render(
       <MatchScoreModal
         isOpen
         onClose={() => {}}
-        score={score({ confidence: undefined, source: 'discover' })}
+        score={score({ source: 'discover' })}
         isLoading={false}
         localItemName="Me"
         networkItemName="Them"
@@ -63,15 +67,17 @@ describe('MatchScoreModal', () => {
       />,
     );
 
-    expect(screen.queryByText(/Confidence:/i)).toBeNull();
+    expect(screen.queryByText(/Confidence/i)).toBeNull();
   });
 
-  it('shows the confidence line when confidence is present', () => {
+  it('renders no band label', () => {
+    // The Excellent/Good/Moderate/Low thresholds implied a calibration BGE-M3
+    // similarities do not have.
     render(
       <MatchScoreModal
         isOpen
         onClose={() => {}}
-        score={score({ confidence: 0.82 })}
+        score={score({})}
         isLoading={false}
         localItemName="Me"
         networkItemName="Them"
@@ -79,6 +85,6 @@ describe('MatchScoreModal', () => {
       />,
     );
 
-    expect(screen.getByText(/Confidence: 82%/i)).toBeInTheDocument();
+    expect(screen.queryByText(/excellent|moderate match|low match/i)).toBeNull();
   });
 });

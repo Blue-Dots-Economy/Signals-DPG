@@ -1128,7 +1128,8 @@ describe('createPhotonProvider', () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('match-score-cache', () => {
-  const score: MatchScoreResult = { provider: 'llm', score: 8.4, band: 'high' };
+  // #646 §5.2: 0-100 scale; §5.5 removed the `band` field.
+  const score: MatchScoreResult = { provider: 'llm', score: 84 };
 
   beforeEach(() => {
     localStorage.clear();
@@ -1139,14 +1140,14 @@ describe('match-score-cache', () => {
     localStorage.clear();
   });
 
-  it('namespaces the key by version, local item and network item', () => {
-    expect(generateCacheKey('local-1', 'net-2')).toBe('dpg:matchScore:v1:local-1:net-2');
+  it('namespaces the key by version (v2 since #646 §5.2), local item and network item', () => {
+    expect(generateCacheKey('local-1', 'net-2')).toBe('dpg:matchScore:v2:local-1:net-2');
   });
 
   it('round-trips a score under the versioned key', () => {
     setCachedMatchScore('local-1', 'net-2', score);
 
-    const raw = localStorage.getItem('dpg:matchScore:v1:local-1:net-2');
+    const raw = localStorage.getItem('dpg:matchScore:v2:local-1:net-2');
     expect(raw).not.toBeNull();
 
     const cached = getCachedMatchScore('local-1', 'net-2');

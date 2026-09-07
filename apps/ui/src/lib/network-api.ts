@@ -145,7 +145,7 @@ export interface FetchNetworkMarkersQuery {
   /**
    * Facet filter, one entry per `item_state.<field>`. A value is either a
    * scalar (equality/containment match) or a `string[]` — the #203 Task 7
-   * multi-select case (`MapFiltersPanel`'s `selectedFields`) — serialized
+   * multi-select case (`BrowseFiltersPanel`'s `selectedFields`) — serialized
    * below as repeated params so the server parses it back into `string[]`
    * (see the comment at the serialization site).
    */
@@ -193,7 +193,7 @@ export async function fetchNetworkMarkers(
   // filter (unchanged, pre-#203 behavior).
   //
   // An ARRAY value (#203 Task 7 — the map's multi-select facet filters, e.g.
-  // `MapFiltersPanel`'s `selectedFields`) is the critical case: it MUST reach
+  // `BrowseFiltersPanel`'s `selectedFields`) is the critical case: it MUST reach
   // the server as a real array, not `String(value)` (which produced a single
   // comma-joined `"a,b"` string — inert against buildWhereClause's
   // `item_state ->> field = ANY(...)` facet filter, Task 3). The fix is to
@@ -249,6 +249,13 @@ export interface FetchDiscoverQuery {
   item_latitude?: number;
   item_longitude?: number;
   distance_meters?: number;
+  // #644 VIEWPORT area mode: the exact rectangle the map is showing (contract
+  // §1.5). Mutually exclusive with the radius trio above — the BFF rejects
+  // both together. All four travel or none do; a partial box is a 400.
+  min_lat?: number;
+  min_lng?: number;
+  max_lat?: number;
+  max_lng?: number;
   limit?: number;
   offset?: number;
   // The active profile's item id (#394 Task 2, threading Task 1's backend
@@ -257,9 +264,19 @@ export interface FetchDiscoverQuery {
   // relevance-to-profile ranking. Omitted entirely when unset (Task 3 is what
   // wires an actual profile id in from the page).
   anchor_item_id?: string;
+  // #644: explicit ordering. Optional — the BFF defaults it and reports what
+  // it actually applied via `meta.sort_applied`.
+  sort?: DiscoverSortMode;
+  // #644: the ORDERING centre for `sort: 'nearest'`. Distinct from
+  // `item_latitude`/`item_longitude` above, which are the AREA FILTER: these
+  // two order the whole network nearest-first without bounding it.
+  ordering_latitude?: number;
+  ordering_longitude?: number;
 }
 
 export type DiscoverSource = 'signals_search' | 'native_fallback';
+
+export type DiscoverSortMode = 'relevance' | 'newest' | 'nearest';
 
 export interface DiscoverResponse {
   items: Item[];
@@ -274,6 +291,15 @@ export interface DiscoverResponse {
     // `DiscoverResponseSchema` in `@dpg/schemas`). The list note above the
     // results (`resolveListNote`) uses this to show "within X km".
     distance_meters?: number;
+    // #644: the order the server ACTUALLY applied, after its own defaulting
+    // and fallbacks. The UI labels from this rather than from what it
+    // requested, so it can never claim an order it did not get.
+    //
+    // ABSENT means the search service did not report one — see the BFF's
+    // `DiscoverResponseSchema`. Treated as UNKNOWN, not as "assume what we
+    // asked for": a `?? requestedSort` here is exactly the claim this field
+    // exists to prevent.
+    sort_applied?: DiscoverSortMode;
   };
 }
 
@@ -284,6 +310,72 @@ export interface DiscoverResponse {
  * `fetchNetworkItems`'s query params. `items` are the SAME `Item` shape
  * `fetchNetworkItems` returns — the list renders both uniformly.
  */
+/**
+ * The optional fields `fetchDiscover` forwards — an explicit ALLOWLIST.
+ *
+ * A field missing from this list is silently dropped, however correctly the
+ * caller supplied it. That is how the viewport bbox first shipped inert: the
+ * hook and the BFF both handled `min_lat`…`max_lng`, this builder did not, and
+ * nothing failed loudly — the list showed 79 of 79 where the API returns 71.
+ * Keeping the allowlist as one named list rather than a chain of `if`s is what
+ * makes such an omission visible.
+ *
+ * `satisfies` ties it to the query type, so a renamed field breaks the build
+ * instead of quietly ceasing to be sent.
+ */
+const OPTIONAL_DISCOVER_BODY_KEYS = [
+  'q',
+  'filters',
+  'item_latitude',
+  'item_longitude',
+  'distance_meters',
+  'min_lat',
+  'min_lng',
+  'max_lat',
+  'max_lng',
+  'limit',
+  'offset',
+  'anchor_item_id',
+  'sort',
+  'ordering_latitude',
+  'ordering_longitude',
+] as const satisfies readonly (keyof FetchDiscoverQuery)[];
+
+/**
+ * Raw cosine → the 0-100 scale the rest of the UI works in (#646 §5.2).
+ *
+ * The two signals-search endpoints disagree about scale, which is the whole
+ * reason this exists: `/v1/relevance` (behind `/api/v1/match-score/calculate`,
+ * the modal) returns a 0-100 percentage, while `/v1/search` (behind
+ * `/discover`, this feed) returns the RAW cosine similarity, ~0-1. The
+ * "one scale end to end" cleanup took both to be 0-100 already; the raw 0.633
+ * then reached the card pill's `Math.round(percent)` and every card badged
+ * **1%**.
+ *
+ * Done here rather than at the two consumers (`resolveCardMetric` and
+ * `seedFromDiscoverScore`) so there is exactly ONE place that knows the wire
+ * scale, and neither of them can drift from it again.
+ *
+ * NOT done in the BFF: `/discover` deliberately reports the score its search
+ * backend produced. Rescaling it there would make the API's own response
+ * disagree with signals-search for every other consumer.
+ *
+ * Clamped because cosine similarity runs -1..1 in principle, and a negative
+ * percentage renders as a nonsense badge.
+ */
+function toPercentScale(score: number): number {
+  return Math.min(100, Math.max(0, score * 100));
+}
+
+/** Discover items carry a relevance score on a different scale — see `toPercentScale`. */
+function normalizeDiscoverItemScore(item: Item): Item {
+  // `null` is preserved as-is: only `undefined`/`null` mean "never scored",
+  // and coercing either to 0 would badge "0%" as if the item had been scored
+  // and found irrelevant.
+  if (typeof item.score !== 'number') return item;
+  return { ...item, score: toPercentScale(item.score) };
+}
+
 export async function fetchDiscover(
   query: FetchDiscoverQuery,
   signal?: AbortSignal
@@ -294,21 +386,26 @@ export async function fetchDiscover(
     item_type: query.item_type,
   };
 
-  if (query.q) body.q = query.q;
-  if (query.filters !== undefined && query.filters.length > 0) body.filters = query.filters;
-  if (query.item_latitude !== undefined) body.item_latitude = query.item_latitude;
-  if (query.item_longitude !== undefined) body.item_longitude = query.item_longitude;
-  if (query.distance_meters !== undefined) body.distance_meters = query.distance_meters;
-  if (query.limit !== undefined) body.limit = query.limit;
-  if (query.offset !== undefined) body.offset = query.offset;
-  if (query.anchor_item_id) body.anchor_item_id = query.anchor_item_id;
+  for (const key of OPTIONAL_DISCOVER_BODY_KEYS) {
+    const value = query[key];
+    // `undefined` = not asked for. An empty string or empty array is also
+    // "not asked for" (this preserves the old per-field falsy checks on `q`,
+    // `anchor_item_id` and `filters`), but a numeric 0 is NOT — `offset: 0` is
+    // the first page and must travel.
+    if (value === undefined) continue;
+    if (value === '' || (Array.isArray(value) && value.length === 0)) continue;
+    body[key] = value;
+  }
 
   const response = await networkApiClient.post<DiscoverResponse>(
     '/api/v1/network/item/discover',
     body,
     { signal }
   );
-  return response.data;
+  return {
+    ...response.data,
+    items: (response.data.items ?? []).map(normalizeDiscoverItemScore),
+  };
 }
 
 export async function fetchNetworkConfigs(): Promise<DotNetworkSchema[]> {

@@ -360,7 +360,17 @@ function SidebarSeparator({
     <Separator
       data-slot="sidebar-separator"
       data-sidebar="separator"
-      className={cn("mx-2 w-auto bg-sidebar-border", className)}
+      // `data-[orientation=horizontal]:w-auto`, not a bare `w-auto`: the
+      // Separator primitive sets `data-[orientation=horizontal]:w-full`, whose
+      // attribute selector outranks an unprefixed `.w-auto` (and tailwind-merge
+      // does not dedupe across a variant boundary). A bare `w-auto` was
+      // therefore dead, leaving the rule 100% wide PLUS `mx-2` — so it
+      // overflowed 8px past the sidebar edge into the content column, drawing a
+      // stray line fragment beside the browse toolbar.
+      className={cn(
+        "mx-2 data-[orientation=horizontal]:w-auto bg-sidebar-border",
+        className
+      )}
       {...props}
     />
   )
