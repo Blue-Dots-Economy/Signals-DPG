@@ -30,6 +30,13 @@ export interface SortSelectProps {
    * because the server reported `sort_applied: newest` (Q2).
    */
   relevanceAvailable?: boolean;
+  /**
+   * Which centre `nearest` would measure from, already localized. Shown as a
+   * READ-ONLY hint: Sort deliberately says nothing selectable about location,
+   * because the source is chosen in exactly one place — the Location control
+   * (#644 QA redesign).
+   */
+  nearestFromLabel?: string;
   onChange: (next: BrowseSort) => void;
 }
 
@@ -49,6 +56,7 @@ export function SortSelect({
   nearestAvailable,
   basis,
   relevanceAvailable = true,
+  nearestFromLabel,
   onChange,
 }: Readonly<SortSelectProps>) {
   const { t } = useTranslation();
@@ -95,6 +103,10 @@ export function SortSelect({
           label: t('browse.sort_nearest'),
           available: nearestAvailable,
           reason: nearestAvailable ? undefined : t('browse.sort_nearest_unavailable'),
+          hint:
+            nearestAvailable && nearestFromLabel
+              ? t('browse.sort_nearest_from', { source: nearestFromLabel })
+              : undefined,
         },
       ]}
     />

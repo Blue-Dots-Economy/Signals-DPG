@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { AppliedFilterChips } from './applied-filter-chips';
 import { SortSelect } from './sort-select';
-import { AreaSelect } from './area-select';
+import { LocationSelect } from './location-select';
 import type { AppliedChip } from './applied-filter-chips';
 import type { BrowseArea, BrowseSort } from '@/lib/browse-discover';
+import type { PreferredLocationSource } from '@/hooks/use-user-location';
 import type { ViewMode } from '@/engine/types';
 
 export interface BrowseToolbarProps {
@@ -31,11 +32,14 @@ export interface BrowseToolbarProps {
   onSortChange: (next: BrowseSort) => void;
   area: BrowseArea;
   /**
-   * The map's last reported bounds, enabling the "area shown on the map"
-   * option. Null before any map has been shown, in which case that option is
-   * hidden rather than offered dead.
+   * Which location source is in force, and whether each can supply one. Lives
+   * with the distance in ONE control (#644 QA redesign) — the standalone
+   * "Search near" toggle asked the same question in a second place.
    */
-  viewportBounds?: { minLat: number; minLng: number; maxLat: number; maxLng: number } | null;
+  locationSource: PreferredLocationSource;
+  onLocationSourceChange: (next: PreferredLocationSource) => void;
+  profileLocationAvailable: boolean;
+  browserLocationAvailable: boolean;
   /** Centre offered when the user picks a radius; null when none resolves. */
   defaultCenter: { lat: number; lng: number } | null;
   onAreaChange: (next: BrowseArea) => void;
@@ -99,6 +103,11 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             applied={props.sortApplied}
             nearestAvailable={props.nearestAvailable}
             relevanceAvailable={props.relevanceAvailable}
+            nearestFromLabel={t(
+              props.locationSource === 'browser'
+                ? 'browse.location_from_browser'
+                : 'browse.location_from_profile',
+            ).toLowerCase()}
             basis={props.relevanceBasis}
             onChange={props.onSortChange}
           />
@@ -118,10 +127,14 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             list is the escape hatch from a map too dense to show every pin
             (#644, "Why the list still needs an optional area filter"). */}
         {!isMap && (
-          <AreaSelect
+          <LocationSelect
             value={props.area}
-            defaultCenter={props.defaultCenter}
-            viewportBounds={props.viewportBounds}
+            sort={props.sort}
+            source={props.locationSource}
+            onSourceChange={props.onLocationSourceChange}
+            profileAvailable={props.profileLocationAvailable}
+            browserAvailable={props.browserLocationAvailable}
+            center={props.defaultCenter}
             onChange={props.onAreaChange}
           />
         )}

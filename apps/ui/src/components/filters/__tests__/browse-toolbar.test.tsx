@@ -12,6 +12,10 @@ const base: BrowseToolbarProps = {
   relevanceBasis: 'profile',
   onSortChange: vi.fn(),
   area: { mode: 'anywhere' },
+  locationSource: 'profile' as const,
+  onLocationSourceChange: vi.fn(),
+  profileLocationAvailable: true,
+  browserLocationAvailable: true,
   defaultCenter: { lat: 12.97, lng: 77.59 },
   onAreaChange: vi.fn(),
   chips: [],
@@ -24,10 +28,12 @@ describe('BrowseToolbar', () => {
   // Domain selection moved OUT of this bar (it renders beside "Search near"
   // over the content now), so its rendering and single-vs-multi behaviour are
   // covered by domain-control.test.tsx rather than duplicated here.
-  it('renders sort, area and the result count', () => {
+  it('renders sort, location and the result count', () => {
     render(<BrowseToolbar {...base} />);
     expect(screen.getByRole('button', { name: /sort/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /area/i })).toBeInTheDocument();
+    // "Area" became "Location" when the distance and its source merged into
+    // one control (#644 QA redesign).
+    expect(screen.getByRole('button', { name: /location/i })).toBeInTheDocument();
     expect(screen.getByText(/248/)).toBeInTheDocument();
   });
 
@@ -48,12 +54,12 @@ describe('BrowseToolbar', () => {
     // filter. On the map the viewport IS the area.
     render(<BrowseToolbar {...base} viewMode="map" />);
     expect(screen.queryByRole('button', { name: /sort/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /area/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /location/i })).toBeNull();
   });
 
-  it('offers area on the list, where it is the dense-map escape hatch', () => {
+  it('offers location on the list, where it is the dense-map escape hatch', () => {
     render(<BrowseToolbar {...base} viewMode="list" />);
-    expect(screen.getByRole('button', { name: /area/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /location/i })).toBeInTheDocument();
   });
 
   it('offers clear-all when only sort or area is non-default, though neither chips', () => {

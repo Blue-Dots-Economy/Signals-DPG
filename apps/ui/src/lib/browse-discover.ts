@@ -116,7 +116,7 @@ export function isDiscoverActive(params: {
 //      km" only.
 //   5. no anchor, no location: nothing to say — no note.
 //
-// `locationSource` mirrors the `LocationSourceToggle`/`PreferredLocationSource`
+// `locationSource` mirrors `PreferredLocationSource`
 // value ('profile' | 'browser'), translated here to the word the copy uses
 // ('profile' | 'current'); the i18n VALUE itself is resolved by the caller
 // (home-page) via `home.location_source_${locationSource}` so the word stays
@@ -133,7 +133,7 @@ export interface ResolveListNoteInput {
   // rather than re-deriving that rule here.
   hasProfileAnchor: boolean;
   // Whether a location is being sent as the discover spatial filter (i.e. the
-  // `LocationSourceToggle`-resolved coordinate resolved to something, not
+  // source-resolved coordinate resolved to something, not
   // null). Combined with `distanceMeters` below to decide whether a truthful
   // "within X km" can be shown.
   hasLocation: boolean;

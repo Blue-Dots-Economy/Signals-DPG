@@ -30,6 +30,7 @@ import {
 import { ActionHandler } from '@/components/actions/action-handler';
 import { MapView } from '@/components/map/map-container';
 import { MapErrorBoundary } from '@/components/map/map-error-boundary';
+import { SEARCH_AREA_MIN_ZOOM } from '@/lib/map-caps';
 import { BrowseFiltersPanel } from '@/components/filters/browse-filters-panel';
 import { MarkerPopupCard } from '@/components/map/marker-popup-card';
 import { MapCountPill } from '@/components/map/map-count-pill';
@@ -79,7 +80,6 @@ import { computeVisibleDomains } from '@/lib/visible-domains';
 import { useUserLocation } from '@/hooks/use-user-location';
 import type { PreferredLocationSource } from '@/hooks/use-user-location';
 import { useGeolocationPermission } from '@/hooks/use-geolocation-permission';
-import { LocationSourceToggle } from '@/components/location/location-source-toggle';
 import { EnableLocationBanner } from '@/components/location/enable-location-banner';
 import type { LatLng } from '@/lib/geo/types';
 import { nearestDistanceMeters } from '@/lib/geo/distance';
@@ -1992,18 +1992,9 @@ export function HomePage() {
         </Button>
       ) : null;
 
-    const headerActions =
-      canToggleLocation || selectButton ? (
-        <div className="flex items-center gap-2">
-          {canToggleLocation && (
-            <LocationSourceToggle
-              value={preferredSource}
-              onChange={handleLocationSourceChange}
-            />
-          )}
-          {selectButton}
-        </div>
-      ) : undefined;
+    const headerActions = selectButton ? (
+      <div className="flex items-center gap-2">{selectButton}</div>
+    ) : undefined;
 
     // The browse-context row, rendered for guests AND signed-in viewers.
     //
@@ -2129,20 +2120,13 @@ export function HomePage() {
             onSortChange={setSort}
             area={area}
             defaultCenter={browseCoords}
-            // Only once the map has actually reported bounds — see AreaSelect.
-            viewportBounds={
-              mapViewport?.minLat !== undefined &&
-              mapViewport.minLng !== undefined &&
-              mapViewport.maxLat !== undefined &&
-              mapViewport.maxLng !== undefined
-                ? {
-                    minLat: mapViewport.minLat,
-                    minLng: mapViewport.minLng,
-                    maxLat: mapViewport.maxLat,
-                    maxLng: mapViewport.maxLng,
-                  }
-                : null
-            }
+            // The location source now lives WITH the distance, in one control
+            // (#644 QA redesign) — the standalone "Search near" toggle asked
+            // the same question a second time, in a second place.
+            locationSource={preferredSource}
+            onLocationSourceChange={handleLocationSourceChange}
+            profileLocationAvailable={profileLocation !== null}
+            browserLocationAvailable={browserLocation.isSupported}
             onAreaChange={setArea}
             chips={appliedChips}
             onRemoveChip={handleRemoveChip}
@@ -2453,7 +2437,13 @@ export function HomePage() {
                 {mapViewport?.minLat !== undefined &&
                   mapViewport.minLng !== undefined &&
                   mapViewport.maxLat !== undefined &&
-                  mapViewport.maxLng !== undefined && (
+                  mapViewport.maxLng !== undefined &&
+                  // Zoomed in AND still truncated. At low zoom "zoom in" is
+                  // the honest advice and the pill already gives it; the list
+                  // is only the escape hatch once there is no further zoom to
+                  // escape to.
+                  (mapViewport.zoom ?? 0) >= SEARCH_AREA_MIN_ZOOM &&
+                  mapMarkers.truncated && (
                     <div className="pointer-events-none fixed bottom-20 left-1/2 z-[2100] -translate-x-1/2 px-4">
                       <button
                         type="button"

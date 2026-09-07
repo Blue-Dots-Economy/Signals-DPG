@@ -1079,23 +1079,48 @@ describe('HomePage — list notes and degradation banners', () => {
   });
 });
 
-describe('HomePage — location source toggle', () => {
-  it('hides the toggle when the browser cannot supply a location', async () => {
+/**
+ * The location SOURCE now lives inside the one Location control, not in a
+ * standalone "Search near" toggle (#644 QA redesign) — that toggle asked the
+ * same question in a second place, and rendered even when nothing used the
+ * answer. So these drive the menu instead of a radio group.
+ *
+ * The source section is only rendered when something uses a centre, hence the
+ * `sort=nearest` in each case: with `relevance` and no distance set, asking
+ * which point to measure from would be the noise the redesign removed.
+ */
+describe('HomePage — location source, inside the Location control', () => {
+  const openLocation = async () =>
+    userEvent.click(screen.getByRole('button', { name: /location/i }));
+  const pickNearest = async () => {
+    await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+    await userEvent.click(screen.getByRole('option', { name: /nearest/i }));
+  };
+
+  it('offers no source choice when the browser cannot supply a location', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = false;
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    expect(screen.queryByRole('radio', { name: 'Current location' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /current location/i })).toBeDisabled();
   });
 
   it('requests the browser location and re-resolves against the picked source', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = true;
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Current location' }));
+    await userEvent.click(screen.getByRole('button', { name: /current location/i }));
 
     expect(requestBrowserLocation).toHaveBeenCalled();
     expect(preferredSources[preferredSources.length - 1]).toBe('browser');
@@ -1103,15 +1128,32 @@ describe('HomePage — location source toggle', () => {
 
   it('offers to enable location after a failed browser request', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = true;
     state.browserStatus = 'error';
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Current location' }));
+    await userEvent.click(screen.getByRole('button', { name: /current location/i }));
 
     expect(await screen.findByText('Showing results near your profile')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Turn on location' })).toBeInTheDocument();
+  });
+
+  it('does not render the source choice when nothing uses a centre', async () => {
+    // Relevance, no distance: the centre question has no consumer.
+    signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
+    state.browserSupported = true;
+    renderHome('/?view=list');
+    await findCard('Acme Welding');
+    await openLocation();
+
+    expect(screen.queryByText(/measured from/i)).toBeNull();
   });
 });
 

@@ -78,6 +78,20 @@ export interface CapForZoomOptions {
  * call so callers (and tests) never need to re-import the module to exercise
  * a different threshold/cap.
  */
+/**
+ * The zoom at or beyond which "Search this area" is offered (#644 QA).
+ *
+ * Two conditions must hold, not one. The button is only useful when the
+ * viewport is a *meaningful* area AND the map still cannot show everything in
+ * it: at low zoom the honest advice is "zoom in" (which the count pill already
+ * gives, and which fixes the problem on its own), so offering a jump to the
+ * list there would be answering a question the user has not reached yet. At
+ * high zoom with the set still truncated there is no further zoom to escape
+ * to — that is the case #644 calls the dense-cell problem, and the list is the
+ * escape hatch.
+ */
+export const SEARCH_AREA_MIN_ZOOM = 10;
+
 export function capForZoom(zoom: number, options?: CapForZoomOptions): number {
   const clusterDisableZoom = options?.clusterDisableZoom ?? CLUSTER_DISABLE_ZOOM;
   const clusteredCap = options?.clusteredCap ?? CLUSTERED_MARKER_CAP;
