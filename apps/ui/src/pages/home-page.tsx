@@ -595,6 +595,27 @@ function instanceUrlForAction(item: Item, network: DotNetworkSchema): string {
     : resolveTargetInstanceUrl(item, network, apiConfig.getUrl());
 }
 
+/**
+ * Whether the server actually RANKED by relevance.
+ *
+ * Optimistic before the first response lands, so the list note does not
+ * flicker in on arrival — but NOT once a response has come back reporting no
+ * order at all, because the ranking basis is then unknown and the note must
+ * not claim profile-relevance for it.
+ *
+ * A module-level function rather than an inline expression because `HomePage`
+ * sits at the cognitive-complexity limit and inlining these three terms
+ * tipped it over.
+ */
+function resolveRelevanceApplied(
+  applied: BrowseSort | undefined,
+  unreported: boolean,
+  requested: BrowseSort,
+): boolean {
+  if (unreported) return false;
+  return (applied ?? requested) === 'relevance';
+}
+
 export function HomePage() {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
@@ -1362,11 +1383,8 @@ export function HomePage() {
   const hasLocation = browseLocation !== null;
   const listNote = resolveListNote({
     hasProfileAnchor,
-    // What the server DID. Optimistic before the first response lands, so the
-    // note does not flicker in on arrival — but NOT once a response has come
-    // back without an order, because then the ranking basis is unknown and the
-    // note must not claim profile-relevance for it.
-    relevanceApplied: !listSortUnreported && (listSortApplied ?? sort) === 'relevance',
+    // See `resolveRelevanceApplied`.
+    relevanceApplied: resolveRelevanceApplied(listSortApplied, listSortUnreported, sort),
     hasLocation,
     degraded: listDegraded,
     distanceMeters: listDistanceMeters,

@@ -109,6 +109,25 @@ interface BrowsePage {
  * condition. Discover items are the SAME `Item` shape the native path
  * returns, so the list renders both uniformly without forking the item type.
  */
+/**
+ * A page HAS arrived and it carried no order.
+ *
+ * Deliberately not derivable from `sortApplied` alone: that is also undefined
+ * before anything has loaded, and the two must behave differently. Before the
+ * first response the UI optimistically shows what it asked for, so nothing
+ * flickers; once a response has come back WITHOUT an order, the order is
+ * unknown and must not be assumed (see the BFF's `sort_applied`, which is
+ * optional precisely so that absence can travel).
+ *
+ * A module-level function rather than an inline expression so its two terms
+ * are budgeted here — `useInfiniteBrowseItems` is at the cognitive-complexity
+ * limit and inlining this tipped it over.
+ */
+function isSortUnreported(lastPage: { meta: { sortApplied?: BrowseSort } } | undefined): boolean {
+  if (lastPage === undefined) return false;
+  return lastPage.meta.sortApplied === undefined;
+}
+
 export function useInfiniteBrowseItems(
   network: DotNetworkSchema | null,
   domain: DotNetworkDomain | null,
@@ -321,11 +340,7 @@ export function useInfiniteBrowseItems(
     // Same reasoning as distanceMeters: a property of the current request, so
     // the latest loaded page's value is the correct one to surface.
     sortApplied: lastPage?.meta.sortApplied,
-    // A page HAS arrived and it carried no order. Distinct from `sortApplied`
-    // being undefined because nothing has loaded yet, which is why this cannot
-    // be derived from `sortApplied` alone — and the difference matters: before
-    // the first response the UI optimistically shows what it asked for (no
-    // flicker), whereas afterwards an absent order must not be assumed.
-    sortUnreported: lastPage !== undefined && lastPage.meta.sortApplied === undefined,
+    // See `isSortUnreported`.
+    sortUnreported: isSortUnreported(lastPage),
   };
 }
