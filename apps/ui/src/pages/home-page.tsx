@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { RJSFSchema } from '@rjsf/utils';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -46,7 +46,7 @@ import { getRuntimeEnv } from '@/lib/runtime-env';
 import { formatDomainLabel, pluralizeDomainLabel } from '@/lib/domain-icons';
 import { ACTION_CONSENT_SENTINEL, guardianOtpErrorOf, type PerformActionPayload } from '@/lib/action-api';
 import { ActionAbortedError } from '@/lib/action-abort';
-import { EmptyState } from '@/components/empty-state';
+import { BrowseEmptyState } from '@/components/browse-empty-state';
 import { useAuth } from '@/contexts/auth-context';
 import { apiConfig } from '@/lib/api-config';
 import {
@@ -54,6 +54,7 @@ import {
   resolveTargetInstanceUrl,
   computeOpenActionItemIds,
 } from '@/lib/profile-actions';
+import type { TFunction } from 'i18next';
 import { getEnumFilterFieldsForDomains } from '@/lib/enum-filters';
 import {
   deriveBrowseParams,
@@ -67,6 +68,7 @@ import {
   type DerivedBrowseParams,
   type BrowseArea,
   type BrowseSort,
+  type ListNoteResult,
 } from '@/lib/browse-discover';
 import { BrowseToolbar } from '@/components/filters/browse-toolbar';
 import { useAppliedFilterChips } from '@/hooks/use-applied-filter-chips';
@@ -462,6 +464,22 @@ function computeHasProfileAnchor(p: {
 }
 
 /** The effective location source for the list note wording ('none' maps to 'profile' harmlessly). */
+/**
+ * A resolved list note → its display string.
+ *
+ * The interpolated `locationSource` is itself a translation key, so the note
+ * needs two `t` calls rather than one. Doing that inline made a ternary nested
+ * inside `t`'s argument list (Sonar S3358), which read as though the whole note
+ * were conditional when only its values are.
+ */
+function formatListNote(t: TFunction, note: ListNoteResult): string {
+  if (!note.values) return t(note.key);
+  return t(note.key, {
+    km: note.values.km,
+    locationSource: t(`home.location_source_${note.values.locationSource}`),
+  });
+}
+
 function noteLocationSource(resolvedLocationSource: string): 'browser' | 'profile' {
   return resolvedLocationSource === 'browser' ? 'browser' : 'profile';
 }
@@ -1597,8 +1615,6 @@ export function HomePage() {
     fieldLabels: facetFieldLabels,
     area,
     setArea,
-    sort,
-    setSort,
   });
 
   // The map applies facets and the search text; it does not apply `area` or
@@ -1951,48 +1967,11 @@ export function HomePage() {
   const contentLoading =
     viewMode === 'map' ? browseTotals.isLoading : singleDomainList.isLoading;
 
-  function buildEmptyState(domainLabel: string) {
-    if (search) return <EmptyState message={t('home.no_search_results', { search })} />;
-    // GuestHero already shows the sign-in CTA — keep this message simple
-    if (!user) return <EmptyState message={t('home.no_listings_yet')} />;
-    if (!myItem) {
-      return (
-        <EmptyState
-          heading={t('home.empty_create_heading')}
-          message={t('home.empty_create_message')}
-          action={
-            <Button asChild size="sm">
-              <Link to={`/profile/new?network=${selectedNetworkId ?? ''}`}>{t('nav.create_profile')}</Link>
-            </Button>
-          }
-        />
-      );
-    }
-    // Location-bounded discover returned nothing: the network may well have
-    // listings — just none within the (hard) radius. Say THAT, not "none in
-    // this network" (false) or nothing at all. Mirrors the map's area-scoped
-    // empty message; the "Search near" toggle makes trying another location
-    // actionable.
-    if (hasLocation && listDistanceMeters !== undefined) {
-      const km = Math.round(listDistanceMeters / 1000);
-      const locationSource = resolvedLocationSource === 'browser' ? 'current' : 'profile';
-      return (
-        <EmptyState
-          heading={t('home.nothing_here_heading')}
-          message={t('home.no_listings_in_radius', {
-            km,
-            locationSource: t(`home.location_source_${locationSource}`),
-          })}
-        />
-      );
-    }
-    return (
-      <EmptyState
-        heading={t('home.nothing_here_heading')}
-        message={t('home.no_domain_listings', { domain: domainLabel.toLowerCase() })}
-      />
-    );
-  }
+  // Suppressed on an empty list — it would falsely imply results are shown;
+  // `BrowseEmptyState` carries the radius-aware explanation there instead.
+  // Suppressed during loading too (contentCount 0), where the skeleton shows.
+  const listNoteText = listNote && contentCount > 0 ? formatListNote(t, listNote) : null;
+
 
   // Single filters element surfaced in the top bar (next to search) and, when
   // the map is maximized, in the map overlay (the top bar is hidden in
@@ -2042,6 +2021,9 @@ export function HomePage() {
 
   const filtersPanel = (
     <BrowseFiltersPanel
+      // The map's own copy, shown only while maximized (the toolbar is behind
+      // the overlay), where it floats over tiles rather than sitting in a row.
+      trigger="overlay"
       domains={visibleDomains}
       filterFieldDomains={filterFieldDomains}
       selectedFields={mapSelectedFields}
@@ -2297,26 +2279,12 @@ export function HomePage() {
                     when neither part is present.
 
                     The note is suppressed on an empty list — it would falsely
-                    imply results are shown; `buildEmptyState` carries the
+                    imply results are shown; `BrowseEmptyState` carries the
                     radius-aware explanation there instead. Suppressed during
                     loading too (contentCount 0), where the skeleton shows. */}
-                {((listNote && contentCount > 0) || browseSelectButton) && (
+                {(listNoteText || browseSelectButton) && (
                   <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="min-w-0 text-xs text-muted-foreground">
-                      {listNote && contentCount > 0
-                        ? t(
-                            listNote.key,
-                            listNote.values
-                              ? {
-                                  km: listNote.values.km,
-                                  locationSource: t(
-                                    `home.location_source_${listNote.values.locationSource}`,
-                                  ),
-                                }
-                              : undefined,
-                          )
-                        : null}
-                    </p>
+                    <p className="min-w-0 text-xs text-muted-foreground">{listNoteText}</p>
                     {browseSelectButton}
                   </div>
                 )}
@@ -2335,7 +2303,18 @@ export function HomePage() {
                   // default-domain effect resolves one. The feed is disabled then, so
                   // isLoading is false and the grid would flash "no listings".
                   loading={singleDomainList.isLoading || selectedDomain === null}
-                  emptyState={buildEmptyState(currentDomainLabel ?? 'items')}
+                  emptyState={
+                    <BrowseEmptyState
+                      search={search}
+                      signedIn={Boolean(user)}
+                      hasProfile={Boolean(myItem)}
+                      networkId={selectedNetworkId ?? ''}
+                      domainLabel={currentDomainLabel ?? 'items'}
+                      hasLocation={hasLocation}
+                      distanceMeters={listDistanceMeters}
+                      locationSource={resolvedLocationSource}
+                    />
+                  }
                   localItem={myItem}
                   networkId={network?.id}
                   selectedDomain={selectedDomain}

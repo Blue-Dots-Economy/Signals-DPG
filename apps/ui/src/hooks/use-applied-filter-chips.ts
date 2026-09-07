@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { DEFAULT_BROWSE_AREA } from '@/lib/browse-discover';
-import type { BrowseArea, BrowseSort } from '@/lib/browse-discover';
+import type { BrowseArea } from '@/lib/browse-discover';
 import type { AppliedChip } from '@/components/filters/applied-filter-chips';
 
 export interface UseAppliedFilterChipsInput {
@@ -25,8 +25,6 @@ export interface UseAppliedFilterChipsInput {
   fieldLabels: Record<string, string>;
   area: BrowseArea;
   setArea: (next: BrowseArea) => void;
-  sort: BrowseSort;
-  setSort: (next: BrowseSort) => void;
 }
 
 export interface UseAppliedFilterChipsResult {
@@ -35,8 +33,9 @@ export interface UseAppliedFilterChipsResult {
   onClearAll: () => void;
   /**
    * Whether anything at all is non-default. Deliberately NOT
-   * `chips.length > 0`: sort and area can be non-default while producing no
-   * chip, and clear-all must stay reachable then.
+   * `chips.length > 0`: the area can be non-default while producing no chip,
+   * and clear-all must stay reachable then. Sort is excluded on purpose — see
+   * `onClearAll`.
    */
   canClearAll: boolean;
 }
@@ -66,8 +65,6 @@ export function useAppliedFilterChips(
     fieldLabels,
     area,
     setArea,
-    sort,
-    setSort,
   } = input;
 
   const chips = React.useMemo<AppliedChip[]>(() => {
@@ -107,25 +104,28 @@ export function useAppliedFilterChips(
         case 'area':
           setArea(DEFAULT_BROWSE_AREA);
           break;
-        case 'sort':
-          setSort('relevance');
-          break;
         default:
           // 'domain' is not removable — the list always needs exactly one.
           break;
       }
     },
-    [setSearch, setFieldFilters, activeFieldFilters, setArea, setSort],
+    [setSearch, setFieldFilters, activeFieldFilters, setArea],
   );
 
   const onClearAll = React.useCallback(() => {
     setSearch('');
     setFieldFilters({});
     setArea(DEFAULT_BROWSE_AREA);
-    setSort('relevance');
-  }, [setSearch, setFieldFilters, setArea, setSort]);
+    // Sort is deliberately NOT reset. Clearing is about which results you
+    // get — text, facets, location. A list always has SOME order, so there is
+    // no "no sort" state to return to, and silently reordering the results
+    // while clearing filters is a change the user did not ask for.
+  }, [setSearch, setFieldFilters, setArea]);
 
-  const canClearAll = chips.length > 0 || sort !== 'relevance' || area.mode !== 'anywhere';
+  // Sort does not count. Changing the order left "Clear all" sitting there
+  // offering to undo a choice that removed nothing — and there is no unsorted
+  // state to clear back to.
+  const canClearAll = chips.length > 0 || area.mode !== 'anywhere';
 
   return { chips, onRemove, onClearAll, canClearAll };
 }

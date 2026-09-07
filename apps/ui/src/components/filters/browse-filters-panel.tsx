@@ -42,6 +42,15 @@ export interface BrowseFiltersPanelProps {
   onFieldsChange: (fields: Record<string, string[]>) => void;
   /** Current browse view — tailors the help text (map markers vs listings). */
   viewMode?: ViewMode;
+  /**
+   * Where the trigger is mounted, which decides its chrome.
+   *
+   * `'toolbar'` (default) matches the Sort and Location pills it now sits
+   * beside — same radius, border and padding, no shadow. `'overlay'` keeps the
+   * raised, blurred chip the map needs, since there it floats over tiles
+   * rather than sitting in a row.
+   */
+  trigger?: 'toolbar' | 'overlay';
 }
 
 // ─── Chip toggle button ────────────────────────────────────────────────────────
@@ -115,6 +124,7 @@ export function BrowseFiltersPanel({
   selectedFields,
   onFieldsChange,
   viewMode = 'map',
+  trigger = 'toolbar',
 }: Readonly<BrowseFiltersPanelProps>) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
@@ -176,7 +186,13 @@ export function BrowseFiltersPanel({
       size="sm"
       onClick={onClick}
       className={cn(
-        'h-8 gap-1.5 border border-input bg-background/95 text-xs shadow-md backdrop-blur-sm',
+        'gap-1.5 text-xs',
+        // Toolbar: identical chrome to the Sort and Location pills beside it.
+        // The raised/blurred treatment below was for floating over map tiles
+        // and read as a different KIND of control once it joined the row.
+        trigger === 'toolbar'
+          ? 'h-auto rounded-lg border-border bg-background px-2.5 py-1.5 font-semibold shadow-none pointer-coarse:min-h-11'
+          : 'h-8 border-input bg-background/95 shadow-md backdrop-blur-sm',
         activeCount > 0 && 'border-primary/50 bg-primary/5',
       )}
       aria-label={t('filters.open')}

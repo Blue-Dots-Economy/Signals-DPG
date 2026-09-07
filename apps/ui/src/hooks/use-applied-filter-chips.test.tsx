@@ -12,8 +12,6 @@ function setup(overrides: Partial<UseAppliedFilterChipsInput> = {}) {
     fieldLabels: {},
     area: { mode: 'anywhere' },
     setArea: vi.fn(),
-    sort: 'relevance',
-    setSort: vi.fn(),
     ...overrides,
   };
   return { input, hook: renderHook(() => useAppliedFilterChips(input)) };
@@ -63,16 +61,13 @@ describe('useAppliedFilterChips', () => {
     const setSearch = vi.fn();
     const setFieldFilters = vi.fn();
     const setArea = vi.fn();
-    const setSort = vi.fn();
     const { hook } = setup({
       search: 'welder',
       activeFieldFilters: { gender: ['Female'] },
       area: { mode: 'radius', center: { lat: 1, lng: 2 }, meters: 5000 },
-      sort: 'nearest',
       setSearch,
       setFieldFilters,
       setArea,
-      setSort,
     });
 
     hook.result.current.onClearAll();
@@ -80,12 +75,24 @@ describe('useAppliedFilterChips', () => {
     expect(setSearch).toHaveBeenCalledWith('');
     expect(setFieldFilters).toHaveBeenCalledWith({});
     expect(setArea).toHaveBeenCalledWith({ mode: 'anywhere' });
-    expect(setSort).toHaveBeenCalledWith('relevance');
   });
 
-  it('offers clear-all when only area or sort is non-default, though neither chips', () => {
-    expect(setup({ area: { mode: 'radius', center: { lat: 1, lng: 2 }, meters: 5000 } }).hook.result.current.canClearAll).toBe(true);
-    expect(setup({ sort: 'newest' }).hook.result.current.canClearAll).toBe(true);
+  it('does NOT reset the sort when clearing', () => {
+    // Clearing is about which results you get — text, facets, location. A list
+    // always has SOME order, so there is no "no sort" state to return to, and
+    // reordering the results while clearing filters is a change the user did
+    // not ask for.
+    const { hook, input } = setup({ search: 'welder' });
+    hook.result.current.onClearAll();
+
+    expect(input).not.toHaveProperty('setSort');
+  });
+
+  it('offers clear-all for a non-default area, which produces no chip', () => {
+    expect(
+      setup({ area: { mode: 'radius', center: { lat: 1, lng: 2 }, meters: 5000 } }).hook.result
+        .current.canClearAll,
+    ).toBe(true);
     expect(setup().hook.result.current.canClearAll).toBe(false);
   });
 
