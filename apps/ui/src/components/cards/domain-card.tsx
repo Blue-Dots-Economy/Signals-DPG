@@ -157,7 +157,10 @@ export function DomainCard({
       cardConfig={cardConfig}
       data={data}
       domainLabel={domainLabel}
-      onClick={onClick}
+      // In select mode the SelectableCard wrapper owns the interaction and
+      // blocks pointer events into the card, so the card must not also be a
+      // focusable button nested inside that wrapper's own `role="button"`.
+      onClick={selectionMode ? undefined : onClick}
       actions={footer}
       headerAction={
         <ShareProfileButton

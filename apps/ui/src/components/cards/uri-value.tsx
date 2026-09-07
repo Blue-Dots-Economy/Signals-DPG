@@ -51,7 +51,13 @@ function UriEntry({ value, className }: Readonly<{ value: string; className?: st
       // List cards carry their own onClick; without this, following a link
       // would also trigger the card's click handler.
       onClick={(e) => e.stopPropagation()}
-      className={cn('font-medium text-primary underline underline-offset-2 hover:opacity-80', className)}
+      // z-10: stay above the whole-card activation button ItemCard stretches
+      // over a clickable card (see `CardShell` in item-card.tsx), which would
+      // otherwise swallow the click on this link.
+      className={cn(
+        'relative z-10 font-medium text-primary underline underline-offset-2 hover:opacity-80',
+        className
+      )}
     >
       {text}
     </a>

@@ -87,12 +87,73 @@ function FieldRow({ row, compact = false }: { row: CardRow; compact?: boolean })
               e.stopPropagation();
               setExpanded((v) => !v);
             }}
-            className="font-medium text-primary hover:underline"
+            // z-10: stay above the whole-card activation button (see CardShell).
+            className="relative z-10 font-medium text-primary hover:underline"
           >
             {expanded ? t('card.show_less', 'Show less') : t('card.show_more', 'Show more')}
           </button>
         )}
       </span>
+    </div>
+  );
+}
+
+type CardShellProps = Omit<React.ComponentPropsWithoutRef<'div'>, 'onClick'> & {
+  /** Accessible name for the whole-card activation control. */
+  heading: string;
+  /** When given, the card gains a whole-card activation control. */
+  onClick?: () => void;
+};
+
+/**
+ * The card's outer element.
+ *
+ * Given an `onClick`, the whole card becomes activatable — but the outer
+ * element itself stays a plain, non-interactive `div`. The affordance is a real
+ * `<button>` stretched over the card as a *sibling* of the content, which is
+ * the only shape that works here:
+ *
+ *  - a wrapping `<button>` is illegal, and `role="button"` on the outer div is
+ *    the same defect in ARIA form — either one makes the card's own footer
+ *    buttons and links focusable descendants of a button (axe
+ *    `nested-interactive`, WCAG 4.1.2);
+ *  - the stretched button has no focusable children of its own, and its
+ *    `aria-label` is the card's title, so screen readers announce "Asha,
+ *    button" rather than reading the whole record as one control name.
+ *
+ * The button paints above the card's static content (it is positioned, they are
+ * not), so a click anywhere lands on it. The card's own controls sit above it
+ * again via `relative z-10` — see the `z-10` sites in this file and in
+ * `uri-value.tsx`; `isolate` on the card root keeps those layers local.
+ *
+ * Without an `onClick` nothing is rendered: no button, no role, no tab stop.
+ */
+function CardShell({
+  heading,
+  onClick,
+  className,
+  children,
+  ...rest
+}: Readonly<CardShellProps>) {
+  if (!onClick) {
+    return (
+      <div className={className} {...rest}>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div className={className} {...rest}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={heading}
+        // The card root clips overflow, so an outset focus ring would be cut
+        // off; an inset one traces the same rounded card edge.
+        className="absolute inset-0 cursor-pointer rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      />
+      {children}
     </div>
   );
 }
@@ -154,7 +215,9 @@ export function ItemCard({
   const footerBlock = (hasExtra || actions) ? (
     <div
       className={cn(
-        'shrink-0 pt-1',
+        // z-10: the footer's controls stay above the whole-card activation
+        // button (see CardShell).
+        'relative z-10 shrink-0 pt-1',
         variant === 'list' ? 'mt-auto' : 'sm:mt-auto'
       )}
     >
@@ -202,11 +265,15 @@ export function ItemCard({
   ) : null;
 
   return (
-    <div
+    <CardShell
+      heading={heading}
       data-item-card={variant === 'list' ? '' : undefined}
       data-expanded={variant === 'list' ? open : undefined}
       className={cn(
-        'flex flex-col overflow-hidden rounded-2xl bg-background text-foreground shadow-sm',
+        // `relative`: the containing block for CardShell's stretched button.
+        // `isolate`: keeps the card's z-10 controls layered against that button
+        // and nothing outside the card.
+        'relative isolate flex flex-col overflow-hidden rounded-2xl bg-background text-foreground shadow-sm',
         // Map popup: bound BOTH dimensions so the card always fits the screen.
         //  - width: a fixed 28rem (wide enough for the three action buttons on
         //    one row, and so fewer field values wrap → a shorter card), capped
@@ -258,7 +325,8 @@ export function ItemCard({
             </p>
           )}
         </div>
-        {headerAction && <div className="ml-auto shrink-0">{headerAction}</div>}
+        {/* z-10: stays above the whole-card activation button (see CardShell). */}
+        {headerAction && <div className="relative z-10 ml-auto shrink-0">{headerAction}</div>}
       </div>
 
       {/* Body. Popup on mobile: fields + footer share ONE scroll area, so the
@@ -277,6 +345,6 @@ export function ItemCard({
           {footerBlock}
         </>
       )}
-    </div>
+    </CardShell>
   );
 }
