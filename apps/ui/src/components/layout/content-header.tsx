@@ -28,6 +28,19 @@ export function ContentHeader({
   actions,
 }: Readonly<ContentHeaderProps>) {
   const { t } = useTranslation();
+
+  // Render NOTHING when there is nothing to show. Since #645 stripped the
+  // title, description and count out of this header, a signed-in viewer who
+  // already has a profile left every slot empty — and the wrapper's `mb-6`
+  // then drew a dead band between the filter bar and the results.
+  const hasContent =
+    Boolean(title) ||
+    count !== undefined ||
+    Boolean(description) ||
+    Boolean(actions) ||
+    Boolean(noProfilePrompt?.show);
+  if (!hasContent) return null;
+
   return (
     <div className="mb-6 space-y-3">
       <div className="flex items-start gap-3">

@@ -2275,24 +2275,6 @@ export function HomePage() {
                     native — signals-search unreachable/unconfigured/timed out)
                     that ranking itself is temporarily unavailable. Exactly one
                     variant renders at a time; see `resolveListNote`. */}
-                {/* Suppress the "Showing profiles within X km…" note when the
-                    list is empty — it would falsely imply results are shown.
-                    The radius-aware empty state (buildEmptyState) carries the
-                    explanation in that case instead. Kept during loading
-                    (contentCount 0) is fine — the skeleton shows, no note. */}
-                {listNote && contentCount > 0 && (
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    {t(
-                      listNote.key,
-                      listNote.values
-                        ? {
-                            km: listNote.values.km,
-                            locationSource: t(`home.location_source_${listNote.values.locationSource}`),
-                          }
-                        : undefined,
-                    )}
-                  </p>
-                )}
                 {/* #644: one domain is always selected — the "All" tab and its
                     client-merged, client-re-sorted union are gone (spec D8).
                     Paged infinite scroll (§5.1), rendered in the SERVER's order
@@ -2303,13 +2285,40 @@ export function HomePage() {
                     scroll — so "shown" is just "however far you happen to have
                     scrolled", which tells the reader nothing and duplicated a
                     count sitting ~40px away. */}
-                {/* Bulk-select sits over the CONTENT, not in the filter bar:
-                    it acts on the results rather than choosing them, and
-                    grouping it with sort/location/filters implied it was
-                    another way to narrow the list. There is room here, and it
-                    keeps that bar to one job. */}
-                {browseSelectButton && (
-                  <div className="mb-2 flex justify-end">{browseSelectButton}</div>
+                {/* The list note and bulk-select share ONE line: the note is
+                    short and left-aligned, the button is right-aligned, and
+                    stacking them left an empty band between the filter bar and
+                    the cards.
+
+                    Bulk-select sits over the CONTENT rather than in the filter
+                    bar because it acts ON the results instead of choosing
+                    them. `items-baseline` so the button does not drag the
+                    note's text off the line, and the row is skipped entirely
+                    when neither part is present.
+
+                    The note is suppressed on an empty list — it would falsely
+                    imply results are shown; `buildEmptyState` carries the
+                    radius-aware explanation there instead. Suppressed during
+                    loading too (contentCount 0), where the skeleton shows. */}
+                {((listNote && contentCount > 0) || browseSelectButton) && (
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="min-w-0 text-xs text-muted-foreground">
+                      {listNote && contentCount > 0
+                        ? t(
+                            listNote.key,
+                            listNote.values
+                              ? {
+                                  km: listNote.values.km,
+                                  locationSource: t(
+                                    `home.location_source_${listNote.values.locationSource}`,
+                                  ),
+                                }
+                              : undefined,
+                          )
+                        : null}
+                    </p>
+                    {browseSelectButton}
+                  </div>
                 )}
                 <CardGrid
                   schema={activeSchema!}
