@@ -305,6 +305,37 @@ export interface DiscoverResponse {
  * `fetchNetworkItems`'s query params. `items` are the SAME `Item` shape
  * `fetchNetworkItems` returns — the list renders both uniformly.
  */
+/**
+ * The optional fields `fetchDiscover` forwards — an explicit ALLOWLIST.
+ *
+ * A field missing from this list is silently dropped, however correctly the
+ * caller supplied it. That is how the viewport bbox first shipped inert: the
+ * hook and the BFF both handled `min_lat`…`max_lng`, this builder did not, and
+ * nothing failed loudly — the list showed 79 of 79 where the API returns 71.
+ * Keeping the allowlist as one named list rather than a chain of `if`s is what
+ * makes such an omission visible.
+ *
+ * `satisfies` ties it to the query type, so a renamed field breaks the build
+ * instead of quietly ceasing to be sent.
+ */
+const OPTIONAL_DISCOVER_BODY_KEYS = [
+  'q',
+  'filters',
+  'item_latitude',
+  'item_longitude',
+  'distance_meters',
+  'min_lat',
+  'min_lng',
+  'max_lat',
+  'max_lng',
+  'limit',
+  'offset',
+  'anchor_item_id',
+  'sort',
+  'ordering_latitude',
+  'ordering_longitude',
+] as const satisfies readonly (keyof FetchDiscoverQuery)[];
+
 export async function fetchDiscover(
   query: FetchDiscoverQuery,
   signal?: AbortSignal
@@ -315,26 +346,16 @@ export async function fetchDiscover(
     item_type: query.item_type,
   };
 
-  if (query.q) body.q = query.q;
-  if (query.filters !== undefined && query.filters.length > 0) body.filters = query.filters;
-  if (query.item_latitude !== undefined) body.item_latitude = query.item_latitude;
-  if (query.item_longitude !== undefined) body.item_longitude = query.item_longitude;
-  if (query.distance_meters !== undefined) body.distance_meters = query.distance_meters;
-  // NOTE: this builder is an explicit ALLOWLIST — a field absent from it is
-  // silently dropped, however correctly the caller supplied it. That is how
-  // the viewport bbox first shipped inert: the hook and the BFF both handled
-  // it, this function did not, and nothing failed loudly.
-  if (query.min_lat !== undefined) body.min_lat = query.min_lat;
-  if (query.min_lng !== undefined) body.min_lng = query.min_lng;
-  if (query.max_lat !== undefined) body.max_lat = query.max_lat;
-  if (query.max_lng !== undefined) body.max_lng = query.max_lng;
-  if (query.limit !== undefined) body.limit = query.limit;
-  if (query.offset !== undefined) body.offset = query.offset;
-  if (query.anchor_item_id) body.anchor_item_id = query.anchor_item_id;
-  if (query.sort !== undefined) body.sort = query.sort;
-  if (query.ordering_latitude !== undefined) body.ordering_latitude = query.ordering_latitude;
-  if (query.ordering_longitude !== undefined)
-    body.ordering_longitude = query.ordering_longitude;
+  for (const key of OPTIONAL_DISCOVER_BODY_KEYS) {
+    const value = query[key];
+    // `undefined` = not asked for. An empty string or empty array is also
+    // "not asked for" (this preserves the old per-field falsy checks on `q`,
+    // `anchor_item_id` and `filters`), but a numeric 0 is NOT — `offset: 0` is
+    // the first page and must travel.
+    if (value === undefined) continue;
+    if (value === '' || (Array.isArray(value) && value.length === 0)) continue;
+    body[key] = value;
+  }
 
   const response = await networkApiClient.post<DiscoverResponse>(
     '/api/v1/network/item/discover',

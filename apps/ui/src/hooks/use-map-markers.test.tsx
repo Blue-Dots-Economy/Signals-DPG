@@ -555,7 +555,7 @@ describe('useMapMarkers — per-domain facet routing', () => {
     renderHook(() => useMapMarkers(network, splitDomains, viewport), { wrapper });
 
     await waitFor(() =>
-      expect(vi.mocked(fetchNetworkMarkers).mock.calls.length).toBe(2),
+      expect(vi.mocked(fetchNetworkMarkers).mock.calls).toHaveLength(2),
     );
     for (const [q] of vi.mocked(fetchNetworkMarkers).mock.calls) {
       expect(q.item_state).toBeUndefined();

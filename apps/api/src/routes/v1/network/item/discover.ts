@@ -19,6 +19,7 @@ import {
   SignalsSearchError,
   type SearchSignalsInput,
   type SignalsSearchItem,
+  type SignalsSearchFacetInput,
 } from '@/services/signals_search_client';
 import { fetchItemsAcrossInstances } from '@/utils/inter_instance_fetch';
 import { signalsSearchConfig } from '@/config';
@@ -205,6 +206,66 @@ function resolveNativeGeoFilters(input: {
   return { order_by: 'created_at' };
 }
 
+/**
+ * The search-envelope input for one discover request (contract §5.1).
+ *
+ * Pure and separate from the handler so the three mutually-exclusive spatial
+ * shapes — bbox, radius, neither — are readable side by side, and so the
+ * handler is not carrying their branches.
+ */
+function buildSearchInput(input: {
+  body: z.infer<typeof DiscoverItemsBodySchema>;
+  filters: SignalsSearchFacetInput[];
+  sortApplied: DiscoverSort;
+  hasBbox: boolean;
+  hasRadiusCenter: boolean;
+  hasOrderingCenter: boolean;
+}): SearchSignalsInput {
+  const { body, filters, sortApplied, hasBbox, hasRadiusCenter, hasOrderingCenter } = input;
+
+  const bbox = hasBbox
+    ? {
+        minLat: body.min_lat,
+        minLng: body.min_lng,
+        maxLat: body.max_lat,
+        maxLng: body.max_lng,
+      }
+    : undefined;
+
+  const radius = hasRadiusCenter
+    ? {
+        lat: body.item_latitude,
+        lng: body.item_longitude,
+        // Sent radius, NOT `effectiveDistanceMeters`: when neither the request
+        // nor the env sets one we send nothing and let signals-search apply
+        // its own default, exactly as before. `effectiveDistanceMeters` folds
+        // in DEFAULT_SEARCH_DISTANCE_METERS for *reporting* only — sending it
+        // would hardcode our mirror of their default onto the wire and
+        // silently pin it if theirs moved.
+        distanceMeters: body.distance_meters ?? signalsSearchConfig.distanceMeters,
+      }
+    : undefined;
+
+  const ordering = hasOrderingCenter
+    ? { orderingLat: body.ordering_latitude, orderingLng: body.ordering_longitude }
+    : undefined;
+
+  return {
+    network: body.item_network,
+    domain: body.item_domain,
+    itemType: body.item_type,
+    q: body.q,
+    filters,
+    ...bbox,
+    ...radius,
+    ...ordering,
+    sort: sortApplied,
+    limit: body.limit,
+    offset: body.offset,
+    anchorItemId: body.anchor_item_id,
+  };
+}
+
 function mapSignalsSearchItemToDiscoverItem(item: SignalsSearchItem) {
   return {
     item_id: item.item_id,
@@ -348,44 +409,14 @@ const discover_items_handler = async (
       hasOrderingCenter: hasOrderingCenter || hasRadiusCenter,
     });
 
-    const searchInput: SearchSignalsInput = {
-      network: body.item_network,
-      domain: body.item_domain,
-      itemType: body.item_type,
-      q: body.q,
+    const searchInput = buildSearchInput({
+      body,
       filters: allowedFilters,
-      ...(hasBbox
-        ? {
-            minLat: body.min_lat,
-            minLng: body.min_lng,
-            maxLat: body.max_lat,
-            maxLng: body.max_lng,
-          }
-        : {}),
-      ...(hasRadiusCenter
-        ? {
-            lat: body.item_latitude,
-            lng: body.item_longitude,
-            // Sent radius, NOT `effectiveDistanceMeters`: when neither the
-            // request nor the env sets one we send nothing and let
-            // signals-search apply its own default, exactly as before.
-            // `effectiveDistanceMeters` folds in DEFAULT_SEARCH_DISTANCE_METERS
-            // for *reporting* only — sending it would hardcode our mirror of
-            // their default onto the wire and silently pin it if theirs moved.
-            distanceMeters: body.distance_meters ?? signalsSearchConfig.distanceMeters,
-          }
-        : {}),
-      ...(hasOrderingCenter
-        ? {
-            orderingLat: body.ordering_latitude,
-            orderingLng: body.ordering_longitude,
-          }
-        : {}),
-      sort: sortApplied,
-      limit: body.limit,
-      offset: body.offset,
-      anchorItemId: body.anchor_item_id,
-    };
+      sortApplied,
+      hasBbox,
+      hasRadiusCenter,
+      hasOrderingCenter,
+    });
 
     // Native fallback (#394, revising Task 3): thrown for a request timeout, a
     // non-2xx/invalid response, OR signals-search being unconfigured (the

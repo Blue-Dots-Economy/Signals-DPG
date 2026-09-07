@@ -26,7 +26,7 @@ export function ContentHeader({
   count,
   noProfilePrompt,
   actions,
-}: ContentHeaderProps) {
+}: Readonly<ContentHeaderProps>) {
   const { t } = useTranslation();
   return (
     <div className="mb-6 space-y-3">

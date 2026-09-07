@@ -58,9 +58,12 @@ export class MapErrorBoundary extends React.Component<
 function MapFailureNotice({ heightClassName }: Readonly<{ heightClassName?: string }>) {
   const { t } = useTranslation();
   return (
-    <div
+    // <output> rather than a <div role="status">: it carries the status role
+    // implicitly, so assistive tech and `getByRole('status')` behave the same
+    // while using the native element (Sonar S6819). `block` because <output>
+    // is inline by default, which would collapse the flex column below.
+    <output
       data-testid="map-failure-notice"
-      role="status"
       className={`flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-muted/30 p-6 text-center ${
         heightClassName ?? 'h-[calc(100dvh-8rem)] min-h-[400px]'
       }`}
@@ -68,6 +71,6 @@ function MapFailureNotice({ heightClassName }: Readonly<{ heightClassName?: stri
       <MapPinOff className="h-6 w-6 text-muted-foreground" aria-hidden />
       <p className="text-sm font-medium text-foreground">{t('map.unavailable_title')}</p>
       <p className="max-w-sm text-xs text-muted-foreground">{t('map.unavailable_body')}</p>
-    </div>
+    </output>
   );
 }

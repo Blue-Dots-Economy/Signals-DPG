@@ -37,7 +37,7 @@ export interface MapCountPillProps {
  *  - **Plain count** — "Showing X of Y" when some matches in view are not
  *    rendered (the viewer's own pins are excluded), else "Y listings".
  */
-export function MapCountPill({ total, shown, truncated }: MapCountPillProps) {
+export function MapCountPill({ total, shown, truncated }: Readonly<MapCountPillProps>) {
   const { t } = useTranslation();
 
   if (total <= 0) return null;

@@ -495,6 +495,37 @@ function pickNetworksForShell(
   return showNetworkSelector ? allNetworks : [];
 }
 
+/** `?map_domains=seeker,provider` → the map's domain selection. */
+function parseMapDomainsParam(searchParams: URLSearchParams): string[] {
+  const raw = searchParams.get('map_domains');
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * `?f_<field>=a,b` → the active facet set.
+ *
+ * One param per field rather than a single encoded blob, so a link carrying
+ * filters stays readable and a single facet can be edited by hand.
+ */
+function parseFacetParams(searchParams: URLSearchParams): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const [param, value] of searchParams.entries()) {
+    if (!param.startsWith('f_')) continue;
+    const fieldKey = param.slice(2);
+    if (!fieldKey) continue;
+    const values = value
+      .split(',')
+      .map((s) => decodeURIComponent(s.trim()))
+      .filter(Boolean);
+    if (values.length > 0) result[fieldKey] = values;
+  }
+  return result;
+}
+
 export function HomePage() {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
@@ -508,24 +539,14 @@ export function HomePage() {
     searchParams.get('domain')
   );
   // Map filter: multi-select domain filter (URL param: ?map_domains=seeker,provider)
-  const [mapSelectedDomains, setMapSelectedDomains] = React.useState<string[]>(() => {
-    const raw = searchParams.get('map_domains');
-    if (!raw) return [];
-    return raw.split(',').map((s) => s.trim()).filter(Boolean);
-  });
+  const [mapSelectedDomains, setMapSelectedDomains] = React.useState<string[]>(() =>
+    parseMapDomainsParam(searchParams),
+  );
   // Map filter: enum-field filters (URL params: ?f_<key>=value1,value2)
   // Each active field gets its own param namespaced with the "f_" prefix.
-  const [mapSelectedFields, setMapSelectedFields] = React.useState<Record<string, string[]>>(() => {
-    const result: Record<string, string[]> = {};
-    for (const [param, value] of searchParams.entries()) {
-      if (!param.startsWith('f_')) continue;
-      const fieldKey = param.slice(2); // strip "f_" prefix
-      if (!fieldKey) continue;
-      const values = value.split(',').map((s) => decodeURIComponent(s.trim())).filter(Boolean);
-      if (values.length > 0) result[fieldKey] = values;
-    }
-    return result;
-  });
+  const [mapSelectedFields, setMapSelectedFields] = React.useState<Record<string, string[]>>(() =>
+    parseFacetParams(searchParams),
+  );
   // Map viewport (Task 6, #203 §5.2): null until the map reports its first
   // `onViewportChange` (debounced pan/zoom settle). The map's own initial
   // center/zoom comes from the existing `focusPoint`/`userLocation`/default
