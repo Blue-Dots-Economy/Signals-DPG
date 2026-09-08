@@ -28,7 +28,7 @@ const VARIANT_FILE: Record<BrandLogoVariant, string> = {
 };
 
 function kebabFromNetworkId(networkId: string): string {
-  return networkId.replaceAll(/_/g, '-');
+  return networkId.replaceAll('_', '-');
 }
 
 export function networkLogoUrl(

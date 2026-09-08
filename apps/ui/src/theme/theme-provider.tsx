@@ -41,7 +41,7 @@ function getInitialNetworkId(): string {
 }
 
 function kebab(id: string): string {
-  return id.replaceAll(/_/g, '-');
+  return id.replaceAll('_', '-');
 }
 
 function applyFavicon(id: string, brand: string, meta: BrandMeta): void {
@@ -96,7 +96,7 @@ function applyDocumentTitle(theme: NetworkTheme, brandCopy: Record<string, strin
   const scope = getServedScope();
   const domainLabel =
     scope && scope.domains.length === 1
-      ? scope.domains[0].replaceAll(/_/g, ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase())
+      ? scope.domains[0].replaceAll('_', ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase())
       : null;
   document.title = domainLabel
     ? `${networkName} · ${domainLabel} · Signal Stack`

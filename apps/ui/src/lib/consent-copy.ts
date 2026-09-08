@@ -25,7 +25,7 @@ export function formatCounterpartyNoun(
   domainId: string | null | undefined,
 ): string {
   if (!domainId) return 'party';
-  return domainId.replaceAll(/_/g, ' ');
+  return domainId.replaceAll('_', ' ');
 }
 
 /**

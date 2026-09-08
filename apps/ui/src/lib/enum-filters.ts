@@ -38,7 +38,7 @@ export interface EnumFilterField {
 export function humanizeKey(key: string): string {
   // Split on underscores and camelCase boundaries
   return key
-    .replaceAll(/_/g, ' ')
+    .replaceAll('_', ' ')
     .replaceAll(/([a-z])([A-Z])/g, '$1 $2')
     .replaceAll(/\b\w/g, (c) => c.toUpperCase());
 }

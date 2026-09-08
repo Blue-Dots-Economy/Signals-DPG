@@ -46,7 +46,7 @@ export function isEmptyValue(value: unknown): boolean {
 /** Split camelCase / snake_case into a Title Cased phrase. Schema `title` wins over this. */
 export function humaniseFieldKey(key: string): string {
   return key
-    .replaceAll(/_/g, ' ')
+    .replaceAll('_', ' ')
     .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replaceAll(/\s+/g, ' ')
     .trim()

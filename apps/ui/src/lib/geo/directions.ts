@@ -20,7 +20,7 @@ export function directionsUrl(dest: LatLng, label: string | undefined, platform:
   switch (platform) {
     case 'android': {
       const encodedLabel = label
-        ? encodeURIComponent(label).replaceAll(/\(/g, '%28').replaceAll(/\)/g, '%29')
+        ? encodeURIComponent(label).replaceAll('(', '%28').replaceAll(')', '%29')
         : '';
       const q = label ? `${lat},${lng}(${encodedLabel})` : `${lat},${lng}`;
       return `geo:${lat},${lng}?q=${q}`;

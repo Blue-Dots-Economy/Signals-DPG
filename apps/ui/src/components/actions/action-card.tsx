@@ -78,7 +78,7 @@ function formatRequirementValue(value: unknown): string {
 }
 
 const titleCase = (s: string) =>
-  s.replaceAll(/_/g, ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase());
+  s.replaceAll('_', ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase());
 
 export function ActionCard({ action, ownershipRole, onStatusUpdate, selectionMode = false }: ActionCardProps) {
   const { t } = useTranslation();
