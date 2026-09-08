@@ -3,6 +3,23 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_BRAND_COLOR, buildCtaUrl, createCtaUrlResolver, resolveBrandColor, resolveBrandName } from '../brand';
 
 describe('buildCtaUrl', () => {
+  // The trailing-slash trim is a loop rather than a regex (backtracking). These
+  // pin the exact behaviour so a future rewrite back to a regex — or to a
+  // different loop — cannot quietly change what a CTA link resolves to.
+  it.each([
+    ['https://app.example.com', 'https://app.example.com/auth/login'],
+    ['https://app.example.com/', 'https://app.example.com/auth/login'],
+    ['https://app.example.com///', 'https://app.example.com/auth/login'],
+    ['https://app.example.com/sub/', 'https://app.example.com/sub/auth/login'],
+    // Only TRAILING slashes go: the path's own separators are untouched.
+    ['https://app.example.com//a//', 'https://app.example.com//a/auth/login'],
+    // Degenerate inputs still produce a string rather than throwing.
+    ['/', '/auth/login'],
+    ['', '/auth/login'],
+  ])('trims trailing slashes only: %s', (input, expected) => {
+    expect(buildCtaUrl(input)).toBe(expected);
+  });
+
   it('appends /auth/login to the base url', () => {
     expect(buildCtaUrl('https://app.example.com')).toBe(
       'https://app.example.com/auth/login',
