@@ -96,11 +96,11 @@ export function resetUserManager(): void {
  */
 export interface StartOidcLoginOptions {
   /** Deep link to return to after the round trip. */
-  returnTo?: string | undefined;
+  returnTo?: string;
   /** Binds a parked consent acceptance to THIS login. See lib/pending-consent.ts. */
-  consentAttempt?: string | undefined;
+  consentAttempt?: string;
   /** Add `prompt=login` so the user can pick a different account. */
-  forceReauth?: boolean | undefined;
+  forceReauth?: boolean;
 }
 
 export async function startOidcLogin(
