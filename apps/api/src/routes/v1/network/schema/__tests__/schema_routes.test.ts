@@ -83,8 +83,16 @@ vi.mock('@api/plugins/auth/auth_middleware', () => ({
   auth_middleware_if_enabled: async () => {},
 }));
 
+// refetch_schemas now chains the acting-org preHandler and gates on the
+// network-service principal (AUTHZ-VULN-13). Stub the preHandler so the route
+// module loads without the DB-backed acting_org middleware.
+vi.mock('@/middleware/acting_org', () => ({
+  acting_org_preHandler: async () => {},
+}));
+
 import { SchemaFetchError } from '@dpg/schemas';
 import { auth_middleware_if_enabled } from '@api/plugins/auth/auth_middleware';
+import { acting_org_preHandler } from '@/middleware/acting_org';
 import { fetch_schemas } from '../fetch_schemas';
 import { fetch_schema } from '../fetch_schema';
 import { refetch_schema } from '../refetch_schema';
@@ -386,19 +394,46 @@ describe('fetch_schema (GET /schema/:network/:domain/:itemType)', () => {
 });
 
 describe('refetch_schema (POST /refetch_schemas)', () => {
-  it('registers an authenticated POST route at /refetch_schemas', async () => {
+  const NETWORK_SERVICE = { acting_org: { org_type: 'network_service' } };
+
+  it('registers an authenticated, network-service-gated POST route at /refetch_schemas', async () => {
     const route = await loadRoute(refetch_schema);
 
     expect(route.url).toBe('/refetch_schemas');
     expect(route.method).toBe('POST');
-    expect(route.preHandler).toBe(auth_middleware_if_enabled);
+    expect(route.preHandler).toEqual([
+      auth_middleware_if_enabled,
+      acting_org_preHandler,
+    ]);
+  });
+
+  it('403s when the caller is not the network-service principal', async () => {
+    const route = await loadRoute(refetch_schema);
+
+    const reply = await call(route, { acting_org: { org_type: 'aggregator' } });
+
+    expect(reply.statusCode).toBe(403);
+    expect(reply.body).toEqual({
+      error: 'FORBIDDEN',
+      message: 'only the network service caller may refresh consumed schemas',
+    });
+    expect(refreshConsumedSchemas).not.toHaveBeenCalled();
+  });
+
+  it('403s when there is no acting_org at all', async () => {
+    const route = await loadRoute(refetch_schema);
+
+    const reply = await call(route, {});
+
+    expect(reply.statusCode).toBe(403);
+    expect(refreshConsumedSchemas).not.toHaveBeenCalled();
   });
 
   it('reports the refreshed schema count on success', async () => {
     const route = await loadRoute(refetch_schema);
     refreshConsumedSchemas.mockResolvedValue([{}, {}, {}]);
 
-    const reply = await call(route, {});
+    const reply = await call(route, NETWORK_SERVICE);
 
     expect(reply.statusCode).toBe(0);
     expect(reply.body).toEqual({ refreshed: true, schema_count: 3 });
@@ -409,7 +444,7 @@ describe('refetch_schema (POST /refetch_schemas)', () => {
     const route = await loadRoute(refetch_schema);
     refreshConsumedSchemas.mockResolvedValue([]);
 
-    const reply = await call(route, {});
+    const reply = await call(route, NETWORK_SERVICE);
 
     expect(reply.body).toEqual({ refreshed: true, schema_count: 0 });
   });
@@ -420,7 +455,7 @@ describe('refetch_schema (POST /refetch_schemas)', () => {
       new SchemaFetchError({ url: 'https://schemas.test/down.json' })
     );
 
-    const reply = await call(route, {});
+    const reply = await call(route, NETWORK_SERVICE);
 
     expect(reply.statusCode).toBe(502);
     expect(reply.body).toEqual({
@@ -435,7 +470,7 @@ describe('refetch_schema (POST /refetch_schemas)', () => {
     const route = await loadRoute(refetch_schema);
     refreshConsumedSchemas.mockRejectedValue(new Error('redis exploded'));
 
-    const reply = await call(route, {});
+    const reply = await call(route, NETWORK_SERVICE);
 
     expect(reply.statusCode).toBe(500);
     expect(reply.body).toEqual({

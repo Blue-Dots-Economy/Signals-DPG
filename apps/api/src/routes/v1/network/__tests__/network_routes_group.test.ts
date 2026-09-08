@@ -860,7 +860,14 @@ describe('fetch_item plugin registration', () => {
   });
 
   it('guards only the *_local routes with peer_instance_guard (no user auth)', async () => {
-    expect(routeFor('/item/fetch').preHandler).toBeUndefined();
+    // /item/fetch stays unauthenticated — it carries a per-IP rate-limit
+    // preHandler (it is public and fans out to every peer), but never the peer
+    // guard and never user auth. Asserting "not the peer guard" rather than
+    // "no preHandler at all" keeps the real invariant: adding a throttle to a
+    // public route must not be mistaken for adding auth to it.
+    const fetchPreHandler = routeFor('/item/fetch').preHandler;
+    expect(typeof fetchPreHandler).toBe('function');
+    expect(fetchPreHandler).not.toBe(peer_instance_guard);
 
     for (const url of ['/item/count_local', '/item/fetch_local']) {
       const preHandler = routeFor(url).preHandler;

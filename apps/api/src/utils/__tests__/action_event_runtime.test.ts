@@ -11,6 +11,9 @@ vi.mock('@/config', () => ({
     network_config_urls: [],
     allow_extra_schema_data: true,
     schema_registry_url: '',
+    // The mirror aborts on this deadline; AbortSignal.timeout() rejects a
+    // non-number, so the mock has to carry it.
+    peer_fetch_timeout_ms: 10000,
   },
   getCurrentApiBaseUrl: () => 'http://localhost:3000',
   instance: { INSTANCE_NAME: 'test', INSTANCE_ENV: 'development' },
@@ -27,7 +30,19 @@ vi.mock('../item_decrypt', () => ({
     decryptItemPrivate(row),
 }));
 
+// The mirror SSRF guard validates the source instance URL against the source
+// network's registered `instances`. Mock the config lookup so the unit test
+// controls the allowlist: only https://peer.example.com is registered for
+// network "n" / domain "d".
+vi.mock('@/network_configs', () => ({
+  getNetworkConfigById: vi.fn(async () => ({
+    id: 'n',
+    instances: [{ domain_id: 'd', instance_url: 'https://peer.example.com' }],
+  })),
+}));
+
 import { apiConfig } from '@/config';
+import { getNetworkConfigById } from '@/network_configs';
 import {
   buildActionEventPayload,
   buildNetworkActionTargetItem,
@@ -696,5 +711,87 @@ describe('mirrorActionEventToSourceInstance', () => {
       action_id: event.action_id,
       source_instance_url: 'https://peer.example.com',
     });
+  });
+
+  it('refuses to mirror (no fetch) when the source instance URL is not registered for its network — SSRF guard', async () => {
+    const fetchMock = vi.fn(async (_url: URL | string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const log = makeLog();
+    const event = makeEvent({
+      source_item: { ...remoteRef, item_instance_url: 'http://169.254.169.254' },
+      target_item: localRef,
+    });
+
+    await mirrorActionEventToSourceInstance(event, asLog(log));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][1]).toMatch(/possible SSRF/i);
+  });
+
+  it('refuses to mirror (no fetch) when the origin matches but the source domain is not the one registered for that instance', async () => {
+    const fetchMock = vi.fn(async (_url: URL | string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const log = makeLog();
+    // instance_url origin is the registered peer, but item_domain is not "d",
+    // which is the domain that instance is registered under.
+    const event = makeEvent({
+      source_item: { ...remoteRef, item_domain: 'other' },
+      target_item: localRef,
+    });
+
+    await mirrorActionEventToSourceInstance(event, asLog(log));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][1]).toMatch(/possible SSRF/i);
+  });
+
+  it('refuses to mirror (no fetch) when a registered instance_url is itself unparseable', async () => {
+    vi.mocked(getNetworkConfigById).mockResolvedValueOnce({
+      id: 'n',
+      instances: [{ domain_id: 'd', instance_url: 'not-a-url' }],
+    } as unknown as Awaited<ReturnType<typeof getNetworkConfigById>>);
+    const fetchMock = vi.fn(async (_url: URL | string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const log = makeLog();
+    const event = makeEvent({ source_item: remoteRef, target_item: localRef });
+
+    await mirrorActionEventToSourceInstance(event, asLog(log));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log.error.mock.calls[0][1]).toMatch(/possible SSRF/i);
+  });
+
+  it('refuses to mirror (no fetch) and logs when the network-config lookup throws', async () => {
+    vi.mocked(getNetworkConfigById).mockRejectedValueOnce(
+      new Error('network "n" is not configured')
+    );
+    const fetchMock = vi.fn(async (_url: URL | string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const log = makeLog();
+    const event = makeEvent({ source_item: remoteRef, target_item: localRef });
+
+    await mirrorActionEventToSourceInstance(event, asLog(log));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0][1]).toMatch(/Failed to validate source instance/i);
   });
 });

@@ -9,6 +9,7 @@ import z, {
 import { action_events, items } from '@dpg/database';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { apiConfig, getCurrentApiBaseUrl } from '@/config';
+import { getNetworkConfigById } from '@/network_configs';
 import { decryptItemPrivate } from './item_decrypt';
 
 type ActionItemRef = z.infer<typeof PerformNetworkActionBodySchema>['source_item'];
@@ -290,6 +291,43 @@ function isPlainObject(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null && !Array.isArray(input);
 }
 
+/**
+ * SSRF guard for the outbound event mirror. The mirror POSTs a full action-event
+ * blob (containing PII) to `source_item.item_instance_url`, and that URL is
+ * ultimately caller-asserted (via the unauthenticated /network/action/perform
+ * body, then persisted and replayed from the DB on status updates). Without this
+ * check any attacker can point it at an internal address (e.g. cloud IMDS) or an
+ * exfiltration endpoint.
+ *
+ * The allowlist is the source network's own registered `instances` — an instance
+ * whose `domain_id` matches the source item's domain and whose `instance_url`
+ * shares the source URL's origin. We validate against `networkConfig.instances`
+ * directly (NOT the served-domains-filtered CORS origin list): the mirror target
+ * is a *remote* peer, so filtering by locally-served domains would wrongly refuse
+ * legitimate peers. Compared by origin (scheme+host+port) so a path/query on
+ * either side can't smuggle a mismatch.
+ */
+async function isRegisteredSourceInstance(
+  event: StoredActionEvent
+): Promise<boolean> {
+  // The caller (mirrorActionEventToSourceInstance) has already parsed this URL
+  // via normalizeInstanceUrl before reaching here, so `new URL` cannot throw.
+  const sourceOrigin = new URL(event.source_item.item_instance_url).origin;
+
+  const networkConfig = await getNetworkConfigById(
+    event.source_item.item_network
+  );
+
+  return (networkConfig.instances ?? []).some((instance) => {
+    if (instance.domain_id !== event.source_item.item_domain) return false;
+    try {
+      return new URL(instance.instance_url).origin === sourceOrigin;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export async function mirrorActionEventToSourceInstance(
   event: StoredActionEvent,
   log: FastifyBaseLogger
@@ -302,6 +340,30 @@ export async function mirrorActionEventToSourceInstance(
   }
 
   try {
+    if (!(await isRegisteredSourceInstance(event))) {
+      log.error(
+        {
+          action_id: event.action_id,
+          source_instance_url: event.source_item.item_instance_url,
+          source_item_network: event.source_item.item_network,
+        },
+        'Refusing to mirror action event: source instance URL is not a registered instance for its network (possible SSRF)'
+      );
+      return;
+    }
+  } catch (err) {
+    log.error(
+      {
+        err,
+        action_id: event.action_id,
+        source_instance_url: event.source_item.item_instance_url,
+      },
+      'Failed to validate source instance URL before mirroring; refusing to mirror'
+    );
+    return;
+  }
+
+  try {
     const response = await fetch(
       new URL('/api/v1/event/store', event.source_item.item_instance_url),
       {
@@ -310,6 +372,16 @@ export async function mirrorActionEventToSourceInstance(
           'content-type': 'application/json',
         },
         body: JSON.stringify(event),
+        // The origin allowlist above is checked once, against the URL we are
+        // about to call. Following a redirect would move the PII payload to an
+        // origin that was never checked, so a registered peer that 3xx's could
+        // still relay this body anywhere — refuse instead.
+        redirect: 'error',
+        // Without a deadline an unresponsive peer holds this request (and its
+        // socket) open indefinitely; the mirror is fire-and-forget, so a slow
+        // peer must not accumulate. Same knob every other outbound peer call
+        // uses (inter_instance_fetch.ts) — one timeout to tune, not two.
+        signal: AbortSignal.timeout(apiConfig.peer_fetch_timeout_ms),
       }
     );
 
