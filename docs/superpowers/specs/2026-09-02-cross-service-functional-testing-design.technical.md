@@ -30,9 +30,13 @@ Terms used throughout, consistent with `signals-dpg/CLAUDE.md`:
 - **item** — a versioned schema-typed record, e.g. `profile_1.0`.
 - **action** — an interaction between two items; **event** — its structured result.
 - **journey** — in this document, one end-to-end flow that crosses at least one
-  service boundary. Journeys are labelled J1–J5.
+  service boundary. Journeys are labelled J1–J5; J6 in §4.10 is an illustrative
+  sixth, used to show what adding one costs.
 - **contract** — the wire agreement between one consumer and one provider,
   whether HTTP (an OpenAPI path) or event (a Redis Stream envelope).
+- **capability** — a business-language grouping of journeys, e.g. "Participant
+  onboarding". Capabilities, not journeys, are the unit the non-technical
+  report reports on (§4.11).
 
 The design covers:
 
@@ -41,7 +45,13 @@ The design covers:
 - the topology of a hermetic four-service stack runnable in CI and locally;
 - how identities are seeded without OTP capture or test-only product code;
 - which journeys are automated, against which networks;
-- what triggers each layer, and the one gating limitation that follows.
+- what triggers each layer, and the one gating limitation that follows;
+- the single entry point, the five run phases, and how a local run differs from
+  a CI run;
+- the five extension points a developer composes a new journey from, and what
+  each kind of change costs;
+- the three output artifacts, including the one written to be read by someone
+  who does not work on the code.
 
 ---
 
@@ -88,7 +98,7 @@ The layers below the journey are in better shape than the journey itself:
 > suites run only inside the `sonar` CI job under `continue-on-error`. They
 > exist and they pass, but a regression in them is advisory rather than
 > blocking. Promoting them to their own required job is adjacent to this design
-> and cheap; it is called out as an open question in §4.8 rather than folded in.
+> and cheap; it is called out as an open question in §4.13 rather than folded in.
 
 ### Problem Statement
 
@@ -137,6 +147,27 @@ notification-service from dedicated build workflows, aggregator-dpg and
 signals-search from a `publish-image` job inside `ci.yml`. No workflow consumes
 that fan-out.
 
+**Problem 6 — a suite of hand-written journeys is not a framework.**
+*Core challenge:* the marginal cost of the sixth journey decides whether this
+system is alive in a year.
+Five journeys specified as individual test files is a suite, not a framework. If
+each one hand-rolls its own HTTP calls, token acquisition and polling loops,
+then adding a case means copying a couple of hundred lines, and the copies drift.
+This is the standard decay path for end-to-end suites: they are written once,
+never extended, and quietly disabled when they go red. The design must therefore
+name its extension points and state the cost of each kind of change, rather than
+leaving "add another test" as an unpriced exercise.
+
+**Problem 7 — developer-only output cannot serve a release decision.**
+*Core challenge:* the people who decide whether to ship cannot read JUnit XML, a
+container log or a `pg_dump`.
+Whether a release is functionally sound is a question asked by product owners,
+the client and — for the deployments this ecosystem serves — occasionally by
+people with a compliance interest. None of them can act on the artifacts a test
+runner naturally emits, and a green tick with no legible evidence behind it is
+indistinguishable from a suite that asserts nothing. The exercise's output is
+therefore part of the design, not a byproduct of it.
+
 ---
 
 ## 3. Key Design Problems
@@ -150,6 +181,8 @@ Restated as design targets, with the chosen direction for each:
 | P3 | Catch HTTP drift in the causing PR | `oasdiff breaking` per repo per PR, exploiting the existing spec-freshness guarantee (§4.6) |
 | P4 | Cover networks in proportion to risk | Tiered coverage: `purple_dot` and `blue_dot` full, `orange_dot` narrow, `yellow_dot` excluded (§4.5) |
 | P5 | Bind the suite to the release | Same fleet-wide tag string on the suite repo; resolve all four images to digests before running (§4.7) |
+| P6 | Make journey six cheap | Five named extension points; every journey composed from them, never raw HTTP. A new network costs config only (§4.9, §4.10) |
+| P7 | Produce output a non-engineer can act on | Three artifacts for three audiences; the journey title in code *is* the sentence in the report (§4.11) |
 
 ---
 
@@ -417,7 +450,244 @@ PR, which was considered and declined on cost. The cheap middle path, should
 this prove insufficient, is running the suite on promotion PRs behind an opt-in
 label **(planned)**.
 
-### 4.8 Flake control
+### 4.8 Entry points and the run workflow
+
+One command, three contexts. CI, a developer's laptop and a debugging session
+all enter through the same script, because a suite whose only working path is
+the CI path is a suite nobody reproduces locally — and the first thing anyone
+does with a red cross-service run is try to reproduce it.
+
+```
+pnpm journey                                   # all journeys, all their networks
+pnpm journey --journey J2                       # one journey, all its networks
+pnpm journey --network purple_dot               # one network, all its journeys
+pnpm journey --journey J1 --network blue_dot --keep-stack
+pnpm journey --images-from-tag 202608-s1-rc1    # CI's mode: published digests
+pnpm journey --images-from local                # build from sibling checkouts
+```
+
+The run is five phases, each a separate script, so a failure names the phase it
+belongs to rather than surfacing as a generic non-zero exit:
+
+```
+ phase        does                                          fails as
+ ───────────  ────────────────────────────────────────────   ────────────────
+ 1 resolve    tag → four image digests (poll, 20min budget)  RESOLVE_TIMEOUT
+ 2 up         compose up; await health + migrations          STACK_UNHEALTHY
+ 3 seed       Keycloak users, service identities, orgs       SEED_FAILED
+ 4 run        journeys × networks under vitest               <journey> FAILED
+ 5 report     render artifacts; capture triage bundle        (never fails)
+```
+
+```
+   developer laptop                        CI (RC tag)
+   ───────────────                         ───────────
+   pnpm journey --images-from local        tag 202608-s1-rc1 pushed
+          │                                       │
+          │                                journey.yml
+          ▼                                       ▼
+   ┌──────────────────────────────────────────────────────┐
+   │  1 resolve → 2 up → 3 seed → 4 run → 5 report        │  ← identical
+   └──────────────────────────────────────────────────────┘
+          │                                       │
+          ▼                                       ▼
+   terminal summary                        job summary + artifacts
+   --keep-stack leaves containers          stack torn down
+   up for psql / curl                      (always() → report runs on red)
+```
+
+Phase 5 runs on success and on failure alike — `always()` in the workflow. This
+is a deliberate structural choice rather than a convenience: a gate that
+produces no explanation when it goes red is a gate that gets disabled, which is
+the failure mode §4.12 exists to prevent.
+
+The only differences between the two columns are where phase 1 sources its
+digests and whether phase 5 uploads rather than prints. `--keep-stack` is the
+debugging affordance that matters most: it leaves the containers running so the
+engineer can `psql` into the exact failing state instead of inferring it from a
+dump.
+
+### 4.9 The framework: five extension points
+
+Problem 6 stated plainly: five hand-written journeys would be a suite, not a
+framework. The design therefore fixes five extension points, and requires every
+journey to be composed from them rather than issuing raw HTTP.
+
+```
+ ┌── actors ────────┐  WHO is calling.  aggregatorOperator('seeker'),
+ │                  │  signalsService(), voiceBot(), networkAdmin()
+ ├── clients ───────┤  HOW to call.  typed, GENERATED from each service's
+ │                  │  openapi.json → signals.createItem(), search.query()
+ ├── awaiters ──────┤  WHEN to look.  queueDrain, streamPel, indexed,
+ │                  │  email — the only place a wait may be expressed
+ ├── projections ───┤  WHAT to assert on.  dashboardRollup(org, domain),
+ │                  │  searchHits(...), mailbox(addr), dlqDepth(stream)
+ └── fixtures ──────┘  WHICH data.  per-network seeded generators + plan.json
+```
+
+**Clients are generated, and that is load-bearing.** All four repos already
+commit an `openapi.json` that CI proves fresh against the code (§4.6), so
+generating typed clients at harness build time costs nothing and buys a second
+contract check for free: a provider that removes a response field breaks the
+harness *typecheck*, before a single container starts. The contract layer and
+the journey layer end up reinforcing each other rather than merely coexisting.
+
+**Awaiters are the only sanctioned way to wait.** Concentrating every
+convergence rule in one small module is what makes §4.12's flake controls
+enforceable rather than aspirational — a reviewer can see a bare `sleep` in a
+diff and reject it, because the alternative already exists and is named.
+
+The cost of change, which is the real answer to "is it a framework":
+
+| What you want to add | What you touch | Cost |
+|---|---|---|
+| An assertion on an existing journey | one `expect` line | minutes |
+| A journey in an existing shape | one `defineJourney` file | ~20–40 lines |
+| **A whole new network** | a `network.json` + a `plan.json` — **no journey code** | config only |
+| A new thing to assert on | one projection, then the journey | ~half a day |
+| A new async hop to wait on | one awaiter, then the journey | ~half a day |
+| A new service in the stack | compose entry + generated client + projection | 1–2 days |
+
+The network row carries the generality claim, and it is the sharpest contrast
+with what exists today. A network is a **matrix parameter, not a copy**: a fifth
+network means a `network.json` and a `plan.json` and no test code whatsoever.
+The current runbook cannot do this — its expected values are prose written
+specifically for `purple_dot`, so a second network means a second document.
+
+> **Note on the DSL:** `defineJourney` is a thin typed wrapper over vitest's
+> `describe`/`it`, not a new runner — the stack traces, watch mode, filtering
+> and reporters all remain vitest's. It is deliberately not Gherkin. A Gherkin
+> layer buys a natural-language surface at the price of a step-definition
+> indirection between the sentence and the code; the readable-title constraint
+> of §4.11 delivers the same readability with none of that indirection, and the
+> sentence cannot drift from the test because it *is* the test's name.
+
+### 4.10 Adding a test case: a worked walkthrough
+
+Suppose a developer must cover "a paused profile disappears from search and
+comes back on unpause". `pnpm new:journey` scaffolds the file — mirroring the
+`pnpm new-service` generator convention aggregator-dpg already uses — and the
+developer fills in this much:
+
+```ts
+defineJourney({
+  id:         'J6',
+  title:      'A paused profile disappears from search and returns when unpaused',
+  capability: 'search-and-discovery',
+  networks:   ['purple_dot', 'blue_dot'],
+  actors:     { svc: signalsService(), agg: aggregatorOperator('seeker') },
+
+  async run({ clients, awaiters, projections, fixtures, network, expect }) {
+    const seeker = fixtures.item(network, 'seeker');
+    const { item_id } = await clients.signals.createItem(seeker);
+
+    await awaiters.indexed(item_id);
+    expect(await projections.searchHits(network, 'seeker')).toContain(item_id);
+
+    await clients.signals.lifecycle({ item_id, to: 'paused' });
+    await awaiters.indexed(item_id, { absent: true });
+    expect(await projections.searchHits(network, 'seeker')).not.toContain(item_id);
+
+    await clients.signals.lifecycle({ item_id, to: 'live' });
+    await awaiters.indexed(item_id);
+    expect(await projections.searchHits(network, 'seeker')).toContain(item_id);
+  },
+});
+```
+
+Then:
+
+```
+pnpm journey --journey J6 --network purple_dot --keep-stack
+```
+
+What the developer did **not** write is the point: no container wiring, no token
+minting, no HTTP client, no polling loop, no per-network duplication, no
+reporting code, and no registration step — the file's presence in `journeys/`
+is its registration. What they *did* write is a sentence, a capability, a
+network list, and the steps.
+
+Two guard rails, enforced by a lint rule in the harness's own test suite so they
+fail in review rather than in a report months later:
+
+- `title` must read as a sentence and must not contain a route path, an
+  identifier or a service name. It is the exact string the report renders
+  (§4.11), so it is written for the reader, not the runner.
+- `capability` must be one of the declared slugs (§5), so no journey can exist
+  outside the reported taxonomy — which is what stops Tier 3 from silently
+  under-reporting.
+
+A journey may also declare `skip: { orange_dot: 'single-domain, no connect matrix' }`.
+Skips are **reported, never silent**: they appear in the Tier-2 grid with their
+reason, because an unexplained blank cell is how coverage quietly erodes.
+
+### 4.11 Output: three artifacts for three audiences
+
+The exercise's output is not one report. Three audiences need materially
+different things, and collapsing them yields a document that serves none of them.
+
+```
+ ┌─ Tier 1 · the gate ────────────────────────────────────────────────┐
+ │ exit code + GitHub check. Binary, no prose.                        │
+ │ Audience: CI, branch protection                                    │
+ ├─ Tier 2 · the run report ──────────────────────────────────────────┤
+ │ journey × network grid, per-cell duration, expected-vs-actual on    │
+ │ failure. Job summary (markdown) + report.html artifact.            │
+ │ Audience: developer, release manager, architect                     │
+ ├─ Tier 3 · the release evidence sheet ──────────────────────────────┤
+ │ one page. Business capabilities, image digests, date, boundary.     │
+ │ Audience: product, client, compliance — NON-TECHNICAL              │
+ └────────────────────────────────────────────────────────────────────┘
+```
+
+Tier 3 is the direct answer to whether a non-engineer can read the output. It
+renders as:
+
+```
+ Release 202608-s1-rc1 — functional verification
+ Verified 2026-09-08 14:22 IST · 4 services · networks: purple dot, blue dot
+
+ CAPABILITY                             RESULT    CHECKS
+ Participant onboarding                 PASSED    14 of 14
+ Search and discovery                   PASSED    11 of 11
+ Notifications                          PASSED     6 of 6
+ Consent and data disclosure            PASSED     8 of 8
+ Voice assistant                        FAILED     5 of 7
+   └ Looking up a caller by phone number returned an error instead
+     of "not found" when the number was unknown.
+
+ NOT COVERED BY THIS RUN
+ · Screens and forms — checked by hand
+ · Deployment configuration — checked after deploy
+ · Compatibility scoring fallback service — no automated journey
+```
+
+The mechanism that makes this legible is a constraint, not a renderer: **the
+journey title written in the code is the sentence printed in the report**
+(§4.10), and every journey declares a `capability`. Rows aggregate journeys ×
+networks by capability, and a failure prints the failing journey's own title.
+Nothing is translated at render time, so the report is structurally incapable of
+drifting from what the tests actually assert — which is the usual reason
+business-facing test reports stop being trusted.
+
+The **NOT COVERED** block is generated rather than written: it is derived from
+the consumed-pair manifest's `journey: null` rows (§5) plus the declared
+non-goals. This is deliberate. A report that lists only what passed invites the
+reader to assume everything was checked; an honest artifact states its own
+boundary, and stating it mechanically means it cannot go stale.
+
+On failure the run additionally emits a **triage bundle** as a single artifact:
+per-service container logs, a `pg_dump` of the touched tables, the four resolved
+digests, the seeded identities, and the failing journey's step-by-step trace.
+Bundling it means the first question anyone asks — "what state was it actually
+in?" — is answerable without reproducing the run.
+
+> **Note on trend data:** run-over-run history — flake rate per journey,
+> duration drift, first-failure attribution — is **(planned)**. It needs
+> somewhere to accumulate, and the first useful version is simply retaining
+> `summary.json` per tag; that is deferred rather than designed here.
+
+### 4.12 Flake control
 
 Four asynchronous workers participate in these journeys, so flake is the
 primary risk to the suite being trusted rather than disabled. The controls are
@@ -442,7 +712,7 @@ therefore treated as design, not implementation detail:
   cross-service suite with no artifacts is unactionable, and an unactionable
   gate gets disabled.
 
-### 4.9 Open questions
+### 4.13 Open questions
 
 1. **Does a standard GitHub runner hold the full stack?** A dozen-odd
    containers on 16GB is plausible with the stub embedder of §4.2 but unproven.
@@ -462,9 +732,11 @@ therefore treated as design, not implementation detail:
 
 ## 5. Data Model
 
-The system introduces no database tables. Its persistent artifacts are
-committed contract files and per-network fixture plans, whose shapes are
-specified here.
+The system introduces no database tables. Its persistent artifacts are committed
+contract files, per-network fixture plans, journey definitions and the generated
+report payload — whose shapes are specified here. The journey definition and the
+capability taxonomy are the two that constitute the framework's public surface:
+a developer adding a case writes the former and references the latter.
 
 ### `contracts/events/item-event.v1.json` — wire payload
 
@@ -530,6 +802,66 @@ Holding `expected` beside `rows` in one file is the point: the runbook's warning
 that regenerating fixtures with a larger count silently invalidates the expected
 counts becomes structurally impossible to ignore, because the two now live
 together and `count` is checked against `rows.length` at load.
+
+### `journeys/<id>.journey.ts` — journey definition (the framework contract)
+
+The shape every journey conforms to (§4.9, §4.10). Presence of the file in
+`journeys/` is registration; there is no separate manifest to keep in step.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string, `J<n>` | Stable label; the Tier-2 grid's row key |
+| `title` | sentence string | Reader-facing; rendered verbatim in Tier 2 and Tier 3. Lint-enforced to exclude route paths, identifiers and service names |
+| `capability` | enum of `capabilities.yaml` slugs | Tier-3 aggregation key; lint-enforced to be a declared slug |
+| `networks` | string[] | Matrix parameter — the generality claim of §4.9. Not a copy per network |
+| `actors` | map<name, ActorSpec> | Resolved to real credentials by the harness seed phase (§4.3) |
+| `run` | async fn | The steps. Receives `clients`, `awaiters`, `projections`, `fixtures`, `network`, `expect` |
+| `skip` | map<network, reason> \| absent | Explicit and **reported** with its reason; never a silent blank |
+
+### `capabilities.yaml` — the reported taxonomy
+
+Business-language grouping. Tier 3 renders one row per entry, so this file is
+the vocabulary a non-technical reader sees.
+
+| Column | Type | Description |
+|---|---|---|
+| `slug` | string | Referenced by a journey's `capability` |
+| `label` | string | Business-language name, e.g. "Participant onboarding" |
+| `description` | string | One line, plain English, shown on hover/print in Tier 2 |
+
+The declared set, and the journeys each aggregates:
+
+| `slug` | `label` (as printed in Tier 3) | Journeys |
+|---|---|---|
+| `participant-onboarding` | Participant onboarding | J1 |
+| `search-and-discovery` | Search and discovery | J2 |
+| `notifications` | Notifications | J3 |
+| `consent-and-disclosure` | Consent and data disclosure | J4 |
+| `voice-assistant` | Voice assistant | J5 |
+
+A journey must name one of these (§4.10), so the taxonomy is closed: it is not
+possible to add a journey that passes silently outside the reported set. Adding
+a genuinely new capability is a deliberate one-line edit here plus a Tier-3 row,
+which is the intended friction — the business-facing report's vocabulary should
+change on purpose, not as a side effect of someone writing a test.
+
+### `report/summary.json` — machine-readable run result
+
+The single source both the Tier-2 and Tier-3 renderers read, and the unit that
+run-over-run history would accumulate **(planned)**.
+
+| Field | Type | Description |
+|---|---|---|
+| `tag` | string | Release tag the run was bound to, or `local` |
+| `resolved_digests` | map<service, sha256> | The four images actually exercised — the provenance record of §4.7 |
+| `started_at` / `duration_ms` | timestamp / integer | Run envelope |
+| `results[]` | array | One entry per journey × network |
+| `results[].journey_id` / `.title` / `.capability` / `.network` | string | Identity and reporting keys |
+| `results[].status` | enum `passed` \| `failed` \| `skipped` | Cell state |
+| `results[].duration_ms` | integer | Per-cell duration; the input to duration-drift tracking |
+| `results[].skip_reason` | string \| null | Populated for `skipped`; rendered, not hidden |
+| `results[].failure` | object \| null | `{ phase, step, expected, actual }` — drives the expected-vs-actual table |
+| `not_covered[]` | array | Generated from `journey: null` manifest rows plus declared non-goals (§4.11) |
 
 ---
 
@@ -673,7 +1005,7 @@ the stack; the journey asserts that the request shapes it sends remain served.
 ```
 GET  {signals}/api/v1/admin/participant?phone=…      → 200 | 404
 POST {signals}/api/v1/admin/participant  { ...profile }        → 200/201
-POST {signals}/api/v1/network/item/discover  { … }   → 200      // see §4.9 Q2
+POST {signals}/api/v1/network/item/discover  { … }   → 200      // see §4.13 Q2
 POST {signals}/api/v1/action/perform
      { …, acting_as_user_id }                        → 201
      x-api-key / x-acting-org-id
@@ -720,6 +1052,29 @@ compromise here. And the journey layer cannot be a branch-protection check,
 because it runs on a tag that exists only after merge — so its enforcement is
 procedural, a promotion-checklist item, with running it on promotion PRs behind
 a label available **(planned)** if that proves too weak.
+
+Two properties determine whether this survives contact with a year of
+maintenance, and both are design rather than implementation. The first is the
+**cost of journey six** (§4.9): every journey is composed from five named
+extension points — actors, generated clients, awaiters, projections, fixtures —
+so a case in an existing shape is 20–40 lines, and a whole new network is a
+`network.json` plus a `plan.json` with **no test code at all**. That last
+property is what makes this a framework rather than a suite, and it is the
+sharpest break from the present runbook, whose expected values are prose written
+for one network. The second is that **journeys are composed, not copied**, which
+keeps every convergence rule inside the awaiters module where §4.12's flake
+controls are enforceable in review.
+
+The output is three artifacts rather than one (§4.11), because the gate, the
+engineer and the release decision-maker need different things. Tier 1 is an exit
+code. Tier 2 is a journey × network grid with expected-vs-actual on failure.
+Tier 3 is a one-page evidence sheet in business language, aggregated by
+capability, carrying the four image digests and — generated, not written — an
+explicit statement of what the run did *not* cover. The mechanism that keeps
+Tier 3 honest is a constraint rather than a renderer: the journey title in the
+code is the sentence in the report, and a lint rule keeps that title free of
+route paths and identifiers. Nothing is translated at render time, so the
+business-facing report cannot drift from what the tests assert.
 
 The recommended build order inverts apparent size. The contract layer is a few
 days' work and retires a recurring production failure class; the journey layer
