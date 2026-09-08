@@ -94,9 +94,34 @@ are user attributes mapped to JWT claims by protocol mappers in the checked-in
 API and doing a direct-grant exercises the real `requireApproved` path with no
 OTP scraping and no test-only backdoor in product code.
 
-**Vitest as the runner.** Already in all four repos, so no new DSL and
-`--reporter=junit` feeds GitHub's check summary. Cucumber/Gherkin would add a
-translation layer for scenarios the team writes and reads directly.
+**Vitest as the runner, with a thin declarative layer over it.** Vitest is
+already in all four repos, so the runner, filtering, watch mode and stack traces
+are familiar. On top of it sits `defineJourney` — see "Scenarios are step lists"
+below — which is a typed wrapper, not a second runner.
+
+Cucumber/Gherkin was rejected: it buys a natural-language surface at the price of
+a step-definition indirection between the sentence and the code, plus a second
+runner to maintain. In the chosen model the sentence *is* the step's declared
+label and the list *is* the test, so there is nothing to keep in sync.
+
+**Scenarios are step lists, not code.** A journey file contains no TypeScript —
+no `await`, no control flow, no assertions in test syntax. It is a list of named
+steps, and the TypeScript lives in a step library where each step's
+plain-English label sits beside its implementation.
+
+This started as an authoring-cost decision and turned out to matter more for
+output. Because every step carries a label declared once, the report can render
+a readable trace rather than only a pass/fail per test — and the same label is
+what the business-facing evidence sheet prints, so it cannot drift from what the
+test does. A scenario needing genuine logic must use an explicit
+`custom({ label, run })` escape, which keeps the drop to raw code visible in
+review instead of buried inside a function body.
+
+The earlier framing of this decision was too broad — it argued that
+steps-as-data always degenerates into a bad DSL. That is true of a *generic*
+DSL with conditionals and expressions in configuration; it is not true of a
+fixed vocabulary of domain steps, which is a function library with a
+data-shaped call site.
 
 **docker compose, not Testcontainers, for the journey stack.** The premise is
 "test the artifacts you ship", which means pinning published digests and
@@ -149,7 +174,11 @@ bluedots-e2e/
   contracts/              # event schemas + valid/poison fixtures + consumed-pair manifest
   fixtures/               # seeded per-network generators (moved from signals-dpg/scripts/e2e)
   harness/                # identity minting, readiness gating, teardown, artifact capture
-  journeys/               # J1..J5 as vitest specs
+  steps/                  # the step library — labelled, reusable; the only place
+                          #   actors/clients/awaiters/projections are reachable
+  journeys/               # scenarios: step lists + metadata, no TypeScript
+  capabilities.yaml       # closed taxonomy the evidence sheet reports on
+  report/                 # summary.json + the Tier-2 / Tier-3 renderers
 ```
 
 Stack contents: `postgres-pgvector` (the org's own image, per the AVX-512
@@ -235,6 +264,146 @@ unknown one.
 | voice bot (external — ai-diffusion / Raya) | signals-dpg + signals-search | HTTP `/admin/participant` ×2, `/action/perform`, search |
 | signals-dpg `match_score` | dpg-scoring (fallback) | HMAC |
 
+### Entry point
+
+One command, and CI invokes the same one a developer does — only the flags
+differ. A suite whose only working path is the CI path is a suite nobody
+reproduces locally, which is the first thing anyone does with a red run.
+
+```
+pnpm journey                                   # everything
+pnpm journey --journey J2                      # one scenario, all its networks
+pnpm journey --network purple_dot              # one network, all its scenarios
+pnpm journey --list                            # print the matrix, boot nothing
+pnpm journey --keep-stack                      # leave containers up to debug
+pnpm journey --images-from-tag 202608-s1-rc1   # what CI runs
+```
+
+Five phases, each raising a named failure so a red run says *where* it broke:
+`RESOLVE_TIMEOUT` (tag → digests), `STACK_UNHEALTHY` (compose up, health and
+migrations), `SEED_FAILED` (identities), `<scenario> FAILED`, then report —
+which never fails and runs on red as well as green.
+
+`--list` works without booting anything: `defineJourney` registers into a
+module-level registry at import, so the matrix and the coverage report are
+readable cheaply.
+
+### The framework: five extension points
+
+A scenario is composed, never hand-rolled, and a step is the only place the
+underlying machinery is reachable:
+
+- **actors** — who is calling (`aggregatorOperator('seeker')`, `voiceBot()`)
+- **clients** — typed, **generated** from each service's `openapi.json`
+- **awaiters** — the only sanctioned way to wait; never `sleep`
+- **projections** — what you assert on (`dashboardRollup`, `searchHits`, `mailbox`)
+- **fixtures** — per-network seeded generators plus `plan.json`
+
+Generating the clients is load-bearing rather than cosmetic. The four specs are
+already CI-proven fresh, so generation is free and buys a second contract check:
+a provider that removes a response field breaks the harness **typecheck**, before
+any container starts. The contract and journey layers reinforce each other rather
+than merely coexisting.
+
+Concentrating every wait in the awaiters module is what makes the flake controls
+below enforceable rather than aspirational — a bare `sleep` in a diff can be
+rejected because the named alternative already exists.
+
+The resulting cost of change is the real test of whether this is a framework
+rather than a suite:
+
+| To add | You touch | Cost |
+|---|---|---|
+| A scenario from existing steps | one list | **no TypeScript** |
+| A new step | one `step({ label, run })` | ~10 lines |
+| **A whole new network** | a `network.json` + a `plan.json` | **no test code** |
+| A new thing to assert on | one projection, then the step | ~half a day |
+| A new service in the stack | compose entry + generated client + projection | 1–2 days |
+
+The network row carries the generality claim and is the sharpest break from
+today: a network is a **matrix parameter, not a copy**. The runbook cannot do
+this, because its expected values are prose written for `purple_dot` — a second
+network means a second document.
+
+Three guard rails keep the readable-report property from eroding, enforced by
+lint in the harness's own tests so they fail in review rather than in a report
+months later. A journey `title` and a step `label` must read as prose and must
+not contain a route path, an identifier or a service name. A `capability` must
+be one of the five declared slugs, so the reported taxonomy is closed and no
+scenario can pass outside it. And dropping to raw code requires the explicit
+`custom({ label, run })` escape.
+
+### Output: three artifacts for three audiences
+
+Three audiences need materially different things, and collapsing them produces a
+document that serves none of them.
+
+| Tier | Artifact | Audience |
+|---|---|---|
+| 1 | exit code + GitHub check — binary, no prose | CI, branch protection |
+| 2 | journey × network grid, step trace, expected-vs-actual on failure | developer, release manager, architect |
+| 3 | one-page evidence sheet, business language, aggregated by capability | product, client, compliance |
+
+Tier 3 is what makes the exercise legible to someone who does not work on the
+code:
+
+```
+ Release 202608-s1-rc1 — functional verification
+ Verified 2026-09-08 14:22 IST · 4 services · networks: purple dot, blue dot
+
+ CAPABILITY                          RESULT    CHECKS
+ Participant onboarding              PASSED    14 of 14
+ Search and discovery                PASSED    11 of 11
+ Notifications                       PASSED     6 of 6
+ Consent and data disclosure         PASSED     8 of 8
+ Voice assistant                     FAILED     5 of 7
+   └ Looking up a caller by phone number returned an error instead
+     of "not found" when the number was unknown.
+
+ NOT COVERED BY THIS RUN
+ · Screens and forms — checked by hand
+ · Deployment configuration — checked after deploy
+ · Compatibility scoring fallback service — no automated scenario
+```
+
+The mechanism is a constraint, not a renderer: the label declared beside each
+step **is** the line the report prints, so nothing is translated at render time
+and the business-facing report is structurally incapable of drifting from what
+the tests assert. That drift is the usual reason such reports stop being trusted.
+
+The **NOT COVERED** block is generated rather than written — derived from the
+consumed-pair manifest's `journey: null` rows plus the declared non-goals. A
+report listing only what passed invites the reader to assume everything was
+checked; an honest artifact states its own boundary, and generating it means the
+boundary cannot go stale.
+
+`summary.json` is the canonical record that both renderers read, and the unit any
+future trend data would accumulate. JUnit XML is **derived** from it purely to
+feed GitHub's check UI — JUnit cannot carry a capability, a skip reason or the
+digest provenance, so it is a poor source of truth.
+
+### Verifying the suite itself
+
+A falsely-green gate is worse than no gate: if a wait helper silently resolves on
+timeout, every scenario passes vacuously and the gate actively lies. Three
+mechanisms, only the first of which is an ordinary test run:
+
+1. **Harness unit tests** — fixture generator determinism (same seed → identical
+   output), report renderers, `plan.json` validation, capability-slug closure,
+   and the lint rules (a `title` containing a route path must fail).
+2. **Negative controls** — awaiters tested against a stub that *never* converges
+   and required to time out; a scenario run against deliberately wrong expected
+   values and required to fail. A journey that cannot fail is not a test. This
+   mirrors what the contract layer already does with poison fixtures.
+3. **A `harness-selftest` CI job** — two canary scenarios, one built to pass and
+   one built to fail, asserting the runner reported exactly one of each *and*
+   that the process exited non-zero. If someone breaks the reporter or swallows
+   the exit code, nothing else catches it.
+
+Mutation-testing the harness was considered and rejected: the canary pair plus
+the never-converging awaiter stub buys most of the assurance at a fraction of the
+cost and runtime.
+
 ## Contract layer
 
 A `contract` job in each of the four service repos' CI:
@@ -288,8 +457,10 @@ Run sequence:
 3. `docker compose up` on those digests; wait for readiness.
 4. Seed identities; run journeys as a matrix over
    `purple_dot | blue_dot | orange_dot`.
-5. On failure always upload container logs plus a `pg_dump` of the touched
-   tables; publish JUnit either way.
+5. Render the three output artifacts (below) — on red as well as green. On
+   failure additionally upload the triage bundle: container logs, a `pg_dump`
+   of the touched tables, the resolved digests, the seeded identities, and the
+   failing scenario's step trace.
 
 No `repository_dispatch`, no fan-in counter, no PAT — only GHCR read.
 
@@ -327,8 +498,8 @@ Each phase is one branch off `feature` with a single rolling PR.
 | Phase | Contents | Rough size |
 |---|---|---|
 | P0 Foundations | notification-service `spec:dump` + committed `openapi.json` + freshness gate. Pin `seed_service_users.ts` org ids/keys via env | ~1 day |
-| P1 Contract lane | Create `bluedots-e2e` with `contracts/` only. Event schema + valid/poison fixtures. `oasdiff` job in all four repos. Producer and consumer Ajv tests | ~2–3 days |
-| P2 Stack + J1 | `compose.e2e.yaml`, stub embedder, Keycloak Admin-API harness, generalized fixture generator. J1 on `purple_dot`. Retires runbook steps 1–3 and 6 | ~1 week |
+| P1 Contract lane | Create `bluedots-e2e` with `contracts/` only. Event schema + valid/poison fixtures. `oasdiff` job in all four repos. Producer and consumer Ajv tests. The `harness-selftest` canary job | ~2–3 days |
+| P2 Stack + J1 | `compose.e2e.yaml`, stub embedder, Keycloak Admin-API harness, the step library and its five extension points, generated clients, generalized fixture generator. J1 on `purple_dot`. Retires runbook steps 1–3 and 6 | ~1 week |
 | P3 J2 + J5 | stream→search, lifecycle pause/retire, DLQ, `native_fallback` degradation. Voice bot flow | ~3 days |
 | P4 J3 + J4 | notification delivery + retry via stub provider. Consent and PII cross-org denial | ~3 days |
 | P5 Network matrix | `blue_dot` full, `orange_dot` J1 | ~2 days |
