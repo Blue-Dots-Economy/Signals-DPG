@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { takePendingWrongPortal } from '@/lib/pending-wrong-portal';
@@ -41,8 +41,23 @@ vi.mock('@/contexts/auth-context', () => ({
 }));
 
 const completeOidcLogin = vi.fn(async () => ({ returnTo: '/dashboard' }));
+const startOidcLogin =
+  vi.fn<
+    (
+      cfg?: unknown,
+      returnTo?: string,
+      consentAttempt?: string,
+      forceReauth?: boolean,
+    ) => Promise<void>
+  >(async () => undefined);
 vi.mock('@/lib/oidc-client', () => ({
   completeOidcLogin: () => completeOidcLogin(),
+  startOidcLogin: (
+    cfg?: unknown,
+    returnTo?: string,
+    consentAttempt?: string,
+    forceReauth?: boolean,
+  ) => startOidcLogin(cfg, returnTo, consentAttempt, forceReauth),
 }));
 
 vi.mock('@/theme/theme-provider', () => ({
@@ -581,5 +596,58 @@ describe('#558 — first-time-login profile redirect', () => {
 
     await waitFor(() => expect(fetchMyProfilesLite).toHaveBeenCalled());
     expect(order).toEqual(['session', 'profiles']);
+  });
+
+  describe('cross-app sign-in (#753)', () => {
+    /** Fails the exchange with an API error carrying `code` + `message`. */
+    function rejectWith(code: string, message: string) {
+      completeOidcLogin.mockRejectedValue({
+        response: { data: { code, message } },
+      });
+    }
+
+    it('offers a forced re-prompt when the caller is an aggregator account', async () => {
+      // "Back to sign in" is a loop: Keycloak's SSO cookie is still valid, so
+      // the login page returns the same identity and the same error.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+      renderPage();
+
+      const button = await screen.findByRole('button', { name: /different account/i });
+      fireEvent.click(button);
+
+      await waitFor(() => expect(startOidcLogin).toHaveBeenCalled());
+      // Fourth argument is forceReauth — without it Keycloak reuses the SSO
+      // session and this button does nothing useful.
+      expect(startOidcLogin.mock.calls[0]?.[3]).toBe(true);
+      expect(navigate).not.toHaveBeenCalledWith('/auth/login', { replace: true });
+    });
+
+    it('surfaces the API message for that case', async () => {
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+      renderPage();
+      expect(
+        await screen.findByText(/signed in as an aggregator account/i),
+      ).toBeInTheDocument();
+    });
+
+    it('keeps the plain retry for any other failure', async () => {
+      rejectWith('TOKEN_ROLE_REJECTED', 'This account is not a participant of the Signals Stack');
+      renderPage();
+
+      expect(await screen.findByText(/not a participant/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /different account/i })).toBeNull();
+    });
+
+    it('falls back to the login page when the re-prompt cannot start', async () => {
+      // A dead button would be worse than a redirect that at least moves them.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+      startOidcLogin.mockRejectedValueOnce(new Error('keycloak unreachable'));
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /different account/i }));
+      await waitFor(() =>
+        expect(navigate).toHaveBeenCalledWith('/auth/login', { replace: true }),
+      );
+    });
   });
 });
