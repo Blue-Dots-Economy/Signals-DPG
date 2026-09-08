@@ -445,27 +445,25 @@ export function OidcCallbackPage() {
     }
   };
 
+  // The API's message is English by construction (it doubles as log and
+  // API-client copy), so prefer a localised equivalent wherever one exists —
+  // otherwise a Hindi user reads an English sentence above a Hindi button.
+  const body = LOCALISED_REJECTION_KEYS[errorCode ?? ''] ?? '';
+
   return (
     <AuthShell>
       <div className="mx-auto flex max-w-md flex-col gap-4 py-16">
         <Alert variant="destructive">
           <OctagonX className="size-4" />
           <AlertTitle>{t('auth.oidc_error_title')}</AlertTitle>
-          <AlertDescription>
-            {/* The API's message is English by construction (it is also log and
-                API-client copy). For the one case with a localised equivalent,
-                prefer that — otherwise a Hindi user reads an English sentence
-                above a Hindi button. */}
-            {errorCode === 'TOKEN_AGGREGATOR_ACCOUNT'
-              ? t('auth.aggregator_account_no_signals')
-              : error}
-          </AlertDescription>
+          <AlertDescription>{body ? t(body) : error}</AlertDescription>
         </Alert>
-        {errorCode === 'TOKEN_AGGREGATOR_ACCOUNT' ? (
-          // "Back to sign in" is a loop here: Keycloak's SSO cookie is still
-          // valid, so the login page redirects straight back with the same
-          // aggregator identity — the bounce this file already documents above.
-          // Only a forced re-prompt lets the user pick a different account.
+        {isRecoverableIdentity(errorCode) ? (
+          // "Back to sign in" is a loop for EVERY one of these: Keycloak's SSO
+          // cookie is still valid, so the login page hands back the same
+          // identity and the same error. The loop is caused by the live realm
+          // session, not by which identity it holds — so the escape cannot be
+          // gated on one diagnosis.
           <Button onClick={() => void switchAccount()}>{t('auth.switch_account')}</Button>
         ) : (
           <Button onClick={() => navigate('/auth/login', { replace: true })}>
@@ -475,6 +473,32 @@ export function OidcCallbackPage() {
       </div>
     </AuthShell>
   );
+}
+
+/**
+ * Rejections whose copy we localise, keyed by the API's error code.
+ *
+ * Anything absent falls back to the API's own English message, which is the
+ * right default for the long tail (SELF_SIGNUP_DISABLED, USER_BANNED, …).
+ */
+const LOCALISED_REJECTION_KEYS: Readonly<Record<string, string>> = {
+  TOKEN_AGGREGATOR_ACCOUNT: 'auth.aggregator_account_no_signals',
+  TOKEN_ROLE_REJECTED: 'auth.non_participant_no_signals',
+};
+
+/**
+ * Whether signing out and back in could plausibly succeed.
+ *
+ * True only for "the realm handed us the wrong identity" — the caller may well
+ * hold a participant account. Deliberately NOT true for the long tail:
+ * offering "sign in with a different account" for KEYCLOAK_NOT_CONFIGURED or
+ * USER_BANNED would send the user round a loop that cannot resolve.
+ *
+ * @param errorCode - Machine-readable code from the API, when present.
+ * @returns True when the sign-out escape should be offered.
+ */
+function isRecoverableIdentity(errorCode: string | null | undefined): boolean {
+  return errorCode === 'TOKEN_AGGREGATOR_ACCOUNT' || errorCode === 'TOKEN_ROLE_REJECTED';
 }
 
 /**

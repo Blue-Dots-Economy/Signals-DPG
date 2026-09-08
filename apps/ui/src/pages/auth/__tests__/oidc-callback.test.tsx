@@ -629,11 +629,29 @@ describe('#558 — first-time-login profile redirect', () => {
       expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
     });
 
-    it('keeps the plain retry for any other failure', async () => {
-      rejectWith('TOKEN_ROLE_REJECTED', 'This account is not a participant of the Signals Stack');
+    it('offers the sign-out escape for a NON-aggregator rejection too', async () => {
+      // The loop is caused by the live realm session, not by which identity it
+      // holds. A coordinator whose token carries no `aggregator_id` claim (no
+      // mapper on the signals-ui client) lands here, and "Back to sign in"
+      // would hand back the same identity for ever.
+      rejectWith('TOKEN_ROLE_REJECTED', 'RAW-API-ENGLISH-SHOULD-NOT-RENDER');
       renderPage();
 
-      expect(await screen.findByText(/not a participant/i)).toBeInTheDocument();
+      expect(
+        await screen.findByRole('button', { name: /different account/i }),
+      ).toBeInTheDocument();
+      // Localised, not the API's English.
+      expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
+      expect(screen.getByText(/isn't a Signals participant/i)).toBeInTheDocument();
+    });
+
+    it('keeps the plain retry when signing out could not possibly help', async () => {
+      // Switching account cannot fix a misconfigured instance, so offering it
+      // would just walk the user round a loop with no exit.
+      rejectWith('KEYCLOAK_NOT_CONFIGURED', 'Keycloak is not configured on this instance');
+      renderPage();
+
+      expect(await screen.findByText(/not configured/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /different account/i })).toBeNull();
     });
 
