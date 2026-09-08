@@ -85,16 +85,26 @@ export function resetUserManager(): void {
   manager = null;
 }
 
-/** Send the browser to Keycloak. Does not return — the page navigates away. */
+/**
+ * Send the browser to Keycloak. Does not return — the page navigates away.
+ *
+ * `forceReauth` adds `prompt=login`, which is the only way to let someone pick
+ * a different account: the aggregator portal shares this realm, so an existing
+ * SSO cookie otherwise makes Keycloak reissue the same identity without asking
+ * and the user lands back on the error they just came from (#753). Off by
+ * default — an ordinary login should still reuse SSO.
+ */
 export async function startOidcLogin(
   serverConfig: AuthConfigResponse | null | undefined,
   returnTo?: string,
-  consentAttempt?: string
+  consentAttempt?: string,
+  forceReauth = false
 ): Promise<void> {
   const userManager = getUserManager(serverConfig);
   if (!userManager) throw new Error('Keycloak is not configured');
 
   await userManager.signinRedirect({
+    ...(forceReauth ? { prompt: 'login' } : {}),
     // Round-tripped through Keycloak in `state` and handed back on the
     // callback, so a deep link survives the redirect.
     //

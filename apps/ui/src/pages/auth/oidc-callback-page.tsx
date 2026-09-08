@@ -1,3 +1,4 @@
+import { startOidcLogin } from '@/lib/oidc-client';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, OctagonX } from 'lucide-react';
@@ -189,6 +190,7 @@ export function OidcCallbackPage() {
   const { config: authCfg, isLoading: isConfigLoading } = useAuthConfig();
   const { themeId, brand } = useNetworkTheme();
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   /**
    * Terms/privacy still outstanding for this user — the login-time gate.
    *
@@ -336,6 +338,7 @@ export function OidcCallbackPage() {
         navigate(landing, { replace: true });
       } catch (err) {
         if (cancelled) return;
+        setErrorCode(extractCode(err));
         setError(extractMessage(err) ?? t('auth.oidc_error_desc'));
       }
     })();
@@ -421,6 +424,19 @@ export function OidcCallbackPage() {
     );
   }
 
+  /**
+   * Re-run the login with a forced Keycloak prompt so the user can choose a
+   * different account. Falls back to the login page if the redirect cannot
+   * start, which at least leaves them somewhere rather than on a dead button.
+   */
+  const switchAccount = async (): Promise<void> => {
+    try {
+      await startOidcLogin(authCfg, undefined, undefined, true);
+    } catch {
+      navigate('/auth/login', { replace: true });
+    }
+  };
+
   return (
     <AuthShell>
       <div className="mx-auto flex max-w-md flex-col gap-4 py-16">
@@ -429,9 +445,17 @@ export function OidcCallbackPage() {
           <AlertTitle>{t('auth.oidc_error_title')}</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
-        <Button onClick={() => navigate('/auth/login', { replace: true })}>
-          {t('auth.oidc_retry')}
-        </Button>
+        {errorCode === 'TOKEN_AGGREGATOR_ACCOUNT' ? (
+          // "Back to sign in" is a loop here: Keycloak's SSO cookie is still
+          // valid, so the login page redirects straight back with the same
+          // aggregator identity — the bounce this file already documents above.
+          // Only a forced re-prompt lets the user pick a different account.
+          <Button onClick={() => void switchAccount()}>{t('auth.switch_account')}</Button>
+        ) : (
+          <Button onClick={() => navigate('/auth/login', { replace: true })}>
+            {t('auth.oidc_retry')}
+          </Button>
+        )}
       </div>
     </AuthShell>
   );
@@ -445,6 +469,21 @@ export function OidcCallbackPage() {
  * is how SELF_SIGNUP_DISABLED, USER_BANNED and friends become visible to the
  * user), or an oidc-client-ts error from the code exchange itself.
  */
+/**
+ * Reads the API's machine-readable error code, when present.
+ *
+ * `TOKEN_AGGREGATOR_ACCOUNT` means the caller is signed in as an aggregator
+ * account via the shared realm's SSO session — recoverable by switching
+ * account, unlike the other failures here (#753).
+ *
+ * @param err - The thrown request error.
+ * @returns The `error.code` string, or null.
+ */
+function extractCode(err: unknown): string | null {
+  const code = (err as { response?: { data?: { code?: unknown } } } | null)?.response?.data?.code;
+  return typeof code === 'string' && code !== '' ? code : null;
+}
+
 function extractMessage(err: unknown): string | null {
   const apiMessage = (
     err as { response?: { data?: { message?: unknown } } } | null

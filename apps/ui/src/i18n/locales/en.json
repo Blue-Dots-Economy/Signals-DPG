@@ -93,6 +93,7 @@
   "auth.signup_existing_title": "You already have an account",
   "auth.signup_existing_desc": "Signing you in instead.",
   "auth.oidc_retry": "Back to sign in",
+  "auth.switch_account": "Sign in with a different account",
   "actions.pair_open_disabled": "A request is already open with this profile.",
   "actions.my_actions_title": "My Actions",
   "actions.my_actions_subtitle": "Manage requests you've initiated and the ones you've received.",
