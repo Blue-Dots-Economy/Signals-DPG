@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createApiClient } from './api-client';
 import { unwrapBulkSingle, postBulkEnvelope, type BulkEnvelope } from './bulk';
-import { getAuthToken } from './auth-token';
+import { getCsrfToken } from './bff-session';
 
 // ─── Contact-details types ────────────────────────────────────────
 
@@ -65,10 +65,15 @@ function createInstanceApiClient(instanceUrl: string) {
     },
   });
 
+  // Cookie-based session; see api-client.ts for why there is no Authorization
+  // header. Note this client targets a per-instance baseURL, so the cookie only
+  // rides along for the instance that issued it — which is correct: a session
+  // is scoped to the instance the user signed in to.
   client.interceptors.request.use((config) => {
-    const token = getAuthToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    const method = (config.method ?? 'get').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      const csrf = getCsrfToken();
+      if (csrf) config.headers['x-csrf-token'] = csrf;
     }
     return config;
   });

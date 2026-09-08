@@ -339,7 +339,7 @@ interface StubInstance {
   post: PostMock;
   interceptors: { request: { use: (fn: RequestInterceptor) => void } };
 }
-type RequestInterceptor = (config: { headers: Record<string, string> }) => {
+type RequestInterceptor = (config: { method?: string; headers: Record<string, string> }) => {
   headers: Record<string, string>;
 };
 
@@ -350,10 +350,14 @@ async function loadActionApi() {
   const instancePost = makePost();
   const created: Array<{ baseURL?: string; withCredentials?: boolean }> = [];
   const interceptors: RequestInterceptor[] = [];
+  // The per-instance client reads the CSRF token from the BFF session module,
+  // which holds it in memory rather than in storage; this stands in for it.
+  let csrf: string | null = null;
 
   vi.doMock('../api-client', () => ({
     createApiClient: () => ({ get, post }),
   }));
+  vi.doMock('../bff-session', () => ({ getCsrfToken: () => csrf }));
   vi.doMock('axios', async () => {
     const actual = await vi.importActual<typeof import('axios')>('axios');
     return {
@@ -374,7 +378,17 @@ async function loadActionApi() {
   });
 
   const mod = await import('../action-api');
-  return { mod, get, post, instancePost, created, interceptors };
+  return {
+    mod,
+    get,
+    post,
+    instancePost,
+    created,
+    interceptors,
+    setCsrf: (value: string | null) => {
+      csrf = value;
+    },
+  };
 }
 
 function envelope<T extends object>(entry: T) {
@@ -495,23 +509,34 @@ describe('action-api — performAction', () => {
     expect('guardian_otp' in PERFORM_PAYLOAD).toBe(false);
   });
 
-  it('builds a per-source-instance client (with the bearer interceptor) when sourceInstanceUrl is given', async () => {
-    const { mod, post, instancePost, created, interceptors } = await loadActionApi();
+  it('builds a cookie-authenticated per-source-instance client when sourceInstanceUrl is given', async () => {
+    const { mod, post, instancePost, created, interceptors, setCsrf } = await loadActionApi();
     instancePost.mockResolvedValue(envelope({ action_id: 'a1' }));
-    localStorage.setItem('auth_token', 'tok-abc');
+    setCsrf('csrf-abc');
 
     await mod.performAction(PERFORM_PAYLOAD, 'https://source.example');
 
     expect(created[0]?.baseURL).toBe('https://source.example');
+    // The session rides on the cookie, so the per-instance client has to opt in
+    // to sending credentials cross-origin.
     expect(created[0]?.withCredentials).toBe(true);
     expect(instancePost.mock.calls[0][0]).toBe('/api/v1/action/perform');
     expect(post).not.toHaveBeenCalled();
 
-    const withToken = interceptors[0]({ headers: {} });
-    expect(withToken.headers.Authorization).toBe('Bearer tok-abc');
+    // No Authorization header on any request: there is no token in the browser
+    // to put in one. State-changing methods carry the CSRF token instead.
+    const posted = interceptors[0]({ method: 'post', headers: {} });
+    expect(posted.headers.Authorization).toBeUndefined();
+    expect(posted.headers['x-csrf-token']).toBe('csrf-abc');
 
-    localStorage.removeItem('auth_token');
-    expect(interceptors[0]({ headers: {} }).headers.Authorization).toBeUndefined();
+    // Safe methods are exempt — they cannot change state, so the double-submit
+    // check does not apply to them.
+    expect(interceptors[0]({ method: 'get', headers: {} }).headers['x-csrf-token']).toBeUndefined();
+
+    // No session, no token to echo — the request still goes out and the server
+    // rejects it, rather than the client sending an empty header.
+    setCsrf(null);
+    expect(interceptors[0]({ method: 'post', headers: {} }).headers['x-csrf-token']).toBeUndefined();
   });
 
   it('throws a BulkSingleError carrying the per-item code when the single item fails (422)', async () => {

@@ -15,6 +15,7 @@ import {
   instance,
   uiHostBindings,
 } from '@/config';
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyQs from 'fastify-qs';
 import fastifySwagger from '@fastify/swagger';
@@ -206,6 +207,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     return payload;
   });
+
+  /**
+   * Cookie parsing, for the BFF browser session (AUTH-VULN-03/04).
+   *
+   * Registered at the ROOT scope and before any route, because it decorates
+   * `request.cookies` / `reply.setCookie`: registered later, or inside an
+   * encapsulated scope, the session routes and the cookie auth channel silently
+   * see no cookies at all rather than failing loudly.
+   *
+   * No `secret` is configured on purpose — the `sid` value is an opaque random
+   * id with no meaning outside Redis, so signing it would add a key to manage
+   * and prove nothing the session lookup does not already prove.
+   */
+  await app.register(cookie);
 
   // CORS
   await app.register(cors, {

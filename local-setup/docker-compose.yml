@@ -123,6 +123,11 @@ services:
       # Substituted into the realm JSON at boot (redirectUris, webOrigins,
       # post.logout.redirect.uris). Must be the browser-facing UI base URL.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173}
+      # Browser-facing base URL of the signals API. Keycloak redirects the
+      # browser to the API's BFF callback, so the API origin has to be a
+      # registered redirect URI. Defaults to PUBLIC_BASE_URL when they share a
+      # host; locally they do not.
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:2742}
       # ── OTP SPI (infra/keycloak/providers/keycloak-otp-*.jar) ────────────
       # Phone channel. 'log' writes the code to the Keycloak container log,
       # which is what you want locally — no SMS account needed:

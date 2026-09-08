@@ -56,12 +56,6 @@ vi.mock('@/contexts/auth-context', () => ({
 /** Stands in for the id minted per login attempt (see pending-consent.ts). */
 const PARKED_ATTEMPT = 'test-attempt-id';
 
-const completeOidcLogin =
-  vi.fn<() => Promise<{ accessToken: string; returnTo?: string; consentAttempt?: string }>>();
-vi.mock('@/lib/oidc-client', () => ({
-  completeOidcLogin: (...args: unknown[]) => completeOidcLogin(...(args as [])),
-}));
-
 // The OTP screen fetches instance auth config and the network on mount; stub
 // both so the "toggle off" case doesn't reach for a real API.
 vi.mock('@/lib/auth-api', async (orig) => ({
@@ -174,7 +168,15 @@ vi.mock('@/lib/login-profiles', () => ({
 const { LoginPage } = await import('../login-page.js');
 const { OidcCallbackPage } = await import('../oidc-callback-page.js');
 
-const wrap = (ui: React.ReactElement, path: string) => (
+/**
+ * The callback page reads `returnTo` / `consentAttempt` off `window.location`,
+ * not off the router: they arrive on the redirect the API sends the browser to
+ * after it has done the code exchange (AUTH-VULN-03/04). MemoryRouter never
+ * touches the real URL, so keep the two in step here.
+ */
+const wrap = (ui: React.ReactElement, path: string) => {
+  window.history.replaceState({}, '', path);
+  return (
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -185,9 +187,17 @@ const wrap = (ui: React.ReactElement, path: string) => (
       </Routes>
     </MemoryRouter>
   </QueryClientProvider>
-);
+  );
+};
 
 const renderAt = (ui: React.ReactElement, path = '/auth/login') => render(wrap(ui, path));
+
+/**
+ * Where Keycloak's redirect actually lands. The `consentAttempt` the API hands
+ * back identifies the login attempt that parked a consent, so an acceptance is
+ * only honoured by the login that parked it.
+ */
+const CALLBACK_PATH = `/auth/callback?consentAttempt=${PARKED_ATTEMPT}`;
 
 /**
  * Pick a domain on the signup form. The mocked network serves two domains, so
@@ -210,9 +220,6 @@ beforeEach(() => {
   loginChannels = ['phone', 'email'];
   startKeycloakLogin.mockClear().mockResolvedValue(undefined);
   completeKeycloakLogin.mockClear().mockResolvedValue(undefined);
-  completeOidcLogin
-    .mockClear()
-    .mockResolvedValue({ accessToken: 'tok', returnTo: undefined, consentAttempt: PARKED_ATTEMPT });
   signupWithKeycloak.mockClear().mockResolvedValue({ ok: true, alreadyRegistered: false });
   // Default: consent already accepted for the current version, so no gate.
   fetchConsentConfigs.mockReset().mockResolvedValue([]);
@@ -298,32 +305,27 @@ describe('OidcCallbackPage', () => {
     keycloakEnabled = true;
   });
 
-  it('exchanges the code, resolves the user, and lands on home', async () => {
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+  it('picks up the session the API already opened, resolves the user, and lands on home', async () => {
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText('home')).toBeTruthy();
-    expect(completeOidcLogin).toHaveBeenCalledOnce();
     expect(completeKeycloakLogin).toHaveBeenCalledOnce();
   });
 
-  it('honours the returnTo carried through Keycloak state', async () => {
-    completeOidcLogin.mockResolvedValueOnce({
-      accessToken: 'tok',
-      returnTo: '/profile/new',
-    });
-
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+  it('honours the returnTo the API hands back on the redirect', async () => {
+    renderAt(<OidcCallbackPage />, `${CALLBACK_PATH}&returnTo=%2Fprofile%2Fnew`);
 
     expect(await screen.findByText('profile form')).toBeTruthy();
   });
 
-  it('exchanges the single-use code exactly once', async () => {
-    // StrictMode double-invokes effects; a second exchange of a spent code
-    // fails, so a phantom error would show up in dev only.
-    const { rerender } = renderAt(<OidcCallbackPage />, '/auth/callback');
-    rerender(wrap(<OidcCallbackPage />, '/auth/callback'));
+  it('resolves the session exactly once', async () => {
+    // StrictMode double-invokes effects. The single-use code is the API's
+    // problem now, but this page still runs a chain of writes (parked consent,
+    // signup domain/age) that must not happen twice.
+    const { rerender } = renderAt(<OidcCallbackPage />, CALLBACK_PATH);
+    rerender(wrap(<OidcCallbackPage />, CALLBACK_PATH));
 
-    await waitFor(() => expect(completeOidcLogin).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(completeKeycloakLogin).toHaveBeenCalledTimes(1));
   });
 
   it("shows the API's own message when provisioning refuses the login", async () => {
@@ -338,7 +340,7 @@ describe('OidcCallbackPage', () => {
       },
     });
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(
       await screen.findByText('Self sign-up is disabled on this instance.')
@@ -346,9 +348,9 @@ describe('OidcCallbackPage', () => {
   });
 
   it('falls back to a generic message when the failure carries none', async () => {
-    completeOidcLogin.mockRejectedValueOnce({});
+    completeKeycloakLogin.mockRejectedValueOnce({});
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText(/something went wrong/i)).toBeTruthy();
   });
@@ -360,32 +362,31 @@ describe('OidcCallbackPage — the redirect-loop regression', () => {
   });
 
   it('does not exchange the code while the auth config is still loading', async () => {
-    // The bug: the callback page is entered by a full-page redirect, so the
-    // OIDC client must be rebuilt from the server's Keycloak details. Firing
-    // before /api/v1/auth/config resolved built it from `undefined`, threw
-    // "Keycloak is not configured", and — because the single-use guard was
-    // already set — never retried. The user then bounced between the error and
-    // Keycloak's still-valid SSO session.
+    // The bug: this page runs once, behind a ref guard, and used to run before
+    // /api/v1/auth/config had resolved — so it decided the instance was not
+    // Keycloak-configured, set the guard, and never retried. The user then
+    // bounced between the error and Keycloak's still-valid SSO session. The
+    // guard is still one-shot, so the "wait for config" half still matters.
     configLoading = true;
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
-    // Still on the spinner, and crucially the single-use code is untouched.
+    // Still on the spinner, and crucially nothing has been decided yet.
     expect(await screen.findByText(/signing you in/i)).toBeTruthy();
-    expect(completeOidcLogin).not.toHaveBeenCalled();
+    expect(completeKeycloakLogin).not.toHaveBeenCalled();
     expect(screen.queryByText(/not configured/i)).toBeNull();
   });
 
-  it('exchanges exactly once, after the config arrives', async () => {
+  it('runs exactly once, after the config arrives', async () => {
     configLoading = true;
-    const { rerender } = renderAt(<OidcCallbackPage />, '/auth/callback');
-    expect(completeOidcLogin).not.toHaveBeenCalled();
+    const { rerender } = renderAt(<OidcCallbackPage />, CALLBACK_PATH);
+    expect(completeKeycloakLogin).not.toHaveBeenCalled();
 
     // Config resolves.
     configLoading = false;
-    rerender(wrap(<OidcCallbackPage />, '/auth/callback'));
+    rerender(wrap(<OidcCallbackPage />, CALLBACK_PATH));
 
-    await waitFor(() => expect(completeOidcLogin).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(completeKeycloakLogin).toHaveBeenCalledTimes(1));
   });
 
   it('reports an unconfigured instance distinctly from a failed sign-in', async () => {
@@ -393,10 +394,10 @@ describe('OidcCallbackPage — the redirect-loop regression', () => {
     // Keycloak mode, or the config request failed outright.
     keycloakEnabled = false;
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText(/single sign-on isn't available/i)).toBeTruthy();
-    expect(completeOidcLogin).not.toHaveBeenCalled();
+    expect(completeKeycloakLogin).not.toHaveBeenCalled();
   });
 });
 
@@ -910,7 +911,7 @@ describe('OidcCallbackPage — flushing the parked consent', () => {
       JSON.stringify({ body: parked, at: Date.now(), attempt: PARKED_ATTEMPT })
     );
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     await waitFor(() => expect(acceptConsent).toHaveBeenCalledWith(parked));
     // Read-once: cleared so it can't be replayed onto a later login.
@@ -919,7 +920,7 @@ describe('OidcCallbackPage — flushing the parked consent', () => {
   });
 
   it('does nothing when there is no parked consent', async () => {
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText('home')).toBeTruthy();
     expect(acceptConsent).not.toHaveBeenCalled();
@@ -936,7 +937,7 @@ describe('OidcCallbackPage — flushing the parked consent', () => {
     );
     acceptConsent.mockRejectedValueOnce(new Error('write failed'));
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     // Signed in regardless — the gate re-prompts next login.
     expect(await screen.findByText('home')).toBeTruthy();
@@ -970,7 +971,7 @@ describe('OidcCallbackPage — flushing the parked consent', () => {
       JSON.stringify({ body: parked, at: Date.now() - 6 * 60 * 1000, attempt: PARKED_ATTEMPT })
     );
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText('home')).toBeTruthy();
     expect(acceptConsent).not.toHaveBeenCalled();
@@ -1004,11 +1005,11 @@ describe('OidcCallbackPage — landing is not conditional on the effect survivin
       () => new Promise<{ ok: boolean }>((resolve) => { resolveAccept = resolve; })
     );
 
-    const { rerender } = renderAt(<OidcCallbackPage />, '/auth/callback');
+    const { rerender } = renderAt(<OidcCallbackPage />, CALLBACK_PATH);
     await waitFor(() => expect(acceptConsent).toHaveBeenCalled());
 
     // Simulate the re-render that the session update causes.
-    rerender(wrap(<OidcCallbackPage />, '/auth/callback'));
+    rerender(wrap(<OidcCallbackPage />, CALLBACK_PATH));
     resolveAccept({ ok: true });
 
     expect(await screen.findByText('home')).toBeTruthy();
@@ -1037,7 +1038,7 @@ describe('OidcCallbackPage — consent write cannot stall the landing', () => {
     // Never resolves.
     acceptConsent.mockImplementationOnce(() => new Promise(() => {}));
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
     await waitFor(() => expect(acceptConsent).toHaveBeenCalled());
 
     await vi.advanceTimersByTimeAsync(8500);
@@ -1154,7 +1155,7 @@ describe('OidcCallbackPage — login-time consent re-prompt', () => {
     // signed up before a version bump was never re-prompted.
     getConsentStatus.mockResolvedValue({ statuses: { terms: ['v1'], privacy: ['v1'] } });
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByTestId('consent-modal')).toBeTruthy();
     // Held on the callback — not landed yet.
@@ -1164,7 +1165,7 @@ describe('OidcCallbackPage — login-time consent re-prompt', () => {
   it('writes the acceptance and lands the user', async () => {
     getConsentStatus.mockResolvedValue({ statuses: { terms: ['v1'], privacy: ['v1'] } });
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
     await userEvent.click(await screen.findByRole('button', { name: /accept consent/i }));
 
     await waitFor(() => expect(acceptConsent).toHaveBeenCalled());
@@ -1178,7 +1179,7 @@ describe('OidcCallbackPage — login-time consent re-prompt', () => {
   it('does not gate when the current versions are already accepted', async () => {
     getConsentStatus.mockResolvedValue({ statuses: { terms: ['v2'], privacy: ['v2'] } });
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText('home')).toBeTruthy();
     expect(screen.queryByTestId('consent-modal')).toBeNull();
@@ -1187,7 +1188,7 @@ describe('OidcCallbackPage — login-time consent re-prompt', () => {
   it('fails open when the status check errors — never blocks a completed login', async () => {
     getConsentStatus.mockRejectedValue(new Error('consent service down'));
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
 
     expect(await screen.findByText('home')).toBeTruthy();
     expect(screen.queryByTestId('consent-modal')).toBeNull();
@@ -1197,7 +1198,7 @@ describe('OidcCallbackPage — login-time consent re-prompt', () => {
     getConsentStatus.mockResolvedValue({ statuses: { terms: ['v1'], privacy: ['v1'] } });
     acceptConsent.mockRejectedValueOnce(new Error('write failed'));
 
-    renderAt(<OidcCallbackPage />, '/auth/callback');
+    renderAt(<OidcCallbackPage />, CALLBACK_PATH);
     await userEvent.click(await screen.findByRole('button', { name: /accept consent/i }));
 
     expect(await screen.findByText('home')).toBeTruthy();

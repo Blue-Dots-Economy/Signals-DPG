@@ -22,6 +22,13 @@ DST_DIR="/opt/keycloak/data/import"
 
 : "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL must be set (e.g. http://localhost:5173)}"
 
+# Browser-facing base URL of the signals API. The BFF login (AUTH-VULN-03/04)
+# runs the OIDC code exchange server-side, so Keycloak redirects the browser to
+# the API's /api/v1/auth/session/callback — which means the API's own origin has
+# to be a registered redirect URI for `signals-ui`. Defaults to PUBLIC_BASE_URL,
+# which is correct wherever the UI and API share a host.
+: "${API_BASE_URL:=$PUBLIC_BASE_URL}"
+
 # SMTP placeholders. Empty values are valid: when SMTP_AUTH=false, Keycloak
 # ignores SMTP_USER/SMTP_PASSWORD even if they are empty strings. Without
 # working SMTP the email OTP channel cannot deliver a code — phone still can.
@@ -46,6 +53,7 @@ escape() {
 }
 
 PUBLIC_BASE_URL_ESC=$(escape "$PUBLIC_BASE_URL")
+API_BASE_URL_ESC=$(escape "$API_BASE_URL")
 SMTP_HOST_ESC=$(escape "$SMTP_HOST")
 SMTP_PORT_ESC=$(escape "$SMTP_PORT")
 SMTP_FROM_ESC=$(escape "$SMTP_FROM")
@@ -62,6 +70,7 @@ for src in "$SRC_DIR"/*.json; do
   dst="$DST_DIR/$(basename "$src")"
   sed \
     -e "s|__PUBLIC_BASE_URL__|${PUBLIC_BASE_URL_ESC}|g" \
+    -e "s|__API_BASE_URL__|${API_BASE_URL_ESC}|g" \
     -e "s|__SMTP_HOST__|${SMTP_HOST_ESC}|g" \
     -e "s|__SMTP_PORT__|${SMTP_PORT_ESC}|g" \
     -e "s|__SMTP_FROM__|${SMTP_FROM_ESC}|g" \
@@ -73,7 +82,7 @@ for src in "$SRC_DIR"/*.json; do
     -e "s|__SMTP_PASSWORD__|${SMTP_PASSWORD_ESC}|g" \
     -e "s|__BRAND_LONG_NAME__|${BRAND_LONG_NAME_ESC}|g" \
     "$src" > "$dst"
-  echo "rendered $(basename "$src") -> $dst (PUBLIC_BASE_URL=$PUBLIC_BASE_URL, SMTP=$SMTP_HOST:$SMTP_PORT auth=$SMTP_AUTH)"
+  echo "rendered $(basename "$src") -> $dst (PUBLIC_BASE_URL=$PUBLIC_BASE_URL, API_BASE_URL=$API_BASE_URL, SMTP=$SMTP_HOST:$SMTP_PORT auth=$SMTP_AUTH)"
 done
 
 exec /opt/keycloak/bin/kc.sh "$@"

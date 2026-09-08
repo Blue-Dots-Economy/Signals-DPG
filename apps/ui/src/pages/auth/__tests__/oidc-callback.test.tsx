@@ -40,11 +40,6 @@ vi.mock('@/contexts/auth-context', () => ({
   useAuth: () => ({ completeKeycloakLogin, signOut }),
 }));
 
-const completeOidcLogin = vi.fn(async () => ({ returnTo: '/dashboard' }));
-vi.mock('@/lib/oidc-client', () => ({
-  completeOidcLogin: () => completeOidcLogin(),
-}));
-
 vi.mock('@/theme/theme-provider', () => ({
   useNetworkTheme: () => ({ themeId: 'blue_dot', brand: 'standard' }),
 }));
@@ -139,6 +134,18 @@ vi.mock('@/lib/login-profiles', () => ({
 
 const { OidcCallbackPage } = await import('../oidc-callback-page');
 
+/**
+ * Point the page at a callback URL.
+ *
+ * The code exchange happens on the API now (AUTH-VULN-03/04), so the page no
+ * longer gets `returnTo` back from a client-side exchange — the BFF hands it
+ * back as a query parameter on the redirect it sends the browser to. That URL
+ * is the page's only input, which is what this sets up.
+ */
+function setCallbackUrl(search: string): void {
+  window.history.replaceState({}, '', `/auth/callback${search}`);
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -169,7 +176,7 @@ beforeEach(() => {
   });
   getConsentStatus.mockResolvedValue({ statuses: { terms: [], privacy: [] } });
   fetchConsentConfigs.mockResolvedValue([]);
-  completeOidcLogin.mockResolvedValue({ returnTo: '/dashboard' });
+  setCallbackUrl('?returnTo=%2Fdashboard');
   // A completed profile → no #376 redirect, so existing expectations hold.
   fetchMyProfilesLite.mockResolvedValue([
     { item_id: 'p1', item_domain: 'seeker', lifecycle_status: 'live' },

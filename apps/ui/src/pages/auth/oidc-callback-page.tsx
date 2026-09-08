@@ -173,13 +173,16 @@ async function resolveGuardianGateStep(
 }
 
 /**
- * Landing page for the Keycloak redirect (`/auth/callback`).
+ * Landing page after the Keycloak round trip (`/auth/callback`).
  *
- * Exchanges the authorization code, then asks the API who the resulting token
- * belongs to — which is also what provisions the local `user` mirror on a
- * first login. On success the user never really sees this page; on failure it
- * is the only place that can explain what went wrong, so the API's own message
- * is surfaced rather than a generic error.
+ * The API has already exchanged the code and set the session cookie by the time
+ * the browser gets here (AUTH-VULN-03/04); this page asks who that session
+ * belongs to — which is also what provisions the local `user` mirror on a first
+ * login — and then runs everything that happens after a session exists: consent
+ * resume, the wrong-portal check, the U18 gate and the landing decision. On
+ * success the user never really sees it; on failure it is the only place that
+ * can explain what went wrong, so the API's own message is surfaced rather than
+ * a generic error.
  */
 export function OidcCallbackPage() {
   const navigate = useNavigate();
@@ -215,23 +218,21 @@ export function OidcCallbackPage() {
     returnTo: string;
   } | null>(null);
 
-  // The authorization code is single-use. React 18+ StrictMode double-invokes
-  // effects in development, and a second exchange of a spent code fails — so
-  // guard rather than letting dev see a phantom error.
+  // Runs once. StrictMode double-invokes effects in development, and the chain
+  // below writes (parked consent, signup domain/age) — none of which should
+  // happen twice. The code exchange itself is the API's problem now.
   const exchangeStarted = useRef(false);
 
   useEffect(() => {
     /**
-     * Wait for the auth config before touching the code.
+     * Wait for the auth config before doing anything.
      *
-     * This page is reached by a full-page redirect from Keycloak, so the
-     * module-level UserManager built on the login page is gone and the OIDC
-     * client has to be rebuilt from the server's advertised Keycloak details.
-     * Exchanging before `/api/v1/auth/config` resolves means building it from
-     * `undefined` — which fails with "Keycloak is not configured" and, because
-     * the single-use guard below has already been set, never retries. The
-     * user then bounces: error → sign in → Keycloak's still-valid SSO cookie →
-     * straight back here.
+     * The work below runs ONCE, behind the ref guard, and part of it is
+     * deciding whether this instance is on Keycloak at all. Running before
+     * `/api/v1/auth/config` resolves means deciding from `undefined` — the page
+     * reports "not configured", the guard is already set so it never retries,
+     * and the user bounces: error → sign in → Keycloak's still-valid SSO
+     * cookie → straight back here.
      */
     if (isConfigLoading) return;
     if (exchangeStarted.current) return;
@@ -250,8 +251,14 @@ export function OidcCallbackPage() {
 
     (async () => {
       try {
-        const { completeOidcLogin } = await import('@/lib/oidc-client');
-        const { returnTo, consentAttempt } = await completeOidcLogin(authCfg);
+        // The code exchange now happens on the API (AUTH-VULN-03/04) — by the
+        // time we land here the session cookie is already set and the tokens
+        // are in Redis. The BFF hands the flow's parameters back on the
+        // redirect, so everything below this line is unchanged: this page still
+        // owns wrong-portal detection, consent resume and the landing decision.
+        const params = new URLSearchParams(window.location.search);
+        const returnTo = params.get('returnTo') ?? undefined;
+        const consentAttempt = params.get('consentAttempt') ?? undefined;
         await completeKeycloakLogin();
 
         // Per-domain UI gate (G7), ported from `otp-page.tsx`: block a user who
@@ -440,10 +447,12 @@ export function OidcCallbackPage() {
 /**
  * Pull a human-readable reason out of whatever failed.
  *
- * Two very different error shapes reach here: an axios failure from
- * `/api/v1/auth/me` (which carries the API's `{ code, error, message }` — this
- * is how SELF_SIGNUP_DISABLED, USER_BANNED and friends become visible to the
- * user), or an oidc-client-ts error from the code exchange itself.
+ * Almost always an axios failure from `/api/v1/auth/me`, which carries the
+ * API's `{ code, error, message }` — this is how SELF_SIGNUP_DISABLED,
+ * USER_BANNED and friends become visible to the user. The code exchange itself
+ * no longer fails here: it happens on the API, which reports a failed exchange
+ * by redirecting to `/?auth_error=1` rather than sending the browser to this
+ * page at all.
  */
 function extractMessage(err: unknown): string | null {
   const apiMessage = (

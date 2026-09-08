@@ -6,6 +6,24 @@ import { AuthProvider, useAuth } from './auth-context';
 
 const { clearSchemaCache } = vi.hoisted(() => ({ clearSchemaCache: vi.fn() }));
 vi.mock('@/engine', () => ({ clearSchemaCache }));
+
+/**
+ * The BFF session client (AUTH-VULN-03/04). Hoisted rather than `vi.doMock`d
+ * inside a test, because `auth-context` imports it statically — a late
+ * `doMock` would not be seen and the real module would try to `fetch`.
+ * `bff.fetchBffSession` is reassignable so a single test can control when the
+ * restore resolves.
+ */
+const bff = vi.hoisted(() => ({
+  fetchBffSession: async () => ({ authenticated: false }) as { authenticated: boolean },
+}));
+vi.mock('@/lib/bff-session', () => ({
+  fetchBffSession: () => bff.fetchBffSession(),
+  endBffSession: async () => {},
+  startBffLogin: () => {},
+  getCsrfToken: () => null,
+  clearCsrfToken: () => {},
+}));
 vi.mock('@/lib/auth-api', () => ({
   getSession: vi.fn().mockResolvedValue(null),
   signOut: vi.fn().mockResolvedValue(undefined),
@@ -103,7 +121,10 @@ describe('AuthProvider signOut', () => {
 });
 
 describe('AuthProvider — a late session restore must not clobber a fresh login', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    bff.fetchBffSession = async () => ({ authenticated: false });
+  });
 
   it('keeps the user set by completeKeycloakLogin when the restore resolves afterwards', async () => {
     /**
@@ -138,14 +159,13 @@ describe('AuthProvider — a late session restore must not clobber a fresh login
     const restoreStarted = new Promise<void>((res) => {
       markStarted = res;
     });
-    vi.doMock('@/lib/oidc-client', () => ({
-      restoreOidcSession: async () => {
-        markStarted?.();
-        await restoreGate;
-        return null;
-      },
-      oidcLogout: async () => {},
-    }));
+    // The session now comes from the BFF (AUTH-VULN-03/04) rather than from a
+    // token in storage — same ordering hazard, different source.
+    bff.fetchBffSession = async () => {
+      markStarted?.();
+      await restoreGate;
+      return { authenticated: false };
+    };
     const client = new QueryClient();
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper(client) });
 
