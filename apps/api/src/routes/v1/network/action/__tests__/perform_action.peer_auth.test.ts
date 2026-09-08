@@ -28,7 +28,10 @@ vi.mock('@/config', () => ({
   databasesConfig: { pg_url: 'postgres://test/test', redis_url: 'redis://test' },
 }));
 
-import { peer_instance_guard } from '@/middleware/peer_instance_guard';
+import {
+  peer_instance_guard,
+  peer_instance_guard_strict,
+} from '@/middleware/peer_instance_guard';
 import {
   buildPeerHeaders,
   INSTANCE_TOKEN_HEADER,
@@ -94,7 +97,11 @@ describe('POST /network/action/perform — peer auth wiring', () => {
     expect(Array.isArray(preHandlers)).toBe(true);
     // Order is load-bearing: an unsigned caller must be rejected before it can
     // consume anyone else's rate-limit budget.
-    expect(preHandlers[0]).toBe(peer_instance_guard);
+    // Specifically the strict variant: the plain guard would honour
+    // PEER_AUTH_MODE=permissive and leave the route open in every deployment
+    // that has not flipped the flag.
+    expect(preHandlers[0]).toBe(peer_instance_guard_strict);
+    expect(preHandlers[0]).not.toBe(peer_instance_guard);
     expect(preHandlers).toHaveLength(2);
   });
 
@@ -203,6 +210,31 @@ describe('POST /network/action/perform — peer auth wiring', () => {
       expect(res.statusCode).toBe(401);
       await app.close();
     });
+  });
+
+  it('rejects an UNSIGNED request even under permissive — this route does not inherit the rollout affordance', async () => {
+    // The whole point of the strict guard. If someone swaps
+    // peer_instance_guard_strict back to peer_instance_guard, this fails.
+    peerConfig.auth_mode = 'permissive';
+    const reply = makeReply();
+
+    await peer_instance_guard_strict(makeRequest('{"action_type":"apply"}'), reply);
+
+    expect(reply.statusCode).toBe(401);
+  });
+
+  it('rejects a token sent WITHOUT its timestamp under permissive — a half-formed attempt is not "unsigned"', async () => {
+    // `missing` (neither header) is forgiven under permissive; `incomplete` is
+    // not. Collapsing the two would let a caller opt out by dropping a header.
+    peerConfig.auth_mode = 'permissive';
+    const reply = makeReply();
+
+    await peer_instance_guard(
+      makeRequest('{"action_type":"apply"}', { [INSTANCE_TOKEN_HEADER]: 'deadbeef' }),
+      reply
+    );
+
+    expect(reply.statusCode).toBe(401);
   });
 
   it('still rejects a bad signature under permissive — permissive only forgives a MISSING token', async () => {

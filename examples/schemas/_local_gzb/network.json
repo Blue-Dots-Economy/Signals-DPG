@@ -1,0 +1,1523 @@
+{
+  "display_name": "Blue Dot",
+  "description": "Jobs and hiring network.",
+  "schema_standard": "https://json-schema.org/draft/2020-12/schema",
+  "pause_enabled": true,
+  "domains": [
+    {
+      "description": "People looking for jobs.",
+      "minimum_cache_ttl_seconds": 300,
+      "status_rules": [
+        { "status": "new",      "label": "New",      "description": "Joined within the last 7 days",            "when": { "item_age_days": { "lte": 7 } } },
+        { "status": "active",   "label": "Active",   "description": "Applied to a job in the last 30 days",     "when": { "days_since_last": { "buckets": ["create", "accept"], "lte": 30 } } },
+        { "status": "at_risk",  "label": "At Risk",  "description": "No applications for 30–90 days",           "when": { "days_since_last": { "buckets": ["create", "accept", "reject"], "between": [31, 90] } } },
+        { "status": "inactive", "label": "Inactive", "description": "No activity 90+ days",                     "when": "default" }
+      ],
+      "item_schemas": {
+        "profile_1.0": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "Job Seeker Profile 1.0",
+          "type": "object",
+          "additionalProperties": false,
+          "x-form-layout": {
+            "sections": [
+              {
+                "title": "Personal Details",
+                "fields": ["name", "age", "gender", "phone", "location"]
+              },
+              {
+                "title": "Work Experience & Preferences",
+                "fields": [
+                  "workExperience",
+                  "workExperienceYearsConditional",
+                  "nameOfLastRoleHeld",
+                  "natureOfJobsInterestedIn",
+                  "nameOfJobRolesInterestedIn",
+                  "languageSpoken",
+                  "otherHelpNeeded"
+                ]
+              },
+              {
+                "title": "Education & Skills",
+                "fields": [
+                  "educationCategory",
+                  "schoolQualification",
+                  "schoolQualificationOther",
+                  "collegeQualification",
+                  "collegeQualificationOther",
+                  "itiTrade",
+                  "itiTradeOther",
+                  "itiInstitute",
+                  "vocationalTrainingOther",
+                  "polytechnicDiploma",
+                  "polytechnicDiplomaOther",
+                  "certificationDetails"
+                ]
+              }
+            ],
+            "twoColumn": [
+              "age",
+              "gender",
+              "phone",
+              "workExperienceYearsConditional",
+              "schoolQualification",
+              "collegeQualification",
+              "itiTrade"
+            ]
+          },
+          "required": [
+            "name",
+            "location",
+            "age",
+            "phone"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "title": "Full Name",
+              "minLength": 1,
+              "private": true
+            },
+            "gender": {
+              "type": "string",
+              "title": "Gender",
+              "enum": [
+                "Male",
+                "Female",
+                "Other",
+                "Don't want to share"
+              ]
+            },
+            "location": {
+              "type": "string",
+              "title": "Location",
+              "location": "primary",
+              "private": true
+            },
+            "phone": {
+              "type": "string",
+              "title": "Mobile Number",
+              "minimum": 10,
+              "private": true
+            },
+            "age": {
+              "type": "integer",
+              "title": "Age",
+              "minimum": 14,
+              "maximum": 65
+            },
+            "workExperience": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Work Experience",
+              "enum": [
+                "Fresher",
+                "Worked before",
+                "Returning after a break"
+              ]
+            },
+            "workExperienceYearsConditional": {
+              "type": "string",
+              "title": "Years of Work Experience",
+              "enum": [
+                "0",
+                "< 1 Year",
+                "1 Year",
+                "2 Years",
+                "3 Years",
+                "3-5 Years",
+                "5-10 Years",
+                "10-15 Years",
+                "15+ Years",
+                "Other"
+              ],
+               "x-show-if": {
+                "workExperience": [
+                  "Worked before", "Returning after a break"
+                ]
+              }
+            },
+            "natureOfJobsInterestedIn": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Nature of Jobs Interested In",
+              "enum": [
+                "Internship",
+                "Apprenticeship",
+                "Full-time",
+                "Flexible"
+              ]
+            },
+            "nameOfJobRolesInterestedIn": {
+              "type": "string",
+              "title": "Job Roles Interested In",
+              "minLength": 1,
+              "vectorize": true,
+              "vector_weight": 2
+            },
+            "otherHelpNeeded": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other Help Needed",
+              "enum": [
+                "Training",
+                "Accommodation",
+                "Travel",
+                "Other"
+              ]
+            },
+            "educationCategory": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Education Category",
+              "description": "Select your education category",
+              "enum": [
+                "School",
+                "College",
+                "ITI",
+                "Polytechnic / Diploma",
+                "Certification",
+                "Learned Informally",
+                "Other Vocational Training"
+              ],
+              "enumNames": [
+                "School",
+                "College",
+                "ITI",
+                "Polytechnic / Diploma",
+                "Certification",
+                "Learned Informally",
+                "Other Vocational Training"
+              ]
+            },
+            "schoolQualification": {
+              "vectorize": true,
+              "type": "string",
+              "title": "School Qualification",
+              "description": "Select your school qualification",
+              "enum": [
+                "10th",
+                "12th",
+                "Other"
+              ],
+              "enumNames": [
+                "10th",
+                "12th",
+                "Other"
+              ],
+              "x-show-if": {
+                "educationCategory": [
+                  "School"
+                ]
+              }
+            },
+            "schoolQualificationOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other School Qualification",
+              "description": "Please specify your school qualification",
+              "x-show-if": {
+                "schoolQualification": [
+                  "Other"
+                ]
+              }
+            },
+            "collegeQualification": {
+              "vectorize": true,
+              "type": "string",
+              "title": "College Qualification",
+              "description": "Select your college qualification",
+              "enum": [
+                "B.Tech/B.E.",
+                "B.Com",
+                "B.A.",
+                "B.B.A",
+                "Other"
+              ],
+              "enumNames": [
+                "B.Tech/B.E.",
+                "B.Com",
+                "B.A.",
+                "B.B.A",
+                "Other"
+              ],
+              "x-show-if": {
+                "educationCategory": [
+                  "College"
+                ]
+              }
+            },
+            "collegeQualificationOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other College Qualification",
+              "description": "Please specify your college qualification",
+              "x-show-if": {
+                "collegeQualification": [
+                  "Other"
+                ]
+              }
+            },
+            "itiTrade": {
+              "vectorize": true,
+              "vector_weight": 2,
+              "type": "string",
+              "title": "ITI Trade",
+              "description": "Select your ITI trade",
+              "enum": [
+                "Additive Manufacturing Technician Three D Painting",
+                "Additive Manufacturing Technician Three D Printing (NSQF)",
+                "ADVANCED CNC MACHINING TECHNICIAN (NSQF)",
+                "Aeronautical Structure and Equipment Fitter (NSQF)",
+                "Agro Processing (NSQF)",
+                "Architectural Draughtsman (NSQF)",
+                "Artificial Intelligence Programming Assistant (NSQF)",
+                "ARTISAN USING ADVANCED TOOL (NSQF)",
+                "Attendant Operator (Chemical Plant) (NSQF)",
+                "Baker and Confectioner (NSQF)",
+                "Bamboo Works (NSQF)",
+                "BASIC DESIGNER AND VIRTUAL VERIFIER (MECHANICAL) (NSQF)",
+                "Catering & Hospitality Assistant (NSQF)",
+                "CENTRAL AIRCONDITION PLANT MECHANIC(NSQF)",
+                "Civil Engineer Assistant (NSQF)",
+                "Computer Aided Embroidery And Designing (NSQF)",
+                "Computer Aided Manufacturing (CAM) Programmer (NSQF)",
+                "Computer Hardware & Network Maintenance (NSQF)",
+                "Computer Operator & Programming Assistant (VI & OD) (NSQF)",
+                "Computer Operator and Programming Assistant",
+                "Computer Operator and Programming Assistant (NSQF)",
+                "Cosmetology (NSQF)",
+                "Cutting & Sewing (VI & OD) (NSQF)",
+                "Dairying",
+                "Dairying(NSQF)",
+                "Data Base System Assistant (NSQF)",
+                "Data Entry Operator (NSQF)",
+                "Dental Laboratory Equipment Technician (NSQF)",
+                "Desk Top Publishing Operator (NSQF)",
+                "Desktop Publishing Operator (VI & OD) (NSQF)",
+                "Desktop Publishing Operator (VI) (NSQF)",
+                "Digital Photographer (NSQF)",
+                "Domestic Painter (NSQF)",
+                "Draftsman Civil (NSQF)",
+                "Draughtsman (Civil) (NSQF)",
+                "Draughtsman (Mechanical) (NSQF)",
+                "Dress Making (NSQF)",
+                "Driver Cum Mechanic (NSQF)",
+                "Drone Pilot ( Junior) (NSQF)",
+                "Drone Technician(NSQF)",
+                "Early Childhood Educator",
+                "Early Childhood Educator(NSQF)",
+                "Electrician",
+                "Electrician (NSQF)",
+                "Electrician Power Distribution (NSQF)",
+                "Electronics Mechanic (NSQF)",
+                "Electroplater",
+                "Electroplater (NSQF)",
+                "Event Management Assitant (NSQF)",
+                "Fashion Design & Technology (NSQF)",
+                "Fibre to Home Technician (NSQF)",
+                "Finance Executive (NSQF)",
+                "Fire Technology and Industrial Safety Management (NSQF)",
+                "Firemen (NSQF)",
+                "Fitter",
+                "Fitter (NSQF)",
+                "Floriculture & Landscaping (NSQF)",
+                "Food & Beverages Services Assistant (NSQF)",
+                "Food Beverage (NSQF)",
+                "Food Production (General) (NSQF)",
+                "Footwear maker (NSQF)",
+                "Foundryman",
+                "Foundryman (NSQF)",
+                "Front Office Assistant (NSQF)",
+                "Fruit and Vegetable Processor (NSQF)",
+                "Geo Informatics Assitant (NSQF)",
+                "Geriatric (Old Age) Care (NSQF)",
+                "Hair & Skin Care (VI & OD) (NSQF)",
+                "Health Safety & Environment (NSQF)",
+                "Health Sanitary Inspector (NSQF)",
+                "Horticulture (NSQF)",
+                "Horticulture (P)",
+                "Hospital House Keeping (NSQF)",
+                "House Keeper (NSQF)",
+                "Human Resource Executive (NSQF)",
+                "In Plant Logistics Assistant (NSQF)",
+                "Industrial Painter (NSQF)",
+                "INDUSTRIAL ROBOTICS AND DIGITAL MANUFACTURING TECHNICIAN (NSQF)",
+                "Information Communication Technology System Maintenance (NSQF)",
+                "Information Technology (NSQF)",
+                "Instrument Mechanic (Chemical Plant) (NSQF)",
+                "Instrument Mechanic (NSQF)",
+                "Interior Decoration and Designing (P)",
+                "Interior Design & Decoration (NSQF)",
+                "IoT Technician (Smart Agriculture)(NSQF)",
+                "IoT Technician (Smart City)(NSQF)",
+                "IoT Technician (Smart healthcare)(NSQF)",
+                "Laboratory Assistant (Chemical Plant) (NSQF)",
+                "Leather Goods Maker (NSQF)",
+                "Lift and Escalator Mechanic (NSQF)",
+                "Lift Mechanic (P)",
+                "Machinist (Grinder) (NSQF)",
+                "Machinist (NSQF)",
+                "Maintenance Mechanic (Chemical Plant) (NSQF)",
+                "MANUFACTURING PROCESS CONTROL AND AUTOMATION (NSQF)",
+                "Marine Engine Fitter (NSQF)",
+                "Marine Fitter (NSQF)",
+                "Marketing Executive (NSQF)",
+                "Mason (Building Constructor) (NSQF)",
+                "Mechanic (Motor Vehicle) (NSQF)",
+                "Mechanic (Tractor) (NSQF)",
+                "Mechanic Agriculture Machinery (NSQF)",
+                "Mechanic Auto Body Painting (NSQF)",
+                "Mechanic Auto Body Repair (NSQF)",
+                "Mechanic Auto Electrical and Electronics (NSQF)",
+                "Mechanic Consumer Electronics Appliances (NSQF)",
+                "Mechanic Diesel (NSQF)",
+                "MECHANIC ELECTRIC VEHICLE (NSQF)",
+                "Mechanic Lens/Prism Grinding (NSQF)",
+                "Mechanic Machine Tool Maintenance (NSQF)",
+                "Mechanic Mechatronics (NSQF)",
+                "Mechanic Mining Machinery (NSQF)",
+                "Mechanic Two & Three Wheeler (NSQF)",
+                "Metal Cutting Attendant (VI) (NSQF)",
+                "Milk & Milk Product Technician (NSQF)",
+                "Multimedia Animation & Special Effects (NSQF)",
+                "Operator Advanced Machine Tools (NSQF)",
+                "Painter General (NSQF)",
+                "Photographer (NSQF)",
+                "Physiotherapy Technician (NSQF)",
+                "Plumbing",
+                "Plastic Processing Operator (NSQF)",
+                "Plumber (NSQF)",
+                "Pump Operator-Cum-Mechanic (NSQF)",
+                "Radiology - Technician (NSQF)",
+                "Radiology Technician (NSQF)",
+                "REFRIGERATION AND AIR CONDITIONING TECHNICIAN(NSQF)",
+                "Secretarial Practice (English) (NSQF)",
+                "Sewing Technology (NSQF)",
+                "Sheet Metal Worker (NSQF)",
+                "Smartphone Technician Cum App Tester (NSQF)",
+                "Software Testing Assistant (NSQF)",
+                "Soil Testing and Crop Technician (NSQF)",
+                "Solar Technician (Electrical) (NSQF)",
+                "Solar Technician (NSQF)",
+                "Spa Therapy (NSQF)",
+                "Spinning Technician (NSQF)",
+                "Stenographer & Secretarial Assistant (English) (NSQF)",
+                "Stenographer & Secretarial Assistant (Hindi) (NSQF)",
+                "Stone Mining Machine Operator (NSQF)",
+                "Stone Processing Machine Operator (NSQF)",
+                "Surface Ornamentation Techniques (Embroidery) (NSQF)",
+                "Surveyor",
+                "Surveyor (NSQF)",
+                "Surveyor (Two Years)",
+                "Technician Electronics System Design and Repair (NSQF)",
+                "Technician Mechatronics (NSQF)",
+                "TECHNICIAN MEDICAL ELECTRONICS(NSQF)",
+                "Technician Power Electronics System (NSQF)",
+                "Textile Mechatronics (NSQF)",
+                "Textile Wet Processing Technician (NSQF)",
+                "Tool & Die Maker (Dies & Moulds) (NSQF)",
+                "Tool & Die Maker (Press Tools, Jigs & Fixtures)",
+                "Tool & Die Maker (Press Tools, Jigs & Fixtures) (NSQF)",
+                "Tourist Guide (NSQF)",
+                "Travel & Tour Assistant (NSQF)",
+                "Turner (NSQF)",
+                "Vessel Navigator (NSQF)",
+                "Warehouse Technician (NSQF)",
+                "Weaving Technician (NSQF)",
+                "Weaving Technician for Silk & Woolen Fabrics (NSQF)",
+                "Welder (Fabrication & Fitting) (NSQF)",
+                "Welder (GMAW & GTAW) (NSQF)",
+                "Welder (NSQF)",
+                "Welder (Pipe) (NSQF)",
+                "Welder (Structural) (NSQF)",
+                "Welder (Welding & Inspection) (NSQF)",
+                "Wireman (NSQF)",
+                "Wood Work Technician (NSQF)",
+                "Other"
+              ],
+              "enumNames": [
+                "Additive Manufacturing Technician Three D Painting",
+                "Additive Manufacturing Technician Three D Printing (NSQF)",
+                "ADVANCED CNC MACHINING TECHNICIAN (NSQF)",
+                "Aeronautical Structure and Equipment Fitter (NSQF)",
+                "Agro Processing (NSQF)",
+                "Architectural Draughtsman (NSQF)",
+                "Artificial Intelligence Programming Assistant (NSQF)",
+                "ARTISAN USING ADVANCED TOOL (NSQF)",
+                "Attendant Operator (Chemical Plant) (NSQF)",
+                "Baker and Confectioner (NSQF)",
+                "Bamboo Works (NSQF)",
+                "BASIC DESIGNER AND VIRTUAL VERIFIER (MECHANICAL) (NSQF)",
+                "Catering & Hospitality Assistant (NSQF)",
+                "CENTRAL AIRCONDITION PLANT MECHANIC(NSQF)",
+                "Civil Engineer Assistant (NSQF)",
+                "Computer Aided Embroidery And Designing (NSQF)",
+                "Computer Aided Manufacturing (CAM) Programmer (NSQF)",
+                "Computer Hardware & Network Maintenance (NSQF)",
+                "Computer Operator & Programming Assistant (VI & OD) (NSQF)",
+                "Computer Operator and Programming Assistant",
+                "Computer Operator and Programming Assistant (NSQF)",
+                "Cosmetology (NSQF)",
+                "Cutting & Sewing (VI & OD) (NSQF)",
+                "Dairying",
+                "Dairying(NSQF)",
+                "Data Base System Assistant (NSQF)",
+                "Data Entry Operator (NSQF)",
+                "Dental Laboratory Equipment Technician (NSQF)",
+                "Desk Top Publishing Operator (NSQF)",
+                "Desktop Publishing Operator (VI & OD) (NSQF)",
+                "Desktop Publishing Operator (VI) (NSQF)",
+                "Digital Photographer (NSQF)",
+                "Domestic Painter (NSQF)",
+                "Draftsman Civil (NSQF)",
+                "Draughtsman (Civil) (NSQF)",
+                "Draughtsman (Mechanical) (NSQF)",
+                "Dress Making (NSQF)",
+                "Driver Cum Mechanic (NSQF)",
+                "Drone Pilot ( Junior) (NSQF)",
+                "Drone Technician(NSQF)",
+                "Early Childhood Educator",
+                "Early Childhood Educator(NSQF)",
+                "Electrician",
+                "Electrician (NSQF)",
+                "Electrician Power Distribution (NSQF)",
+                "Electronics Mechanic (NSQF)",
+                "Electroplater",
+                "Electroplater (NSQF)",
+                "Event Management Assitant (NSQF)",
+                "Fashion Design & Technology (NSQF)",
+                "Fibre to Home Technician (NSQF)",
+                "Finance Executive (NSQF)",
+                "Fire Technology and Industrial Safety Management (NSQF)",
+                "Firemen (NSQF)",
+                "Fitter",
+                "Fitter (NSQF)",
+                "Floriculture & Landscaping (NSQF)",
+                "Food & Beverages Services Assistant (NSQF)",
+                "Food Beverage (NSQF)",
+                "Food Production (General) (NSQF)",
+                "Footwear maker (NSQF)",
+                "Foundryman",
+                "Foundryman (NSQF)",
+                "Front Office Assistant (NSQF)",
+                "Fruit and Vegetable Processor (NSQF)",
+                "Geo Informatics Assitant (NSQF)",
+                "Geriatric (Old Age) Care (NSQF)",
+                "Hair & Skin Care (VI & OD) (NSQF)",
+                "Health Safety & Environment (NSQF)",
+                "Health Sanitary Inspector (NSQF)",
+                "Horticulture (NSQF)",
+                "Horticulture (P)",
+                "Hospital House Keeping (NSQF)",
+                "House Keeper (NSQF)",
+                "Human Resource Executive (NSQF)",
+                "In Plant Logistics Assistant (NSQF)",
+                "Industrial Painter (NSQF)",
+                "INDUSTRIAL ROBOTICS AND DIGITAL MANUFACTURING TECHNICIAN (NSQF)",
+                "Information Communication Technology System Maintenance (NSQF)",
+                "Information Technology (NSQF)",
+                "Instrument Mechanic (Chemical Plant) (NSQF)",
+                "Instrument Mechanic (NSQF)",
+                "Interior Decoration and Designing (P)",
+                "Interior Design & Decoration (NSQF)",
+                "IoT Technician (Smart Agriculture)(NSQF)",
+                "IoT Technician (Smart City)(NSQF)",
+                "IoT Technician (Smart healthcare)(NSQF)",
+                "Laboratory Assistant (Chemical Plant) (NSQF)",
+                "Leather Goods Maker (NSQF)",
+                "Lift and Escalator Mechanic (NSQF)",
+                "Lift Mechanic (P)",
+                "Machinist (Grinder) (NSQF)",
+                "Machinist (NSQF)",
+                "Maintenance Mechanic (Chemical Plant) (NSQF)",
+                "MANUFACTURING PROCESS CONTROL AND AUTOMATION (NSQF)",
+                "Marine Engine Fitter (NSQF)",
+                "Marine Fitter (NSQF)",
+                "Marketing Executive (NSQF)",
+                "Mason (Building Constructor) (NSQF)",
+                "Mechanic (Motor Vehicle) (NSQF)",
+                "Mechanic (Tractor) (NSQF)",
+                "Mechanic Agriculture Machinery (NSQF)",
+                "Mechanic Auto Body Painting (NSQF)",
+                "Mechanic Auto Body Repair (NSQF)",
+                "Mechanic Auto Electrical and Electronics (NSQF)",
+                "Mechanic Consumer Electronics Appliances (NSQF)",
+                "Mechanic Diesel (NSQF)",
+                "MECHANIC ELECTRIC VEHICLE (NSQF)",
+                "Mechanic Lens/Prism Grinding (NSQF)",
+                "Mechanic Machine Tool Maintenance (NSQF)",
+                "Mechanic Mechatronics (NSQF)",
+                "Mechanic Mining Machinery (NSQF)",
+                "Mechanic Two & Three Wheeler (NSQF)",
+                "Metal Cutting Attendant (VI) (NSQF)",
+                "Milk & Milk Product Technician (NSQF)",
+                "Multimedia Animation & Special Effects (NSQF)",
+                "Operator Advanced Machine Tools (NSQF)",
+                "Painter General (NSQF)",
+                "Photographer (NSQF)",
+                "Physiotherapy Technician (NSQF)",
+                "Plumbing",
+                "Plastic Processing Operator (NSQF)",
+                "Plumber (NSQF)",
+                "Pump Operator-Cum-Mechanic (NSQF)",
+                "Radiology - Technician (NSQF)",
+                "Radiology Technician (NSQF)",
+                "REFRIGERATION AND AIR CONDITIONING TECHNICIAN(NSQF)",
+                "Secretarial Practice (English) (NSQF)",
+                "Sewing Technology (NSQF)",
+                "Sheet Metal Worker (NSQF)",
+                "Smartphone Technician Cum App Tester (NSQF)",
+                "Software Testing Assistant (NSQF)",
+                "Soil Testing and Crop Technician (NSQF)",
+                "Solar Technician (Electrical) (NSQF)",
+                "Solar Technician (NSQF)",
+                "Spa Therapy (NSQF)",
+                "Spinning Technician (NSQF)",
+                "Stenographer & Secretarial Assistant (English) (NSQF)",
+                "Stenographer & Secretarial Assistant (Hindi) (NSQF)",
+                "Stone Mining Machine Operator (NSQF)",
+                "Stone Processing Machine Operator (NSQF)",
+                "Surface Ornamentation Techniques (Embroidery) (NSQF)",
+                "Surveyor",
+                "Surveyor (NSQF)",
+                "Surveyor (Two Years)",
+                "Technician Electronics System Design and Repair (NSQF)",
+                "Technician Mechatronics (NSQF)",
+                "TECHNICIAN MEDICAL ELECTRONICS(NSQF)",
+                "Technician Power Electronics System (NSQF)",
+                "Textile Mechatronics (NSQF)",
+                "Textile Wet Processing Technician (NSQF)",
+                "Tool & Die Maker (Dies & Moulds) (NSQF)",
+                "Tool & Die Maker (Press Tools, Jigs & Fixtures)",
+                "Tool & Die Maker (Press Tools, Jigs & Fixtures) (NSQF)",
+                "Tourist Guide (NSQF)",
+                "Travel & Tour Assistant (NSQF)",
+                "Turner (NSQF)",
+                "Vessel Navigator (NSQF)",
+                "Warehouse Technician (NSQF)",
+                "Weaving Technician (NSQF)",
+                "Weaving Technician for Silk & Woolen Fabrics (NSQF)",
+                "Welder (Fabrication & Fitting) (NSQF)",
+                "Welder (GMAW & GTAW) (NSQF)",
+                "Welder (NSQF)",
+                "Welder (Pipe) (NSQF)",
+                "Welder (Structural) (NSQF)",
+                "Welder (Welding & Inspection) (NSQF)",
+                "Wireman (NSQF)",
+                "Wood Work Technician (NSQF)",
+                "Other"
+              ],
+              "x-show-if": {
+                "educationCategory": [
+                  "ITI"
+                ]
+              }
+            },
+            "itiTradeOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other ITI Trade",
+              "description": "Please specify your ITI trade",
+              "x-show-if": {
+                "itiTrade": [
+                  "Other"
+                ]
+              }
+            },
+            "vocationalTrainingOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other Vocational Training",
+              "description": "Please specify your vocational training",
+              "x-show-if": {
+                "educationCategory": [
+                  "Other Vocational Training"
+                ]
+              }
+            },
+            "polytechnicDiploma": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Polytechnic / Diploma",
+              "description": "Select your polytechnic/diploma",
+              "enum": [
+                "Diploma in Mechanical",
+                "Diploma in Electrical",
+                "Diploma in Electronics",
+                "Diploma in Civil",
+                "Diploma in Computer Science",
+                "Diploma in Automobile",
+                "Diploma in Others"
+              ],
+              "enumNames": [
+                "Diploma in Mechanical",
+                "Diploma in Electrical",
+                "Diploma in Electronics",
+                "Diploma in Civil",
+                "Diploma in Computer Science",
+                "Diploma in Automobile",
+                "Diploma in Others"
+              ],
+              "x-show-if": {
+                "educationCategory": [
+                  "Polytechnic / Diploma"
+                ]
+              }
+            },
+            "polytechnicDiplomaOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Other Diploma",
+              "description": "Please specify your diploma",
+              "x-show-if": {
+                "polytechnicDiploma": [
+                  "Diploma in Others"
+                ]
+              }
+            },
+            "certificationDetails": {
+              "type": "string",
+              "title": "Certification Details",
+              "description": "Please describe your certification or skills learned informally",
+              "vectorize": true,
+              "x-show-if": {
+                "educationCategory": [
+                  "Certification",
+                  "Learned Informally"
+                ]
+              }
+            },
+            "itiInstitute": {
+              "type": "string",
+              "title": "College / Institute Name",
+              "description": "Please specify your college or institute name",
+              "placeholder": "Please specify your college or institute name",
+              "x-reference-source": { "source": "colleges", "subtitle": ["district", "state"] }
+            },
+            "nameOfLastRoleHeld": {
+              "type": "string",
+              "title": "Name of last role held",
+              "description": "Enter the name of your last role",
+              "placeholder": "Enter the name of your last role",
+              "vectorize": true
+            },
+            "languageSpoken": {
+              "type": "array",
+              "title": "Language Spoken",
+              "description": "Select all the languages you are familiar with",
+              "placeholder": "Select all the languages you are familiar with",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Assamese",
+                  "Bengali",
+                  "Bodo",
+                  "Dogri",
+                  "English",
+                  "Gujarati",
+                  "Hindi",
+                  "Kannada",
+                  "Kashmiri",
+                  "Konkani",
+                  "Maithili",
+                  "Malayalam",
+                  "Manipuri",
+                  "Marathi",
+                  "Mizo",
+                  "Nepali",
+                  "Odia",
+                  "Punjabi",
+                  "Sanskrit",
+                  "Santali",
+                  "Sindhi",
+                  "Tamil",
+                  "Telugu",
+                  "Urdu"
+                ],
+                "enumNames": [
+                  "Assamese (অসমীয়া)",
+                  "Bengali (বাংলা)",
+                  "Bodo (बड़ो)",
+                  "Dogri (डोगरी)",
+                  "English",
+                  "Gujarati (ગુજરાતી)",
+                  "Hindi (हिन्दी)",
+                  "Kannada (ಕನ್ನಡ)",
+                  "Kashmiri (कॉशुर)",
+                  "Konkani (कोंकणी)",
+                  "Maithili (मैथिली)",
+                  "Malayalam (മലയാളം)",
+                  "Manipuri (মৈতৈলোন্)",
+                  "Marathi (मराठी)",
+                  "Mizo (Mizo ṭawng)",
+                  "Nepali (नेपाली)",
+                  "Odia (ଓଡ଼ିଆ)",
+                  "Punjabi (ਪੰਜਾਬੀ)",
+                  "Sanskrit (संस्कृतम्)",
+                  "Santali (ᱥᱟᱱᱛᱟᱲᱤ)",
+                  "Sindhi (سنڌي)",
+                  "Tamil (தமிழ்)",
+                  "Telugu (తెలుగు)",
+                  "Urdu (اردو)"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "seeker",
+      "go_live_required": ["schema_required", "consent_required"],
+      "guardian_consent_required": true,
+      "profile_completion_prompt": {
+        "heading": "Complete your profile to get discovered",
+        "body": "Employers can find and connect with you only once your profile is live. Fill in the details below to start getting job opportunities."
+      },
+      "card": {
+        "title_field": "name",
+        "avatar_from": "name",
+        "default_fields": ["location", "natureOfJobsInterestedIn", "educationCategory", "workExperience"]
+      },
+      "contact_fields": { "name": "name", "phone": "phone" },
+      "dashboard_tiles": {
+        "profile": [
+          { "field": "total_items", "label": "Profiles Registered" },
+          { "field": "complete_profiles", "label": "Profiles Complete" },
+          { "field": "has_applications", "label": "Applied for Jobs" }
+        ],
+        "user": [
+          { "field": "total_users", "label": "Total Job Seekers" },
+          { "field": "avg_items_per_user", "label": "Avg Profiles per User" },
+          { "field": "avg_actions_per_user", "label": "Avg Actions per User" }
+        ]
+      }
+    },
+    {
+      "description": "Employers and recruiters posting jobs.",
+      "minimum_cache_ttl_seconds": 300,
+      "status_rules": [
+        { "status": "new",      "label": "New",      "description": "Job posted within the last 7 days",                                "when": { "item_age_days": { "lte": 7 } } },
+        { "status": "active",   "label": "Active",   "description": "Received applications and shortlisted or rejected in last 30 days", "when": { "all": [ { "count": { "buckets": ["create"], "gt": 0 } }, { "days_since_last": { "buckets": ["accept", "reject"], "lte": 30 } } ] } },
+        { "status": "at_risk",  "label": "At Risk",  "description": "No applications shortlisted or rejected for 30–90 days",            "when": { "all": [ { "count": { "buckets": ["create"], "gt": 0 } }, { "days_since_last": { "buckets": ["accept", "reject"], "between": [31, 90] } } ] } },
+        { "status": "inactive", "label": "Inactive", "description": "No activity for 90+ days",                                          "when": "default" }
+      ],
+      "item_schemas": {
+        "job_posting_1.0": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "Job Posting 1.0",
+          "display_name_field": "jobProviderName",
+          "type": "object",
+          "additionalProperties": false,
+          "x-form-layout": {
+            "sections": [
+              {
+                "title": "Job Details",
+                "fields": ["jobProviderName", "jobProviderLocation", "role", "title", "positions", "natureOfJob"]
+              },
+              {
+                "title": "Hiring Contact",
+                "fields": ["hiringManagerName", "hiringManagerPhoneNumber", "hiringManagerEmail"]
+              },
+              {
+                "title": "Compensation",
+                "fields": ["stipendMin", "stipendMax", "salaryMin", "salaryMax", "taskRateMin", "taskRateMax"]
+              },
+              {
+                "title": "Candidate Requirements",
+                "fields": [
+                  "candidateExperienceType",
+                  "workExperienceYears",
+                  "lastRoleHeld",
+                  "minEducationalInstitute",
+                  "minQualificationSchool",
+                  "minQualificationSchoolOther",
+                  "minQualificationCollege",
+                  "minQualificationCollegeOther",
+                  "minQualificationVocational",
+                  "minQualificationPolytechnic",
+                  "minQualificationPolytechnicOther",
+                  "minQualificationCert",
+                  "minQualificationInformal"
+                ]
+              }
+            ],
+            "twoColumn": [
+              "hiringManagerPhoneNumber",
+              "hiringManagerEmail",
+              "positions",
+              "stipendMin",
+              "stipendMax",
+              "salaryMin",
+              "salaryMax",
+              "taskRateMin",
+              "taskRateMax"
+            ]
+          },
+          "required": [
+            "jobProviderName",
+            "role",
+            "jobProviderLocation",
+            "hiringManagerName",
+            "hiringManagerPhoneNumber",
+            "positions",
+            "natureOfJob"
+          ],
+          "properties": {
+            "jobProviderName": {
+              "type": "string",
+              "title": "Company Name",
+              "minLength": 1,
+              "vectorize": true
+            },
+            "jobProviderLocation": {
+              "type": "string",
+              "title": "Job Location",
+              "location": "primary",
+              "private": true
+            },
+            "hiringManagerName": {
+              "type": "string",
+              "title": "Hiring Manager Name",
+              "minLength": 1,
+              "private": true
+            },
+            "hiringManagerPhoneNumber": {
+              "type": "string",
+              "title": "Hiring Manager Mobile Number",
+              "private": true
+            },
+            "hiringManagerEmail": {
+              "type": "string",
+              "title": "Hiring Manager Email",
+              "private": true
+            },
+            "role": {
+              "type": "string",
+              "title": "Role",
+              "minLength": 1,
+              "vectorize": true,
+              "vector_weight": 2
+            },
+            "positions": {
+              "type": "integer",
+              "title": "Open Positions",
+              "minimum": 1
+            },
+            "natureOfJob": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Nature of Job",
+              "enum": [
+                "Internship",
+                "Apprenticeship",
+                "Full-time",
+                "Flexible",
+                "Not Available"
+              ]
+            },
+            "stipendMin": {
+              "type": "number",
+              "title": "Monthly In-hand Stipend (INR) min",
+              "minimum": 0
+            },
+            "stipendMax": {
+              "type": "number",
+              "title": "Monthly In-hand Stipend (INR) max",
+              "minimum": 0
+            },
+            "salaryMin": {
+              "type": "number",
+              "title": "Monthly In-hand Salary (INR) min",
+              "minimum": 0
+            },
+            "salaryMax": {
+              "type": "number",
+              "title": "Monthly In-hand Salary (INR) max",
+              "minimum": 0
+            },
+            "taskRateMin": {
+              "type": "number",
+              "title": "Per Task (INR) min",
+              "minimum": 0
+            },
+            "taskRateMax": {
+              "type": "number",
+              "title": "Per Task (INR) max",
+              "minimum": 0
+            },
+            "candidateExperienceType": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Type of Candidate",
+              "description": "Please select the option that best describes the type of candidate you want to hire based on their previous work experience",
+              "enum": [
+                "Fresher",
+                "Worked before",
+                "Returning after a break"
+              ]
+            },
+            "minEducationalInstitute": {
+              "type": "string",
+              "title": "Min. Highest Educational Institute Attended",
+              "description": "Please select the preferred minimum of the highest kind of educational institute they have attended",
+              "enum": [
+                "None",
+                "School",
+                "College",
+                "ITI",
+                "Polytechnic/Diploma",
+                "Other Vocational Training",
+                "Certifications",
+                "Learned Informally"
+            ]
+            },
+            "workExperienceYears": {
+              "type": "string",
+              "title": "Work Experience (Years)",
+              "description": "Preferred minimum years of work experience",
+              "enum": [
+                "0",
+                "< 1 Year",
+                "1 Year",
+                "2 Years",
+                "3 Years",
+                "3-5 Years",
+                "5-10 Years",
+                "10-15 Years",
+                "15+ Years",
+                "Other"
+              ]
+            },
+            "lastRoleHeld": {
+              "type": "string",
+              "title": "Name of last role held",
+              "description": "Enter the names of roles the candidate should have last held",
+              "placeholder": "Enter the names of roles the candidate should have last held",
+              "x-show-if": { "candidateExperienceType": ["Worked before"] },
+              "vectorize": true
+            },
+            "title": {
+              "type": "string",
+              "title": "Job Title",
+              "description": "Job title (editable)",
+              "pattern": "^\\s*\\S+(\\s+\\S+)*\\s*$",
+              "minLength": 1,
+              "vectorize": true
+            },
+            "minQualificationSchool": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Min. Highest Qualification (School)",
+              "description": "Select the highest school level completed",
+              "enum": [
+                "10th",
+                "12th",
+                "Other"
+              ],
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "School"
+                ]
+              }
+            },
+            "minQualificationSchoolOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Specify Other School Qualification",
+              "description": "Please specify your other school qualification",
+              "x-show-if": {
+                "minQualificationSchool": [
+                  "Other"
+                ]
+              }
+            },
+            "minQualificationCollege": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Min. Highest Qualification (College)",
+              "description": "Select the highest degree completed",
+              "enum": [
+                "B.Tech/B.E.",
+                "B.Com",
+                "B.A.",
+                "B.B.A",
+                "Other"
+              ],
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "College"
+                ]
+              }
+            },
+            "minQualificationCollegeOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Specify Other College Qualification",
+              "description": "Please specify your other college qualification",
+              "x-show-if": {
+                "minQualificationCollege": [
+                  "Other"
+                ]
+              }
+            },
+            "minQualificationVocational": {
+              "vectorize": true,
+              "vector_weight": 2,
+              "type": "array",
+              "title": "Min. Highest Qualification (Trade)",
+              "description": "Enter the specific trade or vocational skill (e.g., Electrician, Fitter)",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "Additive Manufacturing Technician Three D Painting",
+                  "Additive Manufacturing Technician Three D Printing (NSQF)",
+                  "ADVANCED CNC MACHINING TECHNICIAN (NSQF)",
+                  "Aeronautical Structure and Equipment Fitter (NSQF)",
+                  "Agro Processing (NSQF)",
+                  "Architectural Draughtsman (NSQF)",
+                  "Artificial Intelligence Programming Assistant (NSQF)",
+                  "ARTISAN USING ADVANCED TOOL (NSQF)",
+                  "Attendant Operator (Chemical Plant) (NSQF)",
+                  "Baker and Confectioner (NSQF)",
+                  "Bamboo Works (NSQF)",
+                  "BASIC DESIGNER AND VIRTUAL VERIFIER (MECHANICAL) (NSQF)",
+                  "Catering & Hospitality Assistant (NSQF)",
+                  "CENTRAL AIRCONDITION PLANT MECHANIC(NSQF)",
+                  "Civil Engineer Assistant (NSQF)",
+                  "Computer Aided Embroidery And Designing (NSQF)",
+                  "Computer Aided Manufacturing (CAM) Programmer (NSQF)",
+                  "Computer Hardware & Network Maintenance (NSQF)",
+                  "Computer Operator & Programming Assistant (VI & OD) (NSQF)",
+                  "Computer Operator and Programming Assistant",
+                  "Computer Operator and Programming Assistant (NSQF)",
+                  "Cosmetology (NSQF)",
+                  "Cutting & Sewing (VI & OD) (NSQF)",
+                  "Dairying",
+                  "Dairying(NSQF)",
+                  "Data Base System Assistant (NSQF)",
+                  "Data Entry Operator (NSQF)",
+                  "Dental Laboratory Equipment Technician (NSQF)",
+                  "Desk Top Publishing Operator (NSQF)",
+                  "Desktop Publishing Operator (VI & OD) (NSQF)",
+                  "Desktop Publishing Operator (VI) (NSQF)",
+                  "Digital Photographer (NSQF)",
+                  "Domestic Painter (NSQF)",
+                  "Draftsman Civil (NSQF)",
+                  "Draughtsman (Civil) (NSQF)",
+                  "Draughtsman (Mechanical) (NSQF)",
+                  "Dress Making (NSQF)",
+                  "Driver Cum Mechanic (NSQF)",
+                  "Drone Pilot ( Junior) (NSQF)",
+                  "Drone Technician(NSQF)",
+                  "Early Childhood Educator",
+                  "Early Childhood Educator(NSQF)",
+                  "Electrician",
+                  "Electrician (NSQF)",
+                  "Electrician Power Distribution (NSQF)",
+                  "Electronics Mechanic (NSQF)",
+                  "Electroplater",
+                  "Electroplater (NSQF)",
+                  "Event Management Assitant (NSQF)",
+                  "Fashion Design & Technology (NSQF)",
+                  "Fibre to Home Technician (NSQF)",
+                  "Finance Executive (NSQF)",
+                  "Fire Technology and Industrial Safety Management (NSQF)",
+                  "Firemen (NSQF)",
+                  "Fitter",
+                  "Fitter (NSQF)",
+                  "Floriculture & Landscaping (NSQF)",
+                  "Food & Beverages Services Assistant (NSQF)",
+                  "Food Beverage (NSQF)",
+                  "Food Production (General) (NSQF)",
+                  "Footwear maker (NSQF)",
+                  "Foundryman",
+                  "Foundryman (NSQF)",
+                  "Front Office Assistant (NSQF)",
+                  "Fruit and Vegetable Processor (NSQF)",
+                  "Geo Informatics Assitant (NSQF)",
+                  "Geriatric (Old Age) Care (NSQF)",
+                  "Hair & Skin Care (VI & OD) (NSQF)",
+                  "Health Safety & Environment (NSQF)",
+                  "Health Sanitary Inspector (NSQF)",
+                  "Horticulture (NSQF)",
+                  "Horticulture (P)",
+                  "Hospital House Keeping (NSQF)",
+                  "House Keeper (NSQF)",
+                  "Human Resource Executive (NSQF)",
+                  "In Plant Logistics Assistant (NSQF)",
+                  "Industrial Painter (NSQF)",
+                  "INDUSTRIAL ROBOTICS AND DIGITAL MANUFACTURING TECHNICIAN (NSQF)",
+                  "Information Communication Technology System Maintenance (NSQF)",
+                  "Information Technology (NSQF)",
+                  "Instrument Mechanic (Chemical Plant) (NSQF)",
+                  "Instrument Mechanic (NSQF)",
+                  "Interior Decoration and Designing (P)",
+                  "Interior Design & Decoration (NSQF)",
+                  "IoT Technician (Smart Agriculture)(NSQF)",
+                  "IoT Technician (Smart City)(NSQF)",
+                  "IoT Technician (Smart healthcare)(NSQF)",
+                  "Laboratory Assistant (Chemical Plant) (NSQF)",
+                  "Leather Goods Maker (NSQF)",
+                  "Lift and Escalator Mechanic (NSQF)",
+                  "Lift Mechanic (P)",
+                  "Machinist (Grinder) (NSQF)",
+                  "Machinist (NSQF)",
+                  "Maintenance Mechanic (Chemical Plant) (NSQF)",
+                  "MANUFACTURING PROCESS CONTROL AND AUTOMATION (NSQF)",
+                  "Marine Engine Fitter (NSQF)",
+                  "Marine Fitter (NSQF)",
+                  "Marketing Executive (NSQF)",
+                  "Mason (Building Constructor) (NSQF)",
+                  "Mechanic (Motor Vehicle) (NSQF)",
+                  "Mechanic (Tractor) (NSQF)",
+                  "Mechanic Agriculture Machinery (NSQF)",
+                  "Mechanic Auto Body Painting (NSQF)",
+                  "Mechanic Auto Body Repair (NSQF)",
+                  "Mechanic Auto Electrical and Electronics (NSQF)",
+                  "Mechanic Consumer Electronics Appliances (NSQF)",
+                  "Mechanic Diesel (NSQF)",
+                  "MECHANIC ELECTRIC VEHICLE (NSQF)",
+                  "Mechanic Lens/Prism Grinding (NSQF)",
+                  "Mechanic Machine Tool Maintenance (NSQF)",
+                  "Mechanic Mechatronics (NSQF)",
+                  "Mechanic Mining Machinery (NSQF)",
+                  "Mechanic Two & Three Wheeler (NSQF)",
+                  "Metal Cutting Attendant (VI) (NSQF)",
+                  "Milk & Milk Product Technician (NSQF)",
+                  "Multimedia Animation & Special Effects (NSQF)",
+                  "Operator Advanced Machine Tools (NSQF)",
+                  "Painter General (NSQF)",
+                  "Photographer (NSQF)",
+                  "Physiotherapy Technician (NSQF)",
+                  "Plastic Processing Operator (NSQF)",
+                  "Plumber (NSQF)",
+                  "Pump Operator-Cum-Mechanic (NSQF)",
+                  "Radiology - Technician (NSQF)",
+                  "Radiology Technician (NSQF)",
+                  "REFRIGERATION AND AIR CONDITIONING TECHNICIAN(NSQF)",
+                  "Secretarial Practice (English) (NSQF)",
+                  "Sewing Technology (NSQF)",
+                  "Sheet Metal Worker (NSQF)",
+                  "Smartphone Technician Cum App Tester (NSQF)",
+                  "Software Testing Assistant (NSQF)",
+                  "Soil Testing and Crop Technician (NSQF)",
+                  "Solar Technician (Electrical) (NSQF)",
+                  "Solar Technician (NSQF)",
+                  "Spa Therapy (NSQF)",
+                  "Spinning Technician (NSQF)",
+                  "Stenographer & Secretarial Assistant (English) (NSQF)",
+                  "Stenographer & Secretarial Assistant (Hindi) (NSQF)",
+                  "Stone Mining Machine Operator (NSQF)",
+                  "Stone Processing Machine Operator (NSQF)",
+                  "Surface Ornamentation Techniques (Embroidery) (NSQF)",
+                  "Surveyor",
+                  "Surveyor (NSQF)",
+                  "Surveyor (Two Years)",
+                  "Technician Electronics System Design and Repair (NSQF)",
+                  "Technician Mechatronics (NSQF)",
+                  "TECHNICIAN MEDICAL ELECTRONICS(NSQF)",
+                  "Technician Power Electronics System (NSQF)",
+                  "Textile Mechatronics (NSQF)",
+                  "Textile Wet Processing Technician (NSQF)",
+                  "Tool & Die Maker (Dies & Moulds) (NSQF)",
+                  "Tool & Die Maker (Press Tools, Jigs & Fixtures)",
+                  "Tool & Die Maker (Press Tools, Jigs & Fixtures) (NSQF)",
+                  "Tourist Guide (NSQF)",
+                  "Travel & Tour Assistant (NSQF)",
+                  "Turner (NSQF)",
+                  "Vessel Navigator (NSQF)",
+                  "Warehouse Technician (NSQF)",
+                  "Weaving Technician (NSQF)",
+                  "Weaving Technician for Silk & Woolen Fabrics (NSQF)",
+                  "Welder",
+                  "Welder (Fabrication & Fitting) (NSQF)",
+                  "Welder (GMAW & GTAW) (NSQF)",
+                  "Welder (NSQF)",
+                  "Welder (Pipe) (NSQF)",
+                  "Welder (Structural) (NSQF)",
+                  "Welder (Welding & Inspection) (NSQF)",
+                  "Wireman (NSQF)",
+                  "Wood Work Technician (NSQF)"
+                ]
+              },
+              "uniqueItems": true,
+              "minItems": 1,
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "ITI",
+                  "Other Vocational Training"
+                ]
+              }
+            },
+            "minQualificationPolytechnic": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Min. Highest Qualification (Polytechnic/Diploma)",
+              "description": "Select the diploma stream completed",
+              "enum": [
+                "Diploma in Mechanical",
+                "Diploma in Electrical",
+                "Diploma in Electronics",
+                "Diploma in Civil",
+                "Diploma in Computer Science",
+                "Diploma in Automobile",
+                "Diploma in Others"
+              ],
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "Polytechnic/Diploma"
+                ]
+              }
+            },
+            "minQualificationPolytechnicOther": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Specify Other Polytechnic/Diploma Stream",
+              "description": "Please specify your other diploma stream",
+              "x-show-if": {
+                "minQualificationPolytechnic": [
+                  "Diploma in Others"
+                ]
+              }
+            },
+            "minQualificationCert": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Certification / Skill Details",
+              "description": "Enter the name of the certification or skill learned on the job",
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "Certifications"
+                ]
+              }
+            },
+            "minQualificationInformal": {
+              "vectorize": true,
+              "type": "string",
+              "title": "Skills Learned Informally",
+              "description": "Describe the skills learned informally (e.g., bicycle repair, tailoring at home)",
+              "x-show-if": {
+                "minEducationalInstitute": [
+                  "Learned Informally"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "id": "provider",
+      "go_live_required": ["schema_required", "consent_required"],
+      "my_items_label": "My Jobs",
+      "guardian_consent_required": false,
+      "profile_completion_prompt": {
+        "heading": "Complete your profile to start hiring",
+        "body": "Seekers can see and apply to your postings only once your profile is live. Add the details below to reach candidates."
+      },
+      "card": {
+        "title_field": "jobProviderName",
+        "avatar_from": "jobProviderName",
+        "default_fields": ["role", "jobProviderLocation", "natureOfJob", "positions"]
+      },
+      "contact_fields": { "name": "jobProviderName", "phone": "hiringManagerPhoneNumber", "email": "hiringManagerEmail" },
+      "dashboard_tiles": {
+        "profile": [
+          { "field": "total_items", "label": "Postings Registered" },
+          { "field": "complete_profiles", "label": "Postings Complete" },
+          { "field": "has_applications", "label": "Received Applications" }
+        ],
+        "user": [
+          { "field": "total_users", "label": "Total Employers" },
+          { "field": "avg_items_per_user", "label": "Avg Profiles per User" },
+          { "field": "avg_actions_per_user", "label": "Avg Actions per User" }
+        ]
+      }
+    }
+  ],
+  "instances": [
+    {
+      "instance_name": "Blue Dot Seeker Local",
+      "instance_url": "http://localhost:2742",
+      "custom_item_schema_urls": {},
+      "domain_id": "seeker"
+    },
+    {
+      "instance_name": "Blue Dot Provider Local",
+      "instance_url": "http://localhost:2742",
+      "custom_item_schema_urls": {},
+      "domain_id": "provider"
+    }
+  ],
+  "actions": {
+    "apply": {
+      "description": "Lets a seeker and provider to invite each other.",
+      "interactions": [
+        {
+          "from_network": "blue_dot",
+          "from_domain": "seeker",
+          "to_network": "blue_dot",
+          "to_domain": "provider",
+          "requirement_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Job Application Requirement",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {}
+          },
+          "event_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Job Application Event",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "remark"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "submitted",
+                  "accepted",
+                  "rejected",
+                  "cancelled"
+                ]
+              },
+              "remark": {
+                "type": "string"
+              }
+            }
+          },
+          "metric_categories": {
+            "create": ["created", "submitted"],
+            "accept": ["accepted"],
+            "reject": ["rejected"],
+            "cancel": ["cancelled"]
+          },
+          "reveals_pii_on_status": ["accepted"]
+        }
+      ]
+    },
+    "connect": {
+      "description": "Lets a provider connect with another provider (partnership / referral) or reach out to a seeker (interview invitation). Either party can initiate; the receiver can accept or reject.",
+      "interactions": [
+        {
+          "from_network": "blue_dot",
+          "from_domain": "provider",
+          "to_network": "blue_dot",
+          "to_domain": "provider",
+          "requirement_schema": { "type": "object", "properties": {} },
+          "event_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Provider To Provider Connect Event",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "remark"],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["created", "accepted", "rejected", "cancelled"]
+              },
+              "remark": { "type": "string" }
+            }
+          },
+          "metric_categories": null,
+          "reveals_pii_on_status": ["accepted"]
+        },
+        {
+          "from_network": "blue_dot",
+          "from_domain": "provider",
+          "to_network": "blue_dot",
+          "to_domain": "seeker",
+          "requirement_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Interview Invitation Requirement",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "interview_time",
+              "interview_mode"
+            ],
+            "properties": {
+              "role": {
+                "type": "string",
+                "minLength": 1
+              },
+              "interview_time": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "interview_mode": {
+                "type": "string",
+                "enum": [
+                  "in_person",
+                  "online",
+                  "phone"
+                ]
+              },
+              "message_to_candidate": {
+                "type": "string"
+              }
+            }
+          },
+          "event_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Interview Invitation Event",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "remark"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "created",
+                  "invited",
+                  "accepted",
+                  "rejected",
+                  "cancelled"
+                ]
+              },
+              "remark": {
+                "type": "string"
+              }
+            }
+          },
+          "metric_categories": {
+            "create": ["created", "invited"],
+            "accept": ["accepted"],
+            "reject": ["rejected"],
+            "cancel": ["cancelled"]
+          },
+          "reveals_pii_on_status": ["accepted"]
+        }
+      ]
+    }
+  },
+  "id": "blue_dot",
+  "dashboard_buckets": {
+    "by_status": {
+      "new": "New",
+      "active": "Active",
+      "at_risk": "At Risk",
+      "inactive": "Inactive"
+    },
+    "by_initiated_action_status": {
+      "create": "Applied",
+      "accept": "Accepted",
+      "reject": "Rejected",
+      "cancel": "Withdrawn"
+    },
+    "by_received_action_status": {
+      "create": "Applications",
+      "accept": "Shortlisted",
+      "reject": "Rejected",
+      "cancel": "Cancelled"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "documents": {
+    "terms": {
+      "current_version": 1,
+      "versions": [
+        {
+          "version": 1,
+          "title": "UPSDM — Terms of Service",
+          "content": "Welcome to **UPSDM** (UP Skill Development Mission), a skilling-and-employment initiative of the Government of Uttar Pradesh, delivered on the Blue Dots network (seeded by EkStep Foundation).\n\n### 1. Who can use it\nBy continuing you confirm that you are at least 18 years old and that the information you provide is accurate and belongs to you or to an organisation you are authorised to represent.\n\n### 2. What this is\nUPSDM on Blue Dots is a **discovery and matching network** that helps skilled candidates connect with training providers, employers, and opportunities under the Mission. We are **not a party** to any training, employment, or engagement that results — those are solely between the participants.\n\n### 3. Your responsibilities\n- Keep your profile accurate and up to date.\n- Use the network lawfully and treat other participants with respect.\n- Use any contact details you receive only for the purpose for which they were shared.\n\n### 4. Suspension\nAccess may be paused or removed for misuse, fraudulent listings, or activity that harms other participants.\n\n### 5. Service \"as is\"\nThe service is in active development and is provided on an \"as is\" and \"as available\" basis, without warranties.\n\n### 6. Governing law\nThese terms are governed by the laws of India. Questions or grievances: **__SUPPORT_EMAIL__**.",
+          "effective_from": "2026-06-15"
+        }
+      ]
+    },
+    "privacy": {
+      "current_version": 1,
+      "versions": [
+        {
+          "version": 1,
+          "title": "UPSDM — Privacy Policy",
+          "content": "This policy explains what **UPSDM** (UP Skill Development Mission), delivered on the Blue Dots network, collects, why, and the choices you have.\n\n### What we collect\n- **Contact details** — your name, email, and phone number.\n- **Profile information** you choose to provide — such as your skills, training, qualifications, and location.\n- **Activity** on the network — the connections and applications you make.\n\n### Why we use it\nWe use your information to **match you with relevant training providers, employers, and opportunities** under the Mission, and to make your profile discoverable to relevant participants.\n\n### When your contact details are shared\nYour name, email, and phone number are shared with another participant or organisation **only when you initiate or accept a connection or application** — and, for applications, only once accepted. **We never sell your data** or use it for advertising.\n\n### Your control\nYou can **update** your profile from the portal at any time. To have your information removed, contact us at **__SUPPORT_EMAIL__**.\n\n### Retention\nWe keep your information only for as long as it is needed to connect you within the network, except where limited records must be retained to meet legal or programme obligations.\n\n### Grievances\nFor any privacy question or request, contact **__SUPPORT_EMAIL__**.",
+          "effective_from": "2026-06-15"
+        }
+      ]
+    }
+  }
+}

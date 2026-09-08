@@ -5,7 +5,10 @@ export const INSTANCE_TOKEN_HEADER = 'x-instance-token';
 export const INSTANCE_TIMESTAMP_HEADER = 'x-instance-timestamp';
 
 export type VerifyFailureReason =
+  /** Neither header sent — an unsigned caller. The only reason permissive forgives. */
   | 'missing'
+  /** One header sent without the other — a failed attempt, never forgiven. */
+  | 'incomplete'
   | 'malformed_timestamp'
   | 'expired'
   | 'bad_signature';
@@ -73,8 +76,17 @@ export function verifyInstanceToken(input: {
   const windowSeconds = input.windowSeconds ?? peerConfig.token_window_seconds;
   const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
 
-  if (!input.token || input.timestamp === undefined) {
+  // `missing` means NEITHER header was sent — an unsigned caller. It is the one
+  // reason `PEER_AUTH_MODE=permissive` forgives, so it must not cover a request
+  // that tried to authenticate and got it wrong: a token with no timestamp (or
+  // the reverse) is a half-formed attempt, and treating it as "unsigned" let it
+  // through under permissive while the guard's own comment promised that a
+  // present-but-invalid token is always rejected.
+  if (!input.token && input.timestamp === undefined) {
     return { ok: false, reason: 'missing' };
+  }
+  if (!input.token || input.timestamp === undefined) {
+    return { ok: false, reason: 'incomplete' };
   }
 
   const ts = Number(input.timestamp);

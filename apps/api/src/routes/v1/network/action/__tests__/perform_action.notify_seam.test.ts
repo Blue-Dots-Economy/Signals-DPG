@@ -40,6 +40,9 @@ const { BASE_URL, notifySpy, insertActionEventSpy } = vi.hoisted(() => ({
 // wiring is asserted in the network route-registration test.
 vi.mock('@/middleware/peer_instance_guard', () => ({
   peer_instance_guard: async () => {},
+  // The route uses the STRICT variant, which never honours permissive — stub it
+  // too, or every case here 401s before reaching the handler under test.
+  peer_instance_guard_strict: async () => {},
 }));
 
 vi.mock('@/config', () => ({

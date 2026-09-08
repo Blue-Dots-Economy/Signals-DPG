@@ -1,0 +1,574 @@
+{
+  "info": {
+    "name": "Blue Dot API",
+    "_postman_id": "blue-dot-api-collection",
+    "description": "Schema-specific Postman collection for examples/schemas/blue_dot/network.json.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:2742"
+    },
+    {
+      "key": "email",
+      "value": "demo@example.com"
+    },
+    {
+      "key": "phone_number",
+      "value": "+911234567890"
+    },
+    {
+      "key": "user_name",
+      "value": "Demo User"
+    },
+    {
+      "key": "otp",
+      "value": "777666"
+    },
+    {
+      "key": "auth_token",
+      "value": ""
+    },
+    {
+      "key": "session_cookie",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "network",
+      "value": "blue_dot"
+    },
+    {
+      "key": "seeker_domain",
+      "value": "seeker"
+    },
+    {
+      "key": "seeker_item_type",
+      "value": "profile_1.0"
+    },
+    {
+      "key": "seeker_item_id",
+      "value": ""
+    },
+    {
+      "key": "seeker_instance_url",
+      "value": "http://127.0.0.1:2742"
+    },
+    {
+      "key": "provider_domain",
+      "value": "provider"
+    },
+    {
+      "key": "provider_item_type",
+      "value": "job_posting_1.0"
+    },
+    {
+      "key": "provider_item_id",
+      "value": ""
+    },
+    {
+      "key": "provider_instance_url",
+      "value": "http://127.0.0.1:2742"
+    },
+    {
+      "key": "domain",
+      "value": "seeker"
+    },
+    {
+      "key": "item_type",
+      "value": "profile_1.0"
+    },
+    {
+      "key": "action_type",
+      "value": "apply"
+    },
+    {
+      "key": "action_id",
+      "value": ""
+    },
+    {
+      "key": "action_status",
+      "value": "created"
+    },
+    {
+      "key": "update_count",
+      "value": "0"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Unified OTP flow. Run against the instance you are about to create or update items on.",
+      "item": [
+        {
+          "name": "Check User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"phoneNumber\": \"{{phone_number}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/unified-otp/check-user",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "unified-otp",
+                "check-user"
+              ]
+            },
+            "description": "Checks whether a user exists for the configured email or phone number."
+          }
+        },
+        {
+          "name": "Request OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"phoneNumber\": \"{{phone_number}}\",\n  \"name\": \"{{user_name}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/unified-otp/request",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "unified-otp",
+                "request"
+              ]
+            },
+            "description": "Requests an OTP for login or signup."
+          }
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Verify OTP returns 200', function () { pm.response.to.have.status(200); });",
+                  "const setCookie = pm.response.headers.get('set-cookie');",
+                  "if (setCookie) pm.collectionVariables.set('session_cookie', setCookie);",
+                  "const data = pm.response.json();",
+                  "if (data.token) pm.collectionVariables.set('auth_token', data.token);",
+                  "if (data.user?.id) pm.collectionVariables.set('user_id', data.user.id);",
+                  "if (data.user?.email) pm.collectionVariables.set('user_email', data.user.email);",
+                  "if (data.user?.phoneNumber) pm.collectionVariables.set('user_phone', data.user.phoneNumber);",
+                  "if (data.user?.name) pm.collectionVariables.set('user_display_name', data.user.name);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"phoneNumber\": \"{{phone_number}}\",\n  \"name\": \"{{user_name}}\",\n  \"otp\": \"{{otp}}\",\n  \"rememberMe\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/unified-otp/verify",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "unified-otp",
+                "verify"
+              ]
+            },
+            "description": "Verifies OTP and stores useful auth variables."
+          }
+        },
+        {
+          "name": "Get Session",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/auth/get-session",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "get-session"
+              ]
+            },
+            "description": "Returns the current Better Auth session for the selected instance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Network Schemas",
+      "description": "Schema inspection and cache refresh calls.",
+      "item": [
+        {
+          "name": "Fetch Cached Schemas",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/network/schemas?network={{network}}&domain={{domain}}&item_type={{item_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "schemas"
+              ],
+              "query": [
+                {
+                  "key": "network",
+                  "value": "{{network}}"
+                },
+                {
+                  "key": "domain",
+                  "value": "{{domain}}"
+                },
+                {
+                  "key": "item_type",
+                  "value": "{{item_type}}"
+                }
+              ]
+            },
+            "description": "Returns cached schemas filtered by the selected variables."
+          }
+        },
+        {
+          "name": "Fetch Item Schema",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/network/schema/{{network}}/{{domain}}/{{item_type}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "schema",
+                "{{network}}",
+                "{{domain}}",
+                "{{item_type}}"
+              ]
+            },
+            "description": "Fetches the concrete item schema for the selected domain and item type."
+          }
+        },
+        {
+          "name": "Refetch Schemas",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/api/v1/network/refetch_schemas",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "refetch_schemas"
+              ]
+            },
+            "description": "Reloads configured network schemas and referenced item schemas."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blue Dot Items",
+      "description": "Schema-valid item calls for examples/schemas/blue_dot/network.json.",
+      "item": [
+        {
+          "name": "Create Seeker Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Create seeker returns 201', function () { pm.response.to.have.status(201); });",
+                  "const data = pm.response.json(); if (data.item_id) pm.collectionVariables.set('seeker_item_id', data.item_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_network\": \"{{network}}\",\n  \"item_domain\": \"{{seeker_domain}}\",\n  \"item_type\": \"{{seeker_item_type}}\",\n  \"item_state\": {\n    \"name\": \"Asha Worker\",\n    \"gender\": \"Female\",\n    \"location\": \"Bengaluru\",\n    \"age\": 24,\n    \"phone\": \"9876543210\",\n    \"workExperience\": \"Fresher\",\n    \"workExperienceYearsConditional\": \"0\",\n    \"highestQualificationOrSkill\": \"College\",\n    \"natureOfJobsInterestedIn\": \"Full-time\",\n    \"nameOfJobRolesInterestedIn\": \"Retail associate\",\n    \"otherHelpNeeded\": \"Training\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{seeker_instance_url}}/api/v1/item/create",
+              "host": [
+                "{{seeker_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "item",
+                "create"
+              ]
+            },
+            "description": "Creates a blue_dot seeker profile item."
+          }
+        },
+        {
+          "name": "Create Provider Job Posting",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Create provider posting returns 201', function () { pm.response.to.have.status(201); });",
+                  "const data = pm.response.json(); if (data.item_id) pm.collectionVariables.set('provider_item_id', data.item_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_network\": \"{{network}}\",\n  \"item_domain\": \"{{provider_domain}}\",\n  \"item_type\": \"{{provider_item_type}}\",\n  \"item_state\": {\n    \"jobProviderName\": \"Blue Jobs Pvt Ltd\",\n    \"role\": \"Retail associate\",\n    \"jobProviderLocation\": \"Bengaluru\",\n    \"hiringManagerName\": \"Nisha Rao\",\n    \"hiringManagerPhoneNumber\": \"9876501234\",\n    \"hiringManagerEmail\": \"nisha@example.com\",\n    \"positions\": 3,\n    \"natureOfJob\": \"Full-time\",\n    \"salaryMin\": 15000,\n    \"salaryMax\": 22000,\n    \"candidateExperienceType\": \"Fresher\",\n    \"minEducationalInstitute\": \"College\",\n    \"workExperienceYears\": \"0\",\n    \"lastRoleHeld\": \"Fresher\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{provider_instance_url}}/api/v1/item/create",
+              "host": [
+                "{{provider_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "item",
+                "create"
+              ]
+            },
+            "description": "Creates a blue_dot provider job posting item."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Blue Dot Actions",
+      "description": "Schema-valid blue_dot apply/invite actions.",
+      "item": [
+        {
+          "name": "Seeker Applies To Provider",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action_type\": \"apply\",\n  \"source_item\": {\n    \"item_network\": \"blue_dot\",\n    \"item_domain\": \"seeker\",\n    \"item_type\": \"profile_1.0\",\n    \"item_id\": \"{{seeker_item_id}}\"\n  },\n  \"target_item\": {\n    \"item_network\": \"blue_dot\",\n    \"item_domain\": \"provider\",\n    \"item_type\": \"job_posting_1.0\",\n    \"item_id\": \"{{provider_item_id}}\",\n    \"item_instance_url\": \"{{provider_instance_url}}\"\n  },\n  \"requirements_snapshot\": {\n    \"role\": \"Retail associate\",\n    \"age\": 24,\n    \"workExperience\": \"Fresher\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{seeker_instance_url}}/api/v1/action/perform",
+              "host": [
+                "{{seeker_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "action",
+                "perform"
+              ]
+            },
+            "description": "Creates a blue_dot apply action from seeker to provider."
+          }
+        },
+        {
+          "name": "Provider Invites Seeker",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action_type\": \"apply\",\n  \"source_item\": {\n    \"item_network\": \"blue_dot\",\n    \"item_domain\": \"provider\",\n    \"item_type\": \"job_posting_1.0\",\n    \"item_id\": \"{{provider_item_id}}\"\n  },\n  \"target_item\": {\n    \"item_network\": \"blue_dot\",\n    \"item_domain\": \"seeker\",\n    \"item_type\": \"profile_1.0\",\n    \"item_id\": \"{{seeker_item_id}}\",\n    \"item_instance_url\": \"{{seeker_instance_url}}\"\n  },\n  \"requirements_snapshot\": {\n    \"role\": \"Retail associate\",\n    \"interview_time\": \"2026-05-20T10:00:00.000Z\",\n    \"interview_mode\": \"online\",\n    \"message_to_candidate\": \"We would like to speak with you.\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{provider_instance_url}}/api/v1/action/perform",
+              "host": [
+                "{{provider_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "action",
+                "perform"
+              ]
+            },
+            "description": "Creates a blue_dot provider-to-seeker invite action."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Instance-to-Instance Diagnostics",
+      "description": "Direct calls for APIs normally used internally between API instances.",
+      "item": [
+        {
+          "name": "Fetch Network Items",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/network/item/fetch?item_network={{network}}&item_domain={{domain}}&item_type={{item_type}}&limit=20&offset=0",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "item",
+                "fetch"
+              ],
+              "query": [
+                {
+                  "key": "item_network",
+                  "value": "{{network}}"
+                },
+                {
+                  "key": "item_domain",
+                  "value": "{{domain}}"
+                },
+                {
+                  "key": "item_type",
+                  "value": "{{item_type}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Aggregates matching items across configured instances for a network/domain."
+          }
+        },
+        {
+          "name": "Fetch Local Items On Instance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"item_network\": \"{{target_item_network}}\",\n  \"item_domain\": \"{{target_item_domain}}\",\n  \"item_type\": \"{{target_item_type}}\",\n  \"limit\": 20,\n  \"offset\": 0\n}"
+            },
+            "url": {
+              "raw": "{{target_instance_url}}/api/v1/network/item/fetch_local",
+              "host": [
+                "{{target_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "item",
+                "fetch_local"
+              ]
+            },
+            "description": "Directly fetches matching local items from one concrete instance."
+          }
+        },
+        {
+          "name": "Perform Network Action On Target Instance",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action_type\": \"{{action_type}}\",\n  \"source_item\": {\n    \"item_network\": \"{{source_item_network}}\",\n    \"item_domain\": \"{{source_item_domain}}\",\n    \"item_type\": \"{{source_item_type}}\",\n    \"item_id\": \"{{source_item_id}}\",\n    \"item_instance_url\": \"{{source_instance_url}}\"\n  },\n  \"target_item\": {\n    \"item_network\": \"{{target_item_network}}\",\n    \"item_domain\": \"{{target_item_domain}}\",\n    \"item_type\": \"{{target_item_type}}\",\n    \"item_id\": \"{{target_item_id}}\",\n    \"item_instance_url\": \"{{target_instance_url}}\"\n  },\n  \"source_item_owner\": \"{{source_item_owner}}\",\n  \"requirements_snapshot\": {\n    \"example\": \"replace with schema-valid requirements_snapshot\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{target_instance_url}}/api/v1/network/action/perform",
+              "host": [
+                "{{target_instance_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "network",
+                "action",
+                "perform"
+              ]
+            },
+            "description": "Direct target-instance action API for diagnostics; normal clients should call Perform Action."
+          }
+        }
+      ]
+    }
+  ]
+}

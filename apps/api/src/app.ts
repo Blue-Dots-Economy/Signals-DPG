@@ -241,7 +241,7 @@ export async function buildApp(): Promise<FastifyInstance> {
             'Network-aware Signals DPG API — items, actions, events, consent, network fetch, admin.\n\n' +
             'Unless marked otherwise, operations require authentication via either the `apiKeyAuth` ' +
             'or `sessionAuth` scheme (the spec default). Public operations carry no Authorizations ' +
-            'section; the two inter-instance `*_local` operations use the service-to-service ' +
+            'section; the four inter-instance peer operations (the three `*_local` reads and `action/perform`) use the service-to-service ' +
             '`peerAuth` scheme instead. Admin and aggregator operations additionally require the ' +
             '`x-acting-org-id` header (optional on action operations). See ' +
             '`docs/operations/integrating-dpgs.md` for the full auth model.',

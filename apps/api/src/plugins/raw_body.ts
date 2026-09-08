@@ -24,8 +24,13 @@ export function registerRawBodyCapture(app: FastifyInstance): void {
     // `parseAs: 'string'` means `raw` is always a string — no Buffer branch.
     (request, raw: string, done) => {
       (request as FastifyRequest & { rawBody?: string }).rawBody = raw;
-      // An empty body parses to `undefined` and is left to the route's schema to
-      // reject, which every POST/PUT/PATCH in this API declares.
+      // An empty body parses to `undefined` rather than erroring, so the route's
+      // own schema decides. Nearly every POST/PUT/PATCH here declares one — the
+      // exception is `network/schema/refetch_schemas`, which declares only
+      // `tags`/`response`, so an empty body reaches its handler instead of
+      // Fastify's 400. Benign there (the handler never reads the body, and it
+      // sits behind auth plus a `network_service` check), but a new bodyless
+      // route should not assume the parser will reject an empty payload.
       if (raw.length === 0) return done(null, undefined);
       try {
         done(null, JSON.parse(raw));

@@ -1,0 +1,65 @@
+{
+  "logoShape": "wordmark",
+  "faviconType": "svg",
+  "brand": {
+    "name": "blue dots AI",
+    "wordmark": "blue dots AI",
+    "seededBy": "EkStep Foundation",
+    "strapline": "Seeded by EkStep Foundation"
+  },
+  "logo": {
+    "default":       "/brand/blue-dot/logo.png",
+    "withStrapline": "/brand/blue-dot/logo-with-strapline.png",
+    "onLight":       "/brand/blue-dot/logo-on-light.png",
+    "onDark":        "/brand/blue-dot/logo-on-dark.png",
+    "onBrand":       "/brand/blue-dot/logo-on-brand.png",
+    "onBrandLight":  "/brand/blue-dot/logo-on-brand-light.png"
+  },
+  "colours": {
+    "primary": [
+      { "name": "Charcoal",     "hex": "#333333" },
+      { "name": "Off White",    "hex": "#f4f4f4" },
+      { "name": "Blue 500",     "hex": "#0074ff" },
+      { "name": "Blue 300",     "hex": "#57abff" },
+      { "name": "Blue 100",     "hex": "#a4daff" }
+    ],
+    "secondary": [
+      { "name": "Teal",         "hex": "#00bfa6" },
+      { "name": "Mint",         "hex": "#6ee7c1" },
+      { "name": "Lavender",     "hex": "#7c5cff" },
+      { "name": "Lilac",        "hex": "#b8a7ff" },
+      { "name": "Coral",        "hex": "#ff6b6b" },
+      { "name": "Peach",        "hex": "#ffb86b" },
+      { "name": "Sand",         "hex": "#ffd166" }
+    ],
+    "accent": [
+      { "name": "Ink",          "hex": "#1e2a38" },
+      { "name": "Slate",        "hex": "#4a5568" },
+      { "name": "Mist",         "hex": "#cbd5e1" },
+      { "name": "Pale Lilac",   "hex": "#e6f0ff" },
+      { "name": "Blush",        "hex": "#ffe1e6" },
+      { "name": "Cream",        "hex": "#fff4e5" },
+      { "name": "Pale Mint",    "hex": "#e6fff5" }
+    ],
+    "gradients": [
+      { "name": "Sky",          "from": "#0074ff", "to": "#a4daff" },
+      { "name": "Aqua",         "from": "#00bfa6", "to": "#6ee7c1" },
+      { "name": "Purple",       "from": "#7c5cff", "to": "#b8a7ff" },
+      { "name": "Sunset",       "from": "#ff6b6b", "to": "#ffb86b" },
+      { "name": "Frost",        "from": "#e6f0ff", "to": "#ffffff" }
+    ]
+  },
+  "typography": {
+    "primaryFont": "Arial",
+    "headings": {
+      "family": "Arial",
+      "weight": "Bold",
+      "sampleCopy": "India's districts suffer from a local discovery crisis"
+    },
+    "body": {
+      "family": "Arial",
+      "weight": "Regular",
+      "sampleCopy": "Individuals, jobs, services and schemes exist in close proximity, but can't digitally discover each other. This 'paradox of proximity' is rooted in digital darkness, which prevents individuals, enterprises and entire districts from unlocking potential."
+    }
+  }
+}
