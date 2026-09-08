@@ -602,12 +602,12 @@ function OtpLoginPage() {
             `auth-context` redirects with `reason=expired` when the session ends
             mid-use. */}
         {searchParams.get('reason') === 'expired' && (
-          <div
-            role="status"
-            className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
-          >
+          // `<output>` rather than a div with role="status" (S6819): it carries
+          // the role implicitly and is announced more reliably by assistive
+          // tech. Needs `block` because <output> is inline by default.
+          <output className="mb-4 block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
             {t('auth.session_expired_desc')}
-          </div>
+          </output>
         )}
 
         {/* Heading */}
