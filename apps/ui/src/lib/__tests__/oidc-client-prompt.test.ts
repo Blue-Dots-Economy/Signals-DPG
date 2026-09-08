@@ -1,10 +1,12 @@
 /**
- * `startOidcLogin`'s forced re-prompt.
+ * `startOidcLogin` must never send `prompt`.
  *
- * The aggregator portal shares this Keycloak realm, so an existing SSO cookie
- * makes Keycloak reissue the same identity without asking. `prompt=login` is
- * the only thing that lets a user pick a different account — and it must stay
- * OFF by default, or every ordinary sign-in loses SSO (#753).
+ * The aggregator portal shares this Keycloak realm. A forced re-prompt looks
+ * like it would let a user pick a different account, but `prompt=login`
+ * re-authenticates the CURRENT one: naming another makes Keycloak throw
+ * USER_CONFLICT and report `invalid_user_credentials`, surfaced as "Invalid
+ * username or password" on a passwordless flow. Switching goes through
+ * `oidcLogout`; this file guards the option staying gone (#753).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -46,19 +48,12 @@ describe('startOidcLogin', () => {
     expect(signinRedirect.mock.calls[0]?.[0]).not.toHaveProperty('prompt');
   });
 
-  it('sends `prompt=login` when a re-prompt is forced', async () => {
+  it('never sends `prompt`, even with a returnTo — switching goes via logout', async () => {
     const { startOidcLogin } = await import('@/lib/oidc-client');
-    await startOidcLogin(serverConfig, { forceReauth: true });
-    expect(signinRedirect.mock.calls[0]?.[0]).toMatchObject({ prompt: 'login' });
-  });
-
-  it('still round-trips returnTo alongside the forced prompt', async () => {
-    // The two features must not cancel each other: switching account should
-    // still land the user where they were headed.
-    const { startOidcLogin } = await import('@/lib/oidc-client');
-    await startOidcLogin(serverConfig, { returnTo: '/my-actions', forceReauth: true });
-    expect(signinRedirect.mock.calls[0]?.[0]).toMatchObject({
-      prompt: 'login',
+    await startOidcLogin(serverConfig, { returnTo: '/my-actions' });
+    const args = signinRedirect.mock.calls[0]?.[0];
+    expect(args).not.toHaveProperty('prompt');
+    expect(args).toMatchObject({
       state: { returnTo: '/my-actions', consentAttempt: undefined },
     });
   });

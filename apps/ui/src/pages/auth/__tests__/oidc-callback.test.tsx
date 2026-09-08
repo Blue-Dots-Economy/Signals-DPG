@@ -41,14 +41,13 @@ vi.mock('@/contexts/auth-context', () => ({
 }));
 
 const completeOidcLogin = vi.fn(async () => ({ returnTo: '/dashboard' }));
+const oidcLogout = vi.fn(async (_cfg?: unknown) => undefined);
 const startOidcLogin =
-  vi.fn<(cfg?: unknown, options?: { forceReauth?: boolean }) => Promise<void>>(
-    async () => undefined,
-  );
+  vi.fn<(cfg?: unknown, options?: unknown) => Promise<void>>(async () => undefined);
 vi.mock('@/lib/oidc-client', () => ({
   completeOidcLogin: () => completeOidcLogin(),
-  startOidcLogin: (cfg?: unknown, options?: { forceReauth?: boolean }) =>
-    startOidcLogin(cfg, options),
+  startOidcLogin: (cfg?: unknown, options?: unknown) => startOidcLogin(cfg, options),
+  oidcLogout: (cfg?: unknown) => oidcLogout(cfg),
 }));
 
 vi.mock('@/theme/theme-provider', () => ({
@@ -597,19 +596,24 @@ describe('#558 — first-time-login profile redirect', () => {
       });
     }
 
-    it('offers a forced re-prompt when the caller is an aggregator account', async () => {
+    it('ENDS the session when the caller is an aggregator account', async () => {
       // "Back to sign in" is a loop: Keycloak's SSO cookie is still valid, so
       // the login page returns the same identity and the same error.
+      //
+      // A forced re-prompt does not fix it either. `prompt=login`
+      // re-authenticates the CURRENT user, so entering a different one makes
+      // Keycloak throw USER_CONFLICT and report `invalid_user_credentials` —
+      // rendered as "Invalid username or password" on a passwordless flow.
+      // Only ending the session clears the authenticated user.
       rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
       renderPage();
 
       const button = await screen.findByRole('button', { name: /different account/i });
       fireEvent.click(button);
 
-      await waitFor(() => expect(startOidcLogin).toHaveBeenCalled());
-      // Without forceReauth Keycloak reuses the SSO session and this button
-      // does nothing useful — it looks like it works and does not.
-      expect(startOidcLogin.mock.calls[0]?.[1]).toMatchObject({ forceReauth: true });
+      await waitFor(() => expect(oidcLogout).toHaveBeenCalled());
+      // Regression guard: starting a fresh login here is the broken behaviour.
+      expect(startOidcLogin).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalledWith('/auth/login', { replace: true });
     });
 
@@ -633,10 +637,10 @@ describe('#558 — first-time-login profile redirect', () => {
       expect(screen.queryByRole('button', { name: /different account/i })).toBeNull();
     });
 
-    it('falls back to the login page when the re-prompt cannot start', async () => {
+    it('falls back to the login page when the sign-out cannot start', async () => {
       // A dead button would be worse than a redirect that at least moves them.
       rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
-      startOidcLogin.mockRejectedValueOnce(new Error('keycloak unreachable'));
+      oidcLogout.mockRejectedValueOnce(new Error('keycloak unreachable'));
       renderPage();
 
       fireEvent.click(await screen.findByRole('button', { name: /different account/i }));

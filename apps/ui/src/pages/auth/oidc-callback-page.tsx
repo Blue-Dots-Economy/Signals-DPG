@@ -1,4 +1,4 @@
-import { startOidcLogin } from '@/lib/oidc-client';
+import { oidcLogout } from '@/lib/oidc-client';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, OctagonX } from 'lucide-react';
@@ -425,13 +425,21 @@ export function OidcCallbackPage() {
   }
 
   /**
-   * Re-run the login with a forced Keycloak prompt so the user can choose a
-   * different account. Falls back to the login page if the redirect cannot
-   * start, which at least leaves them somewhere rather than on a dead button.
+   * End the Keycloak session so the user can sign in as someone else.
+   *
+   * A forced re-prompt (`prompt=login`) is NOT enough: it re-authenticates the
+   * CURRENT user, so naming a different one makes Keycloak throw USER_CONFLICT
+   * (AuthenticationProcessor.setAutheticatedUser) and report
+   * `invalid_user_credentials` — which the login theme renders as "Invalid
+   * username or password" on a flow that never asked for a password. Only
+   * ending the session clears the authenticated user.
+   *
+   * Falls back to the login page if the redirect cannot start, which at least
+   * leaves them somewhere rather than on a dead button.
    */
   const switchAccount = async (): Promise<void> => {
     try {
-      await startOidcLogin(authCfg, { forceReauth: true });
+      await oidcLogout(authCfg);
     } catch {
       navigate('/auth/login', { replace: true });
     }

@@ -88,31 +88,28 @@ export function resetUserManager(): void {
 /**
  * Send the browser to Keycloak. Does not return — the page navigates away.
  *
- * `forceReauth` adds `prompt=login`, which is the only way to let someone pick
- * a different account: the aggregator portal shares this realm, so an existing
- * SSO cookie otherwise makes Keycloak reissue the same identity without asking
- * and the user lands back on the error they just came from (#753). Off by
- * default — an ordinary login should still reuse SSO.
+ * Deliberately has no "force re-prompt" option. `prompt=login` re-authenticates
+ * the CURRENT user, so it cannot switch accounts on this shared realm: naming a
+ * different user makes Keycloak throw USER_CONFLICT and report
+ * `invalid_user_credentials`. Account switching goes through `oidcLogout`
+ * (#753).
  */
 export interface StartOidcLoginOptions {
   /** Deep link to return to after the round trip. */
   returnTo?: string;
   /** Binds a parked consent acceptance to THIS login. See lib/pending-consent.ts. */
   consentAttempt?: string;
-  /** Add `prompt=login` so the user can pick a different account. */
-  forceReauth?: boolean;
 }
 
 export async function startOidcLogin(
   serverConfig: AuthConfigResponse | null | undefined,
   options: StartOidcLoginOptions = {}
 ): Promise<void> {
-  const { returnTo, consentAttempt, forceReauth = false } = options;
+  const { returnTo, consentAttempt } = options;
   const userManager = getUserManager(serverConfig);
   if (!userManager) throw new Error('Keycloak is not configured');
 
   await userManager.signinRedirect({
-    ...(forceReauth ? { prompt: 'login' } : {}),
     // Round-tripped through Keycloak in `state` and handed back on the
     // callback, so a deep link survives the redirect.
     //
