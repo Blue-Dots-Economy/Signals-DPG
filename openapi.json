@@ -5568,7 +5568,11 @@
             }
           }
         },
-        "security": [],
+        "security": [
+          {
+            "peerAuth": []
+          }
+        ],
         "responses": {
           "201": {
             "description": "Default Response",

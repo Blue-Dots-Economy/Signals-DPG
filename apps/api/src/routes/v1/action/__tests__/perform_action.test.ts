@@ -24,6 +24,13 @@ vi.mock('@/config', () => ({
     bulk_max_items: 100,
     schema_registry_url: '',
   },
+  // The proxy now signs its outbound peer call (AUTH-VULN-05), so the mocked
+  // config must carry the signing material or buildPeerHeaders throws.
+  peerConfig: {
+    shared_secret: 'c'.repeat(48),
+    auth_mode: 'permissive',
+    token_window_seconds: 300,
+  },
   authConfig: {
     secret: 'test-secret',
     middleware_enabled: false,

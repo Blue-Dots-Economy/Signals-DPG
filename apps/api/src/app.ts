@@ -33,6 +33,7 @@ import {
   refreshConsumedSchemas,
 } from '@/network_schema_cache';
 import { getEmailMessages } from '@/notifications/email/messages';
+import { registerRawBodyCapture } from '@/plugins/raw_body';
 
 const pkg = createRequire(import.meta.url)('../package.json') as {
   version: string;
@@ -55,7 +56,6 @@ const PUBLIC_OPERATION_URLS = new Set([
   '/api/v1/consent/status-by-identifier',
   '/api/v1/network/schemas',
   '/api/v1/network/item/fetch',
-  '/api/v1/network/action/perform',
 ]);
 
 // Operations guarded by peer_instance_guard (inter-instance HMAC) instead of
@@ -64,6 +64,9 @@ const PEER_OPERATION_URLS = new Set([
   '/api/v1/network/item/count_local',
   '/api/v1/network/item/fetch_local',
   '/api/v1/network/item/markers_local',
+  // Moved off the public list (AUTH-VULN-05): it asserts identity in its body,
+  // so it is peer-authenticated like the reads above.
+  '/api/v1/network/action/perform',
 ]);
 
 // Unauthenticated responses that still must not be cached (AUTH-VULN-02).
@@ -191,6 +194,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   // Add schema validator and serializer
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  // Capture raw JSON bytes for peer_instance_guard (see plugins/raw_body.ts).
+  registerRawBodyCapture(app);
 
   // No-store on authenticated responses (AUTH-VULN-07). Any response produced
   // for a request that resolved a user carries PII/session state, so it must not

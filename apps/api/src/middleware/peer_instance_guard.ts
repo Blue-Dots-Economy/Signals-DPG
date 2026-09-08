@@ -22,9 +22,14 @@ export async function peer_instance_guard(
   const token = request.headers[INSTANCE_TOKEN_HEADER];
   const timestamp = request.headers[INSTANCE_TIMESTAMP_HEADER];
   const targetPath = request.url.split('?')[0];
-  // Re-serialize the parsed body; the sender hashed the identical wire string
-  // (Fastify preserves key order on parse → stringify round-trips byte-equal).
-  const body = JSON.stringify(request.body ?? {});
+  // Verify against the RAW request bytes (captured by the JSON content-type
+  // parser in app.ts), never a re-serialization of `request.body`. The parsed
+  // body has been through Zod by the time a preHandler runs, so undeclared keys
+  // are gone and defaults have been added — either changes the hash and rejects
+  // a legitimate peer. Falls back to re-serializing only when no raw body was
+  // captured (a non-JSON content type), which the peer routes never use.
+  const body =
+    (request as { rawBody?: string }).rawBody ?? JSON.stringify(request.body ?? {});
 
   const result = verifyInstanceToken({
     targetPath,

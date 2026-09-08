@@ -30,6 +30,13 @@ const {
   computeActionMatchScoreSpy: vi.fn(async (): Promise<number | null> => 6.1),
 }));
 
+// The route is peer-guarded (AUTH-VULN-05). These cases cover the notify /
+// match-score seams, not auth, so let every request through — the guard's own
+// wiring is asserted in the network route-registration test.
+vi.mock('@/middleware/peer_instance_guard', () => ({
+  peer_instance_guard: async () => {},
+}));
+
 vi.mock('@/config', () => ({
   apiConfig: {
     domain: BASE_URL,

@@ -35,6 +35,13 @@ const { BASE_URL, notifySpy, insertActionEventSpy } = vi.hoisted(() => ({
 
 // Notifications are CONFIGURED here (unlike the other seam tests) so dispatch
 // actually runs and reaches the (throwing) notify client.
+// The route is peer-guarded (AUTH-VULN-05). These cases cover the notify /
+// match-score seams, not auth, so let every request through — the guard's own
+// wiring is asserted in the network route-registration test.
+vi.mock('@/middleware/peer_instance_guard', () => ({
+  peer_instance_guard: async () => {},
+}));
+
 vi.mock('@/config', () => ({
   apiConfig: {
     domain: BASE_URL,
