@@ -31,7 +31,44 @@ Both resolve independently through the same priority chain: `?query` param → `
 
 ## Data fetching
 
-No generated API client. `src/lib/api-client.ts` builds one shared `axios` instance (Bearer-token interceptor via `src/contexts/auth-context.tsx`'s session), and each `src/lib/*-api.ts` file (`auth-api`, `item-api`, `network-api`, `action-api`, `consent-api`, `wallet-api`, `digilocker-api`, `match-score-api`, `support-api`, `bulk-api`) wraps a specific set of endpoints by hand. React Query (`@tanstack/react-query`) is the caching layer, used via hooks (`use-network-config.ts`, `use-consent-config.ts`, `use-consent-gate.ts`, etc.) rather than context — `auth-context.tsx` is the only React Context in the app.
+No generated API client. `src/lib/api-client.ts` builds one shared `axios` instance with **two** interceptors — a request one attaching the Bearer token from `src/lib/auth-token.ts`, and a response one that ends the session on a rejected token (see below) — and each `src/lib/*-api.ts` file (`auth-api`, `item-api`, `network-api`, `action-api`, `consent-api`, `wallet-api`, `digilocker-api`, `match-score-api`, `support-api`, `bulk-api`) wraps a specific set of endpoints by hand. React Query (`@tanstack/react-query`) is the caching layer, used via hooks (`use-network-config.ts`, `use-consent-config.ts`, `use-consent-gate.ts`, etc.) rather than context — `auth-context.tsx` is the only React Context in the app.
+
+## Session expiry is a three-part chain — all three parts are required
+
+A rejected access token must terminate the client's session, not just fail one
+request. The pieces are deliberately in separate modules because the detectors
+have no React context and the reactor needs the QueryClient:
+
+1. **`lib/oidc-client.ts`** — `automaticSilentRenew` renews the access token
+   about a minute before expiry, and the `events.addUserLoaded` handler copies
+   the result into `lib/auth-token.ts`. **That copy is the load-bearing step**:
+   oidc-client-ts otherwise keeps the renewed token in its own `userStore`,
+   where the request interceptor never looks. Without it the app sends one dead
+   token forever — observed against a realm issuing 300-second tokens, the same
+   `jti` was still going out 11 minutes past `exp`.
+2. **`lib/api-client.ts`** — the response interceptor raises
+   `emitSessionExpired()` on a 401 whose body `code` is `TOKEN_EXPIRED` or
+   `NO_ACTIVE_SESSION`. Narrow on purpose: a 401 from a route the user merely
+   may not call must stay an ordinary error.
+3. **`contexts/auth-context.tsx`** — subscribes and does the terminal work:
+   clear the token, `setUser(null)` (which is what actually stops polling, since
+   every polled query carries `enabled: isAuthenticated`), cancel and drop the
+   query cache, toast, and navigate to `/auth/login?reason=expired&redirect=…`.
+
+`lib/auth-events.ts` sits between them and **fires once per page lifetime**.
+That latch matters: four queries poll `/api/v1/action/fetch`, so one expiry
+surfaces as a burst of concurrent 401s, and without it each would trigger its
+own logout and navigation.
+
+Relatedly, `lib/query-client.ts`'s `retry` never retries a 401/403 — an auth
+failure cannot succeed without new credentials, so retrying it only multiplies
+the noise. Read the status off `error.response.status` (axios) as well as
+`error.status`.
+
+The aggregator-dpg web app implements the same refresh-then-logout policy, split
+server/client across its BFF (`apps/web/src/lib/upstream-client.ts` and
+`apps/web/src/services/http.ts`) — worth reading if you change the policy here,
+so the two products don't diverge.
 
 ## Largest files (candidates for splitting if you're touching them heavily)
 

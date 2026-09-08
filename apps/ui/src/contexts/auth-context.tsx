@@ -172,6 +172,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchSession();
   }, [fetchSession]);
 
+  // ── Terminal session expiry ────────────────────────────────────────────────
+  //
+  // Raised by `api-client.ts` on a 401 `TOKEN_EXPIRED`/`NO_ACTIVE_SESSION`, and
+  // by `oidc-client.ts` when silent renewal itself fails. Both mean the
+  // credentials are unrecoverable — a routine access-token expiry is absorbed
+  // by `automaticSilentRenew` and never reaches here.
+  //
+  // `setUser(null)` is the line that actually stops the traffic: every polling
+  // query carries `enabled: isAuthenticated` (`use-actions.ts`), so dropping
+  // the user disables all of them at source. Without it, the client kept
+  // believing it was signed in and polled 401s forever. `cancelQueries` then
+  // aborts whatever is already in flight and `removeQueries` drops the cache,
+  // so a signed-out page cannot keep rendering the previous user's data.
+  //
+  // `window.location` rather than `useNavigate`: `AuthProvider` wraps
+  // `BrowserRouter` (`app.tsx`), so there is no router context above it. A full
+  // navigation is also the safer choice here — it guarantees no stale
+  // in-memory state survives. Same approach as the aggregator's `forceLogout`.
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => {};
+    void import('@/lib/auth-events').then(({ onSessionExpired }) => {
+      if (cancelled) return;
+      unsubscribe = onSessionExpired(() => {
+        clearAuthToken();
+        authEpochRef.current += 1;
+        setUser(null);
+        void queryClient.cancelQueries();
+        queryClient.removeQueries();
+        clearSchemaCache();
+        void Promise.all([import('sonner'), import('i18next')]).then(
+          ([{ toast }, i18next]) =>
+            toast.error(i18next.default.t('auth.session_expired_title'), {
+              description: i18next.default.t('auth.session_expired_desc'),
+            }),
+        );
+        const path = window.location.pathname;
+        // Already on the login flow: clearing state is enough, and navigating
+        // would discard a half-entered login.
+        if (path.startsWith('/auth/')) return;
+        // `redirect` is the param LoginPage already reads (`login-page.tsx`),
+        // so the user lands back where they were after signing in.
+        const ret = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/auth/login?reason=expired&redirect=${ret}`;
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [queryClient]);
+
   const checkUser = useCallback(async (identifier: AuthIdentifier): Promise<boolean> => {
     const { checkUser: checkUserApi } = await import('@/lib/auth-api');
     const response = await checkUserApi(identifier);

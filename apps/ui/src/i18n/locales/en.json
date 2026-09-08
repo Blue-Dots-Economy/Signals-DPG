@@ -732,5 +732,9 @@
   "match.explain_illustrative": "Shown for illustration. The model produces one combined score, so we can't say how much each field contributed.",
   "match.explain_set_heading": "Also narrowing these results",
   "map.unavailable_title": "The map couldn't be loaded",
-  "map.unavailable_body": "Switch to list view to keep browsing. If this persists, the map service may be misconfigured for this site."
+  "map.unavailable_body": "Switch to list view to keep browsing. If this persists, the map service may be misconfigured for this site.",
+  "auth": {
+    "session_expired_title": "Session expired",
+    "session_expired_desc": "Your session has ended. Please sign in again to continue."
+  }
 }

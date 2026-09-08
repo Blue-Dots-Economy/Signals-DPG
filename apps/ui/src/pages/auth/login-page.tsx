@@ -597,6 +597,19 @@ function OtpLoginPage() {
           {t('auth.back')}
         </button>
 
+        {/* Why the user is here, when they did not choose to be. Without this a
+            forced sign-out looks like the app dropped them for no reason —
+            `auth-context` redirects with `reason=expired` when the session ends
+            mid-use. */}
+        {searchParams.get('reason') === 'expired' && (
+          <div
+            role="status"
+            className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400"
+          >
+            {t('auth.session_expired_desc')}
+          </div>
+        )}
+
         {/* Heading */}
         <div className="mb-6">
           <h2 className="text-2xl font-bold text-foreground">

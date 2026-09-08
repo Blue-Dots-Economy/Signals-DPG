@@ -26,7 +26,22 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         refetchOnWindowFocus: false,
-        retry: 2,
+        // Never retry an auth failure. A 401/403 cannot succeed on a second
+        // attempt without new credentials, so `retry: 2` turned every one into
+        // THREE requests — measured on an expired session, four polling queries
+        // produced bursts of nine 401s per cycle, two thirds of them pure
+        // waste. Everything else keeps the two retries.
+        //
+        // Axios reports the status on `error.response.status`; checking only
+        // `error.status` would never match and would silently keep retrying,
+        // which is the shape of bug this is meant to remove.
+        retry: (failureCount, error) => {
+          const status =
+            (error as { response?: { status?: number }; status?: number })?.response?.status ??
+            (error as { status?: number })?.status;
+          if (status === 401 || status === 403) return false;
+          return failureCount < 2;
+        },
       },
     },
   });

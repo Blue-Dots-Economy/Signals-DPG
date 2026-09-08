@@ -77,6 +77,43 @@ export function getUserManager(serverConfig: AuthConfigResponse | null | undefin
     accessTokenExpiringNotificationTimeInSeconds: 60,
   });
 
+  // ── Carry each renewed token into the store the API client actually reads ──
+  //
+  // `automaticSilentRenew` above renews the access token roughly a minute
+  // before it expires, and it WORKS — the token request is visible in the
+  // network log and returns 200. But oidc-client-ts keeps the result in its own
+  // `userStore`; nothing copied it into `auth-token.ts`'s localStorage entry,
+  // which is the single thing `api-client.ts`'s request interceptor reads
+  // (`Bearer ${getAuthToken()}`).
+  //
+  // So the renewal was invisible to every request. `setAuthToken` was only ever
+  // called on the initial code exchange, inside `renewOidcToken` (which nothing
+  // but `restoreOidcSession` calls), and on a page-load restore — never on a
+  // background renew. The realm issues 300-second access tokens, so five
+  // minutes after login every request began failing 401 `TOKEN_EXPIRED` and
+  // kept failing: captured live, the SAME token (identical `jti` and `sid`) was
+  // still being sent 11 minutes past its `exp`, across 56 requests and
+  // climbing, while the library held a perfectly good one.
+  //
+  // Attached here, inside the `if (manager)`-guarded construction, so the
+  // handlers bind exactly once per page even though `getUserManager` is called
+  // from several places.
+  manager.events.addUserLoaded((user) => {
+    if (user?.access_token) setAuthToken(user.access_token);
+  });
+  manager.events.addUserUnloaded(() => {
+    clearAuthToken();
+  });
+
+  // Renewal failed, which means the REFRESH token is spent or rejected — not
+  // the routine 5-minute access-token expiry the handler above absorbs. This is
+  // the only legitimate trigger for signing someone out, so it is the one that
+  // raises the terminal signal. Imported lazily to keep this module free of a
+  // static dependency on the auth-event plumbing.
+  manager.events.addSilentRenewError(() => {
+    void import('./auth-events').then(({ emitSessionExpired }) => emitSessionExpired());
+  });
+
   return manager;
 }
 
