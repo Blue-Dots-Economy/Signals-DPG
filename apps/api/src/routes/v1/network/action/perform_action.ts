@@ -39,6 +39,7 @@ import {
   validateActionEventPayload,
 } from '@/utils/action_event_runtime';
 import { dispatchActionNotifications } from '@/notifications/notify_actions';
+import { public_rate_limit } from '@/middleware/public_rate_limit';
 
 type PerformNetworkActionRequest = FastifyRequest<{
   Body: z.infer<typeof PerformNetworkActionBodySchema>;
@@ -102,6 +103,10 @@ export const perform_network_action: FastifyPluginAsyncZod = async function (
   fastify.route({
     url: '/action/perform',
     method: 'POST',
+    // Unauthenticated by design (the inter-instance action-mirroring entry
+    // point), so it is open to anyone who can reach the host. Cap it per IP —
+    // every action created here writes rows and can trigger notifications.
+    preHandler: public_rate_limit('network_action_perform', 100),
     schema: {
       tags: ['network'],
       body: PerformNetworkActionBodySchema,

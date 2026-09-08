@@ -17,6 +17,7 @@ import {
 import { getNetworkConfigById } from '@/network_configs';
 import { fetchItemsAcrossInstances } from '@/utils/inter_instance_fetch';
 import { peer_instance_guard } from '@/middleware/peer_instance_guard';
+import { public_rate_limit } from '@/middleware/public_rate_limit';
 
 type FetchItemsAggregateRequest = FastifyRequest<{
   Querystring: z.infer<typeof FetchItemsQuerySchema>;
@@ -30,6 +31,10 @@ export const fetch_item: FastifyPluginAsyncZod = async function (fastify) {
   fastify.route({
     url: '/item/fetch',
     method: 'GET',
+    // Unauthenticated by design (public network browse). Each call can fan out
+    // to every peer instance in the network config, so an unthrottled caller
+    // amplifies load across the whole network, not just this host.
+    preHandler: public_rate_limit('network_item_fetch', 100),
     schema: {
       tags: ['network'],
       query: FetchItemsQuerySchema,

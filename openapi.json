@@ -4997,6 +4997,11 @@
             }
           }
         },
+        "security": [
+          {
+            "peerAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",

@@ -60,7 +60,22 @@ const PUBLIC_OPERATION_URLS = new Set([
 
 // Operations guarded by peer_instance_guard (inter-instance HMAC) instead of
 // user auth.
-const PEER_OPERATION_URLS = new Set(['/api/v1/network/item/count_local', '/api/v1/network/item/fetch_local']);
+const PEER_OPERATION_URLS = new Set([
+  '/api/v1/network/item/count_local',
+  '/api/v1/network/item/fetch_local',
+  '/api/v1/network/item/markers_local',
+]);
+
+// Unauthenticated responses that still must not be cached (AUTH-VULN-02).
+// `status-by-identifier` answers "is this identifier registered?", so a shared
+// proxy holding that answer re-serves the enumeration oracle without the
+// request ever reaching us; `auth/config` describes the instance's auth wiring.
+// Both are public by design — it is the *caching* that is the finding, not the
+// access. Every other public route keeps its own caching semantics.
+const NO_STORE_PUBLIC_URLS = new Set([
+  '/api/v1/auth/config',
+  '/api/v1/consent/status-by-identifier',
+]);
 
 /**
  * Wraps the zod json-schema transform to make the auth model machine-readable
@@ -181,9 +196,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   // for a request that resolved a user carries PII/session state, so it must not
   // be cached by browsers or shared proxies. Public/unauthenticated responses
   // (request.user unset) are left untouched so genuinely cacheable routes keep
-  // their own caching semantics. A route that already set Cache-Control wins.
+  // their own caching semantics — except the two listed in
+  // NO_STORE_PUBLIC_URLS below. A route that already set Cache-Control wins.
   app.addHook('onSend', async (request, reply, payload) => {
-    if (request.user && !reply.getHeader('cache-control')) {
+    const needsNoStore =
+      request.user || NO_STORE_PUBLIC_URLS.has(request.url.split('?')[0]);
+    if (needsNoStore && !reply.getHeader('cache-control')) {
       reply.header('Cache-Control', 'no-store');
     }
     return payload;

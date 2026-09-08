@@ -372,6 +372,16 @@ export async function mirrorActionEventToSourceInstance(
           'content-type': 'application/json',
         },
         body: JSON.stringify(event),
+        // The origin allowlist above is checked once, against the URL we are
+        // about to call. Following a redirect would move the PII payload to an
+        // origin that was never checked, so a registered peer that 3xx's could
+        // still relay this body anywhere — refuse instead.
+        redirect: 'error',
+        // Without a deadline an unresponsive peer holds this request (and its
+        // socket) open indefinitely; the mirror is fire-and-forget, so a slow
+        // peer must not accumulate. Same knob every other outbound peer call
+        // uses (inter_instance_fetch.ts) — one timeout to tune, not two.
+        signal: AbortSignal.timeout(apiConfig.peer_fetch_timeout_ms),
       }
     );
 

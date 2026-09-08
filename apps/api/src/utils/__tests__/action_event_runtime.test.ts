@@ -11,6 +11,9 @@ vi.mock('@/config', () => ({
     network_config_urls: [],
     allow_extra_schema_data: true,
     schema_registry_url: '',
+    // The mirror aborts on this deadline; AbortSignal.timeout() rejects a
+    // non-number, so the mock has to carry it.
+    peer_fetch_timeout_ms: 10000,
   },
   getCurrentApiBaseUrl: () => 'http://localhost:3000',
   instance: { INSTANCE_NAME: 'test', INSTANCE_ENV: 'development' },
