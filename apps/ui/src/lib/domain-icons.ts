@@ -92,5 +92,5 @@ export function formatDomainLabel(
   // "Service Provider"); else title-case the id.
   const configured = domains?.find((d) => d.id === domainId)?.label?.trim();
   if (configured) return configured;
-  return domainId.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return domainId.replaceAll(/_/g, ' ').replaceAll(/\b\w/g, (c) => c.toUpperCase());
 }

@@ -46,11 +46,11 @@ export function isEmptyValue(value: unknown): boolean {
 /** Split camelCase / snake_case into a Title Cased phrase. Schema `title` wins over this. */
 export function humaniseFieldKey(key: string): string {
   return key
-    .replace(/_/g, ' ')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/\s+/g, ' ')
+    .replaceAll(/_/g, ' ')
+    .replaceAll(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replaceAll(/\s+/g, ' ')
     .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+    .replaceAll(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /** Human-readable value for a card row (arrays joined, booleans Yes/No). */
