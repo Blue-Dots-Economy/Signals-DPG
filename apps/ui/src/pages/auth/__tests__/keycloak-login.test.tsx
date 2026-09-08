@@ -1243,3 +1243,27 @@ describe('guardian capture identifier normalisation', () => {
     expect(signupWithKeycloak.mock.calls[0][0].phoneNumber).toBe('+919876543210');
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Forced sign-out needs a reason on screen. `auth-context` redirects here with
+// `reason=expired` when a session ends mid-use; without this the user sees a
+// bare login form and no explanation for losing their place.
+describe('LoginPage — session-expired notice', () => {
+  it('explains why the user is here when reason=expired', async () => {
+    renderAt(<LoginPage />, '/auth/login?reason=expired');
+    expect(await screen.findByRole('status')).toBeTruthy();
+  });
+
+  it('shows nothing when the user came to log in normally', async () => {
+    renderAt(<LoginPage />, '/auth/login');
+    await screen.findByRole('button', { name: /^continue$/i });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('shows nothing for an unrecognised reason', async () => {
+    renderAt(<LoginPage />, '/auth/login?reason=something-else');
+    await screen.findByRole('button', { name: /^continue$/i });
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+});
