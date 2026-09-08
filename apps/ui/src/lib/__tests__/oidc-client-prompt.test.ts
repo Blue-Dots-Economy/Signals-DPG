@@ -48,7 +48,7 @@ describe('startOidcLogin', () => {
 
   it('sends `prompt=login` when a re-prompt is forced', async () => {
     const { startOidcLogin } = await import('@/lib/oidc-client');
-    await startOidcLogin(serverConfig, undefined, undefined, true);
+    await startOidcLogin(serverConfig, { forceReauth: true });
     expect(signinRedirect.mock.calls[0]?.[0]).toMatchObject({ prompt: 'login' });
   });
 
@@ -56,7 +56,7 @@ describe('startOidcLogin', () => {
     // The two features must not cancel each other: switching account should
     // still land the user where they were headed.
     const { startOidcLogin } = await import('@/lib/oidc-client');
-    await startOidcLogin(serverConfig, '/my-actions', undefined, true);
+    await startOidcLogin(serverConfig, { returnTo: '/my-actions', forceReauth: true });
     expect(signinRedirect.mock.calls[0]?.[0]).toMatchObject({
       prompt: 'login',
       state: { returnTo: '/my-actions', consentAttempt: undefined },

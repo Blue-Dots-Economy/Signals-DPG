@@ -195,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const startKeycloakLogin = useCallback(
     async (returnTo?: string, consentAttempt?: string): Promise<void> => {
       const { startOidcLogin } = await import('@/lib/oidc-client');
-      await startOidcLogin(authCfg, returnTo, consentAttempt);
+      await startOidcLogin(authCfg, { returnTo, consentAttempt });
     },
     [authCfg]
   );

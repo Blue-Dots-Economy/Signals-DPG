@@ -94,12 +94,20 @@ export function resetUserManager(): void {
  * and the user lands back on the error they just came from (#753). Off by
  * default — an ordinary login should still reuse SSO.
  */
+export interface StartOidcLoginOptions {
+  /** Deep link to return to after the round trip. */
+  returnTo?: string | undefined;
+  /** Binds a parked consent acceptance to THIS login. See lib/pending-consent.ts. */
+  consentAttempt?: string | undefined;
+  /** Add `prompt=login` so the user can pick a different account. */
+  forceReauth?: boolean | undefined;
+}
+
 export async function startOidcLogin(
   serverConfig: AuthConfigResponse | null | undefined,
-  returnTo?: string,
-  consentAttempt?: string,
-  forceReauth = false
+  options: StartOidcLoginOptions = {}
 ): Promise<void> {
+  const { returnTo, consentAttempt, forceReauth = false } = options;
   const userManager = getUserManager(serverConfig);
   if (!userManager) throw new Error('Keycloak is not configured');
 

@@ -431,7 +431,7 @@ export function OidcCallbackPage() {
    */
   const switchAccount = async (): Promise<void> => {
     try {
-      await startOidcLogin(authCfg, undefined, undefined, true);
+      await startOidcLogin(authCfg, { forceReauth: true });
     } catch {
       navigate('/auth/login', { replace: true });
     }
@@ -443,7 +443,15 @@ export function OidcCallbackPage() {
         <Alert variant="destructive">
           <OctagonX className="size-4" />
           <AlertTitle>{t('auth.oidc_error_title')}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {/* The API's message is English by construction (it is also log and
+                API-client copy). For the one case with a localised equivalent,
+                prefer that — otherwise a Hindi user reads an English sentence
+                above a Hindi button. */}
+            {errorCode === 'TOKEN_AGGREGATOR_ACCOUNT'
+              ? t('auth.aggregator_account_no_signals')
+              : error}
+          </AlertDescription>
         </Alert>
         {errorCode === 'TOKEN_AGGREGATOR_ACCOUNT' ? (
           // "Back to sign in" is a loop here: Keycloak's SSO cookie is still

@@ -42,22 +42,13 @@ vi.mock('@/contexts/auth-context', () => ({
 
 const completeOidcLogin = vi.fn(async () => ({ returnTo: '/dashboard' }));
 const startOidcLogin =
-  vi.fn<
-    (
-      cfg?: unknown,
-      returnTo?: string,
-      consentAttempt?: string,
-      forceReauth?: boolean,
-    ) => Promise<void>
-  >(async () => undefined);
+  vi.fn<(cfg?: unknown, options?: { forceReauth?: boolean }) => Promise<void>>(
+    async () => undefined,
+  );
 vi.mock('@/lib/oidc-client', () => ({
   completeOidcLogin: () => completeOidcLogin(),
-  startOidcLogin: (
-    cfg?: unknown,
-    returnTo?: string,
-    consentAttempt?: string,
-    forceReauth?: boolean,
-  ) => startOidcLogin(cfg, returnTo, consentAttempt, forceReauth),
+  startOidcLogin: (cfg?: unknown, options?: { forceReauth?: boolean }) =>
+    startOidcLogin(cfg, options),
 }));
 
 vi.mock('@/theme/theme-provider', () => ({
@@ -616,18 +607,22 @@ describe('#558 — first-time-login profile redirect', () => {
       fireEvent.click(button);
 
       await waitFor(() => expect(startOidcLogin).toHaveBeenCalled());
-      // Fourth argument is forceReauth — without it Keycloak reuses the SSO
-      // session and this button does nothing useful.
-      expect(startOidcLogin.mock.calls[0]?.[3]).toBe(true);
+      // Without forceReauth Keycloak reuses the SSO session and this button
+      // does nothing useful — it looks like it works and does not.
+      expect(startOidcLogin.mock.calls[0]?.[1]).toMatchObject({ forceReauth: true });
       expect(navigate).not.toHaveBeenCalledWith('/auth/login', { replace: true });
     });
 
-    it('surfaces the API message for that case', async () => {
-      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+    it('shows the LOCALISED body, not the API English, for that case', async () => {
+      // The API message is English by construction (it doubles as log and
+      // API-client copy). Rendering it verbatim put an English sentence above
+      // a translated button on a Hindi or Kannada session.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'RAW-API-ENGLISH-SHOULD-NOT-RENDER');
       renderPage();
       expect(
         await screen.findByText(/signed in as an aggregator account/i),
       ).toBeInTheDocument();
+      expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
     });
 
     it('keeps the plain retry for any other failure', async () => {
