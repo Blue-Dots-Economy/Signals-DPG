@@ -18,8 +18,12 @@ const baseSnapshot = {
 };
 
 describe('computeActionMatchScore', () => {
-  it('returns the numeric score from the relevance client', async () => {
-    mockClient = { calculate: vi.fn(async () => ({ provider: 'test', score: 7.4 })) };
+  // #646 §5.2: the provider now returns 0-100 (one display scale end to end),
+  // while `item_actions.match_score` stays on its documented 0-10 so the
+  // column keeps one meaning and needs no backfill. This asserts the
+  // conversion happens at that storage boundary.
+  it('converts the provider 0-100 score to the column 0-10 scale', async () => {
+    mockClient = { calculate: vi.fn(async () => ({ provider: 'test', score: 74 })) };
     const s = await computeActionMatchScore(
       { ...baseSnapshot, item_state: { a: 1 }, item_locations: [{ lat: 12.9, lng: 77.6 }] },
       { ...baseSnapshot, item_id: '6ba7b810-9dad-41d1-80b4-00c04fd430c8', item_state: { b: 2 }, item_locations: [] },

@@ -8,9 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // item_instance_url / item_schema_url" contract is observable).
 const {
   dbState,
-  rowQueue,
   txInsertValues,
-  txUpdateSet,
   ensureItemPartition,
   resolveConsentVersion,
   isServedDomainBinding,
@@ -45,22 +43,26 @@ const {
   class FakeItemServiceError extends Error {
     statusCode: number;
     errorCode: string;
-    constructor(statusCode: number, errorCode: string, message: string) {
+    details?: Record<string, unknown>;
+    constructor(
+      statusCode: number,
+      errorCode: string,
+      message: string,
+      details?: Record<string, unknown>,
+    ) {
       super(message);
       this.statusCode = statusCode;
       this.errorCode = errorCode;
+      this.details = details;
     }
   }
   return {
     // Resettable failure flags, so an override never leaks into a later test.
     dbState: {
-      failWith: null as Error | null,
-      txFailWith: null as Error | null,
+        txFailWith: null as Error | null,
       consentInsertFailWith: null as Error | null,
     },
-    rowQueue: [] as unknown[][],
     txInsertValues: vi.fn((_v: Record<string, unknown>) => undefined),
-    txUpdateSet: vi.fn((_v: Record<string, unknown>) => undefined),
     ensureItemPartition: vi.fn(),
     resolveConsentVersion: vi.fn(),
     isServedDomainBinding: vi.fn(),
@@ -80,27 +82,15 @@ const {
   };
 });
 
-function nextRows() {
-  if (dbState.failWith) return Promise.reject(dbState.failWith);
-  return Promise.resolve(rowQueue.shift() ?? []);
-}
-
 const txExecuted: unknown[] = [];
 const order: string[] = [];
 
 vi.mock('@api/db/postgres/drizzle_config', () => ({
   db: {
-    select: () => ({
-      from: () => ({
-        where: () => ({
-          // Thenable AND chainable: both callbacks must be forwarded or a
-          // rejected query would hang the await.
-          then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-            nextRows().then(res, rej),
-          limit: () => nextRows(),
-        }),
-      }),
-    }),
+    // No `select` mock: the route runs no SELECT of its own. The domain-lock
+    // lookup that used to live here moved into `createItemInternal`, which is
+    // mocked in this file — its behaviour is covered in
+    // `services/__tests__/item_service.test.ts`.
     transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
       if (dbState.txFailWith) throw dbState.txFailWith;
       const tx = {
@@ -108,12 +98,6 @@ vi.mock('@api/db/postgres/drizzle_config', () => ({
           values: async (v: Record<string, unknown>) => {
             if (dbState.consentInsertFailWith) throw dbState.consentInsertFailWith;
             txInsertValues(v);
-          },
-        }),
-        update: () => ({
-          set: (v: Record<string, unknown>) => {
-            txUpdateSet(v);
-            return { where: async () => undefined };
           },
         }),
         // SS-3 (#640): the default-aggregator tag is one raw UPDATE whose
@@ -132,7 +116,6 @@ vi.mock('@api/db/postgres/drizzle_config', () => ({
 
 vi.mock('@api/db/postgres/schema', () => ({
   consent_record: { userId: 'cr.userId', itemId: 'cr.itemId' },
-  user: { id: 'user.id', domains: 'user.domains' },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -266,8 +249,6 @@ function createPayload() {
 }
 
 beforeEach(() => {
-  rowQueue.length = 0;
-  dbState.failWith = null;
   dbState.txFailWith = null;
   dbState.consentInsertFailWith = null;
   vi.clearAllMocks();
@@ -408,8 +389,20 @@ describe('create_item_handler guards', () => {
     expect(createItemInternal).not.toHaveBeenCalled();
   });
 
-  it('403 DOMAIN_LOCKED when user.domains holds a different domain', async () => {
-    rowQueue.push([{ domains: ['student'] }]);
+  // The single-domain lock itself now lives in `createItemInternal`
+  // (`assertSingleDomain`), so that it also covers `admin/participant` and
+  // admin api-key callers — both of which bypassed the check when it sat here.
+  // Its behaviour is covered in `services/__tests__/item_service.test.ts`.
+  // What remains this route's job is surfacing the error body intact.
+  it('surfaces DOMAIN_LOCKED with locked_domain / requested_domain from the service', async () => {
+    createItemInternal.mockRejectedValue(
+      new FakeItemServiceError(
+        403,
+        'DOMAIN_LOCKED',
+        'You are registered as "student" and cannot create items under "employer".',
+        { locked_domain: 'student', requested_domain: 'employer' },
+      )
+    );
 
     const reply = await call({
       user: { id: 'u1' },
@@ -421,26 +414,10 @@ describe('create_item_handler guards', () => {
 
     expect(reply.statusCode).toBe(403);
     expect(bodyOf(reply).error).toBe('DOMAIN_LOCKED');
+    // `apps/ui/src/lib/domain-gate.ts` reads both of these, so dropping them
+    // when the guard moved would have been a silent contract break.
     expect(bodyOf(reply).locked_domain).toBe('student');
     expect(bodyOf(reply).requested_domain).toBe('employer');
-  });
-
-  it('allows any served domain when user.domains is empty (first create)', async () => {
-    rowQueue.push([{ domains: [] }]);
-
-    const reply = await call({
-      user: { id: 'u1' },
-      body: baseBody({
-        item_domain: 'employer',
-        consent: { category: 'profile_creation', version: 1 },
-      }),
-    });
-
-    expect(reply.statusCode).toBe(201);
-    // ...and the first create bootstraps the single role on the user row.
-    expect(txUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ domains: ['employer'] })
-    );
   });
 
   // REGRESSION (#640): the tag must NOT be gated on the role bootstrap firing.
@@ -459,7 +436,6 @@ describe('create_item_handler guards', () => {
   it('writes the owner tag BEFORE the item is created and classified', async () => {
     txExecuted.length = 0;
     order.length = 0;
-    rowQueue.push([{ domains: [] }]);
 
     const reply = await call({
       user: { id: 'u1' },
@@ -477,9 +453,8 @@ describe('create_item_handler guards', () => {
     expect(tagAt).toBeLessThan(classifyAt);
   });
 
-  it('attempts the default-aggregator tag even when the role is already set', async () => {
+  it('attempts the default-aggregator tag unconditionally', async () => {
     txExecuted.length = 0;
-    rowQueue.push([{ domains: ['employer'] }]);
 
     const reply = await call({
       user: { id: 'u1' },
@@ -490,8 +465,9 @@ describe('create_item_handler guards', () => {
     });
 
     expect(reply.statusCode).toBe(201);
-    // The user already had a domain, so the bootstrap's WHERE matches nothing —
-    // yet the tag write still ran, scoped to the request's concrete binding.
+    // Not gated on anything: gating this on "is this the user's first create"
+    // stranded the population the feature exists for — people who signed up
+    // before a default was nominated. Scoped to the request's concrete binding.
     const tagStmt = txExecuted
       .map((q) => JSON.stringify(q))
       .find((t) => t.includes('onboarded_by_org_id'));
@@ -500,10 +476,11 @@ describe('create_item_handler guards', () => {
     expect(tagStmt).toContain('blue_dot/employer');
   });
 
-  it('an admin api-key caller bypasses the domain lock entirely', async () => {
-    // No row pushed: if the lock query ran, `domains` would be undefined and
-    // the create would proceed anyway, so instead assert the *effect* — the
-    // item is created for created_by, not for the admin caller.
+  it('an admin api-key caller creates on behalf of created_by', async () => {
+    // Was titled "…bypasses the domain lock entirely", which is now the
+    // opposite of the truth: the lock moved into `createItemInternal`
+    // (mocked here), so an admin api-key caller is subject to it too. What
+    // this test still covers is the on-behalf plumbing.
     const reply = await call({
       user: { id: 'admin1', role: 'admin' },
       headers: { 'x-api-key': 'k' },
@@ -871,13 +848,4 @@ describe('error mapping', () => {
     expect(bodyOf(reply).error).toBe('INTERNAL_SERVER_ERROR');
   });
 
-  it('lets a domain-lock lookup rejection escape unmapped (pre-try/catch)', async () => {
-    dbState.failWith = new Error('db down');
-
-    // The lookup happens BEFORE the try/catch, so this rejection escapes the
-    // handler rather than being mapped to a response body.
-    await expect(
-      call({ user: { id: 'u1' }, body: consentBody() })
-    ).rejects.toThrow('db down');
-  });
 });

@@ -66,6 +66,9 @@ const networkFixture: DotNetworkSchema = {
       id: 'provider',
       description: 'Employers hiring',
       card: { title_field: 'company' },
+      // blue_dot's real config carries this: a provider's own items are job
+      // postings, so the sidebar group is "My Jobs", not "My Profile(s)".
+      my_items_label: 'My Jobs',
       item_schemas: { 'job_posting_1.0': providerSchema },
     },
     {
@@ -135,6 +138,12 @@ interface BrowseEntry {
   partial: boolean;
   degraded: boolean;
   distanceMeters?: number;
+  /**
+   * `meta.sort_applied`. The card's metric pill renders from this (#646 C1),
+   * so a fixture that omits it produces no pill at all — which is why the
+   * pill went untested here until the QA round.
+   */
+  sortApplied?: 'relevance' | 'newest' | 'nearest';
 }
 
 interface BrowseOpts {
@@ -149,6 +158,10 @@ interface BrowseCall {
   domainId: string | null;
   coords: { lat: number; lng: number } | null;
   opts?: BrowseOpts;
+  // The mock records every hook INVOCATION, including ones the page disabled.
+  // A disabled invocation issues no request, so assertions about what was
+  // actually browsed must filter on this — see `browsedDomains()`.
+  enabled: boolean;
 }
 
 interface MarkerCall {
@@ -194,6 +207,11 @@ const state = {
 };
 
 const browseCalls: BrowseCall[] = [];
+/** Domains actually fetched — enabled invocations with a real domain. */
+const browsedDomains = () =>
+  new Set(
+    browseCalls.filter((c) => c.enabled && c.domainId !== null).map((c) => c.domainId as string),
+  );
 const markerCalls: MarkerCall[] = [];
 const requestBrowserLocation = vi.fn();
 const fetchNextPage = vi.fn();
@@ -288,7 +306,7 @@ vi.mock('@/hooks/use-infinite-browse-items', () => ({
     coords: { lat: number; lng: number } | null,
     opts?: BrowseOpts,
   ) => {
-    browseCalls.push({ domainId: domain?.id ?? null, coords, opts });
+    browseCalls.push({ domainId: domain?.id ?? null, coords, opts, enabled: opts?.enabled ?? true });
     const entry = (domain && state.browse[domain.id]) || emptyBrowse();
     return {
       items: entry.items,
@@ -299,6 +317,7 @@ vi.mock('@/hooks/use-infinite-browse-items', () => ({
       partial: entry.partial,
       degraded: entry.degraded,
       distanceMeters: entry.distanceMeters,
+      sortApplied: entry.sortApplied,
     };
   },
 }));
@@ -419,47 +438,36 @@ vi.mock('@/components/map/map-container', () => ({
 interface FiltersStubProps {
   domains: DotNetworkDomain[];
   filterFieldDomains: DotNetworkDomain[];
-  selectedDomains: string[];
-  onDomainsChange: (domains: string[]) => void;
   selectedFields: Record<string, string[]>;
   onFieldsChange: (fields: Record<string, string[]>) => void;
-  showDomainToggle?: boolean;
   viewMode?: ViewMode;
 }
 
-// The real panel has its own test suite (map-filters-panel.test.tsx); this stub
+// The real panel has its own test suite (browse-filters-panel.test.tsx); this stub
 // keeps the popover machinery out of the way while still driving home-page's
 // filter handlers and reflecting what the page hands back down.
 function FiltersStub({
   filterFieldDomains,
-  selectedDomains,
-  onDomainsChange,
   selectedFields,
   onFieldsChange,
-  showDomainToggle,
   viewMode,
 }: FiltersStubProps) {
   return (
     <div
       data-testid="filters-panel"
       data-view-mode={viewMode}
-      data-show-domain-toggle={String(showDomainToggle)}
       data-filter-field-domains={filterFieldDomains.map((d) => d.id).join(',')}
-      data-selected-domains={selectedDomains.join(',')}
       data-selected-fields={JSON.stringify(selectedFields)}
     >
       <button type="button" onClick={() => onFieldsChange({ gender: ['female'] })}>
         apply gender filter
       </button>
-      <button type="button" onClick={() => onDomainsChange(['mentor'])}>
-        apply domain filter
-      </button>
     </div>
   );
 }
 
-vi.mock('@/components/map/map-filters-panel', () => ({
-  MapFiltersPanel: (props: FiltersStubProps) => <FiltersStub {...props} />,
+vi.mock('@/components/filters/browse-filters-panel', () => ({
+  BrowseFiltersPanel: (props: FiltersStubProps) => <FiltersStub {...props} />,
 }));
 
 // ─── harness ─────────────────────────────────────────────────────────────────
@@ -579,7 +587,17 @@ describe('HomePage — signed-out browsing', () => {
     expect(screen.queryByRole('heading', { name: 'Browse All' })).not.toBeInTheDocument();
   });
 
-  it('lists every to_domain for a visitor with no domain identity', async () => {
+  // #644 (spec D8/D19): the "All" tab is gone, so a visitor browses ONE domain
+  // — the first visible one — rather than every to_domain at once. That the
+  // seeker domain is *browsable* for a profile-less visitor is now a property
+  // of the domain control's option list, covered by its own tests, not
+  // observable as a parallel fetch here.
+  it('browses a single default domain for a visitor with no domain identity', async () => {
+    // A visitor has no viewer domain, so there is no interacting-counterpart
+    // preference to apply (spec D19) and the first VISIBLE domain wins. For a
+    // profile-less visitor `computeVisibleDomains` yields every `to_domain`,
+    // and `seeker` is declared first in this network — so that is the default.
+    // It is arbitrary but deterministic, and it is the schema's own ordering.
     state.user = null;
     state.browse = {
       provider: { ...emptyBrowse(), items: [providerItem1], total: 1 },
@@ -587,10 +605,7 @@ describe('HomePage — signed-out browsing', () => {
     };
     renderHome('/?view=list');
 
-    expect(await findCard('Acme Welding')).toBeInTheDocument();
-    expectCard('Rita Mentor');
-    // The visitor has no profile domain, so the seeker domain is browsable too.
-    expect(browseCalls.map((c) => c.domainId)).toContain('seeker');
+    await waitFor(() => expect(browsedDomains()).toEqual(new Set(['seeker'])));
   });
 
   it('tells a visitor the network is empty when no domain returns anything', async () => {
@@ -601,27 +616,32 @@ describe('HomePage — signed-out browsing', () => {
   });
 });
 
-describe('HomePage — signed-in "All" tab', () => {
-  it('sums each visible domain total into the header count and the X-of-Y indicator', async () => {
+describe('HomePage — signed-in default domain (#644)', () => {
+  it('reports the selected domain’s own total, once, in the toolbar', async () => {
+    // Previously this was a sum across every visible domain, because the
+    // "All" tab merged N feeds. One feed drives it now, so it cannot disagree
+    // with the server.
     signedInSeeker();
     renderHome('/?view=list');
 
-    expect(await screen.findByRole('heading', { name: 'Browse All' })).toBeInTheDocument();
-    // provider total 3 + mentor total 2; 2 + 1 items actually loaded.
-    expect(screen.getByText('5 listings')).toBeInTheDocument();
-    expect(screen.getByText('Showing 3 of 5')).toBeInTheDocument();
-    expectCard('Acme Welding');
-    expectCard('Rita Mentor');
+    await findCard('Acme Welding');
+    // ONE count. It used to also render in the page header 40px away, and
+    // again as "Showing 2 of 3" above the grid — three renderings of the same
+    // fact, one of which ("shown") only reported how far you had scrolled.
+    expect(screen.getByText('3 listings')).toBeInTheDocument();
+    expect(screen.queryByText(/^Showing \d+ of \d+$/)).toBeNull();
   });
 
-  it('only browses the domains the viewer’s own profile domain can initiate toward', async () => {
+  it('lands on an interacting counterpart domain and never browses a non-interacting one', async () => {
+    // The interaction matrix still governs (spec D7 — it is made visible, not
+    // relaxed): a seeker must not land on seekers, where every card would hide
+    // its Connect button and signals-search would refuse the relevance anchor.
     signedInSeeker();
     renderHome('/?view=list');
     await findCard('Acme Welding');
 
-    const browsed = new Set(browseCalls.map((c) => c.domainId));
+    const browsed = browsedDomains();
     expect(browsed.has('provider')).toBe(true);
-    expect(browsed.has('mentor')).toBe(true);
     expect(browsed.has('seeker')).toBe(false);
   });
 
@@ -645,32 +665,40 @@ describe('HomePage — signed-in "All" tab', () => {
 });
 
 describe('HomePage — domain tab switching', () => {
-  it('switches to a single-domain feed, retitles the header and records it in the URL', async () => {
+  it('switches the feed and records the domain in the URL', async () => {
+    // #644: `provider` is already the resolved default for a seeker, so
+    // switching has to target a DIFFERENT domain — re-picking the current one
+    // is deliberately a no-op (the list always needs exactly one domain, so
+    // there is nothing to deselect to).
     signedInSeeker();
     renderHome('/?view=list');
     await findCard('Acme Welding');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Provider' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Mentor' }));
 
-    expect(await screen.findByRole('heading', { name: 'Provider' })).toBeInTheDocument();
-    expect(screen.getByText('Employers hiring')).toBeInTheDocument();
-    expect(url()).toContain('domain=provider');
-    // Now driven by the single-domain paged feed (2 loaded of 3).
-    expect(screen.getByText('Showing 2 of 3')).toBeInTheDocument();
-    expectNoCard('Rita Mentor');
-    expect(browseOptsFor('provider')?.enabled).toBe(true);
+    // No heading to check: the page-header domain title was removed (#645).
+    // It duplicated the toolbar's domain control and was WRONG on the map,
+    // naming one domain while several could be selected. The toolbar's own
+    // pressed state is the assertion that matters.
+    await waitFor(() => expect(url()).toContain('domain=mentor'));
+    expect(screen.getByRole('button', { name: 'Mentor' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(browseOptsFor('mentor')?.enabled).toBe(true);
+    expectNoCard('Acme Welding');
   });
 
-  it('returns to the "All" tab when the All entry is picked', async () => {
+  // #644 (spec D8): there is no "All" entry to return to. A `?domain=` naming
+  // a domain the viewer cannot browse is repaired to a valid default rather
+  // than falling back to an all-domains view.
+  it('repairs an unbrowsable ?domain= to a valid default instead of showing everything', async () => {
     signedInSeeker();
-    renderHome('/?view=list&domain=provider');
+    renderHome('/?view=list&domain=seeker');
+
     await findCard('Acme Welding');
-
-    await userEvent.click(screen.getByRole('button', { name: 'All' }));
-
-    expect(await screen.findByRole('heading', { name: 'Browse All' })).toBeInTheDocument();
-    expect(url()).not.toContain('domain=provider');
-    expectCard('Rita Mentor');
+    await waitFor(() => expect(url()).toContain('domain=provider'));
+    expect(browsedDomains().has('seeker')).toBe(false);
   });
 
   it('clears the facet + map-domain filter params when the browse domain changes', async () => {
@@ -689,27 +717,26 @@ describe('HomePage — domain tab switching', () => {
     expect(browseOptsFor('mentor')?.filters).toEqual([]);
   });
 
-  it('scopes the filter fields to the selected domain, and to the counterparts on "All"', async () => {
+  it('scopes the filter fields to the selected domain', async () => {
+    // #644: a domain is always selected, so the facet groups are always scoped
+    // to exactly one domain's schema — there is no counterpart-union case left.
     signedInSeeker();
     renderHome('/?view=list');
     await findCard('Acme Welding');
 
     expect(screen.getByTestId('filters-panel')).toHaveAttribute(
       'data-filter-field-domains',
-      'provider,mentor',
+      'provider',
     );
-    expect(screen.getByTestId('filters-panel')).toHaveAttribute('data-show-domain-toggle', 'true');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Provider' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Mentor' }));
 
     await waitFor(() =>
       expect(screen.getByTestId('filters-panel')).toHaveAttribute(
         'data-filter-field-domains',
-        'provider',
+        'mentor',
       ),
     );
-    // A specific tab already scopes browse, so the domain chip toggle is hidden.
-    expect(screen.getByTestId('filters-panel')).toHaveAttribute('data-show-domain-toggle', 'false');
   });
 });
 
@@ -740,6 +767,72 @@ describe('HomePage — map/list view toggle', () => {
   });
 });
 
+describe('HomePage — sidebar "my items" group label', () => {
+  it("uses the domain's own label for the viewer's items, not the generic one", async () => {
+    // Regression (#645): removing domain SELECTION from the sidebar also
+    // dropped the `domains` prop from this page's PageShell — and that prop is
+    // what `my_items_label` is looked up in. So the heading fell back to the
+    // generic "My Profile(s)" here while the edit page, which still passes
+    // `domains` alongside its own `hideBrowse`, correctly said "My Jobs".
+    state.myItems = [
+      mkItem('me-provider', 'provider', 'job_posting_1.0', { company: 'Ganesh' }, [
+        { lat: 12.9, lng: 77.6 },
+      ]),
+    ];
+    renderHome('/?view=list');
+
+    expect(await screen.findByText('My Jobs')).toBeInTheDocument();
+    expect(screen.queryByText('My Profile(s)')).toBeNull();
+  });
+
+  it('keeps the generic label when the viewer spans domains', async () => {
+    // Two domains, so no single override applies — `resolveMyItemsDomainId`
+    // returns null and the generic heading covers the mix.
+    state.myItems = [
+      myProfile,
+      mkItem('me-provider', 'provider', 'job_posting_1.0', { company: 'Ganesh' }),
+    ];
+    renderHome('/?view=list');
+
+    expect(await screen.findByText('My Profile(s)')).toBeInTheDocument();
+    expect(screen.queryByText('My Jobs')).toBeNull();
+  });
+});
+
+describe('HomePage — map→list domain collapse (spec D27)', () => {
+  // `collapseToSingleDomain` was exported and unit-tested but never called, so
+  // switching map→list left `selectedDomain` untouched — potentially a domain
+  // the viewer had just deselected on the map. All three cases are the same
+  // interaction (land on the map, switch to list) differing only in what the
+  // resulting URL must say.
+  it.each([
+    [
+      'carries a map-only domain selection into the single-domain list',
+      '/?view=map&domain=provider&map_domains=mentor',
+      'domain=mentor',
+    ],
+    [
+      // Toggling map↔list must not reshuffle a choice already made.
+      'leaves the list domain alone when it is already in the map selection',
+      '/?view=map&domain=provider&map_domains=provider,mentor',
+      'domain=provider',
+    ],
+    [
+      // The map selection has to survive, or switching back loses it.
+      'keeps the map selection so switching back does not lose it',
+      '/?view=map&domain=provider&map_domains=mentor',
+      'map_domains=mentor',
+    ],
+  ])('%s', async (_name, initialUrl, expected) => {
+    signedInSeeker();
+    renderHome(initialUrl);
+
+    await userEvent.click(screen.getByRole('radio', { name: 'List view' }));
+
+    expect(url()).toContain(expected);
+  });
+});
+
 describe('HomePage — map view', () => {
   it('fetches no markers until the map reports its first viewport', async () => {
     signedInSeeker();
@@ -760,12 +853,22 @@ describe('HomePage — map view', () => {
     expect(lastMarkerCall().viewport).not.toBeNull();
   });
 
-  it('scopes the marker fetch to the selected domain tab', async () => {
+  // #644 (spec D11/D12): the map is MULTI-domain and is NOT bound to the
+  // list's single selection. Binding it to the tab was fine while the "All"
+  // tab existed (null meant every domain), but with a domain always selected
+  // that rule would pin the map to one domain and destroy its multi-domain
+  // view. The map's own selection now decides which /markers requests are
+  // ISSUED, rather than which fetched markers survive a post-filter.
+  it('fetches every visible domain regardless of the list’s selected domain', async () => {
     signedInSeeker();
-    renderHome('/?view=map');
-    expect(lastMarkerCall().domainIds).toEqual(['provider', 'mentor']);
+    renderHome('/?view=map&domain=provider');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Mentor' }));
+    await waitFor(() => expect(lastMarkerCall().domainIds).toEqual(['provider', 'mentor']));
+  });
+
+  it('narrows the marker fetch itself when the map domain selection narrows', async () => {
+    signedInSeeker();
+    renderHome('/?view=map&map_domains=mentor');
 
     await waitFor(() => expect(lastMarkerCall().domainIds).toEqual(['mentor']));
   });
@@ -832,7 +935,9 @@ describe('HomePage — map view', () => {
 });
 
 describe('HomePage — search', () => {
-  it('forwards the typed query to the list feeds and reports no results', async () => {
+  it('forwards the typed query to the active list feed and reports no results', async () => {
+    // #644: one feed, so the query reaches the selected domain only — it used
+    // to fan out across every domain of the "All" tab.
     signedInSeeker();
     state.browse = { provider: emptyBrowse(), mentor: emptyBrowse() };
     renderHome('/?view=list');
@@ -840,7 +945,6 @@ describe('HomePage — search', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'welder');
 
     await waitFor(() => expect(browseOptsFor('provider')?.q).toBe('welder'));
-    expect(browseOptsFor('mentor')?.q).toBe('welder');
     expect(await screen.findByText('No results for "welder"')).toBeInTheDocument();
   });
 
@@ -851,6 +955,56 @@ describe('HomePage — search', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'welder');
 
     await waitFor(() => expect(lastMarkerCall().search).toBe('welder'));
+  });
+});
+
+describe('HomePage — card metric follows the sort (#646 C1)', () => {
+  it('shows a DISTANCE pill under `nearest`, computing it when the server omits one', async () => {
+    // The discover item schema carries a per-item `distanceMeters`, but only
+    // the signals-search path populates it — the native fallback orders by
+    // distance yet projects no distance column. Without a client-side
+    // backfill the pill vanished whenever signals-search was down, which is
+    // every local run and any production outage (QA Q11/P5).
+    signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
+    state.browse = {
+      // `providerItem1` sits at 12.91/77.61 — ~7 km from the viewer above.
+      // No `distanceMeters` on the entry: this is the native-fallback shape.
+      provider: { ...emptyBrowse(), items: [providerItem1], total: 1, sortApplied: 'nearest' },
+    };
+    renderHome('/?view=list&domain=provider');
+    await findCard('Acme Welding');
+
+    const pill = await screen.findByTestId('card-metric-pill');
+    expect(pill).toHaveTextContent(/km/i);
+    // A distance is not a score, so it must not be clickable (QA P1).
+    expect(pill.tagName).toBe('SPAN');
+  });
+
+  it('shows an AGE pill under `newest`, not a score', async () => {
+    signedInSeeker();
+    state.browse = {
+      provider: { ...emptyBrowse(), items: [providerItem1], total: 1, sortApplied: 'newest' },
+    };
+    renderHome('/?view=list&domain=provider');
+    await findCard('Acme Welding');
+
+    const pill = await screen.findByTestId('card-metric-pill');
+    expect(pill).not.toHaveTextContent(/%/);
+    expect(pill.tagName).toBe('SPAN');
+  });
+
+  it('leaves the pill absent under `nearest` with no viewer location to measure from', async () => {
+    signedInSeeker();
+    state.location = null;
+    state.browse = {
+      provider: { ...emptyBrowse(), items: [providerItem1], total: 1, sortApplied: 'nearest' },
+    };
+    renderHome('/?view=list&domain=provider');
+    await findCard('Acme Welding');
+
+    expect(screen.queryByTestId('card-metric-pill')).toBeNull();
   });
 });
 
@@ -870,16 +1024,54 @@ describe('HomePage — filter panel wiring', () => {
     );
   });
 
-  it('narrows the "All" feed to the chosen domains and records them in the URL', async () => {
+  // #644 (spec D12): the map's domain selection is a MAP concern, recorded
+  // separately from the list's `?domain=`. Since #645 D10/D11 there is ONE
+  // domain control: multi-select on the map (writing `map_domains`),
+  // single-select on the list (writing `domain`). The old panel multi-select
+  // that could set `map_domains` while sitting on the list — and blank the
+  // list by doing so — no longer exists, so this asserts the map half.
+  it('records the map domain selection in the URL', async () => {
     signedInSeeker();
-    renderHome('/?view=list');
+    renderHome('/?view=map');
+
+    // The map starts with every visible domain selected, so clicking one
+    // DESELECTS it and the URL records the remainder.
+    await userEvent.click(await screen.findByRole('button', { name: /Mentor/ }));
+
+    await waitFor(() => expect(url()).toContain('map_domains='));
+    expect(url()).toContain('map_domains=provider');
+    expect(url()).not.toContain('mentor');
+  });
+
+  // #644 QA (Q6/Q7). The fixture's `city` is declared by SEEKER only and
+  // `gender` by PROVIDER only, mirroring blue_dot, where the seeker and
+  // provider schemas share no field names at all.
+  it('prunes a facet the queried domain does not declare, from state AND the URL', async () => {
+    signedInSeeker();
+    renderHome('/?view=list&domain=provider&f_city=Mysuru');
     await findCard('Acme Welding');
 
-    await userEvent.click(screen.getByRole('button', { name: 'apply domain filter' }));
+    // The server drops an undeclared facet SILENTLY (`resolveAllowedFacetFields`
+    // — never a 4xx, so a caller cannot probe for private fields), so leaving
+    // it applied returned the domain UNFILTERED while the chip bar still
+    // advertised the filter as active.
+    await waitFor(() => expect(url()).not.toContain('f_city'));
+    expect(screen.getByTestId('filters-panel')).toHaveAttribute(
+      'data-selected-fields',
+      '{}',
+    );
+    expect(browseOptsFor('provider')?.filters).toEqual([]);
+  });
 
-    await waitFor(() => expect(url()).toContain('map_domains=mentor'));
-    expectCard('Rita Mentor');
-    expectNoCard('Acme Welding');
+  it('keeps a facet the queried domain DOES declare', async () => {
+    signedInSeeker();
+    renderHome('/?view=list&domain=provider&f_gender=female');
+    await findCard('Acme Welding');
+
+    expect(url()).toContain('f_gender=female');
+    expect(browseOptsFor('provider')?.filters).toEqual([
+      { field: 'gender', values: ['female'] },
+    ]);
   });
 
   it('forwards facet selections to the map marker fetch as server-side filters', async () => {
@@ -956,23 +1148,48 @@ describe('HomePage — list notes and degradation banners', () => {
   });
 });
 
-describe('HomePage — location source toggle', () => {
-  it('hides the toggle when the browser cannot supply a location', async () => {
+/**
+ * The location SOURCE now lives inside the one Location control, not in a
+ * standalone "Search near" toggle (#644 QA redesign) — that toggle asked the
+ * same question in a second place, and rendered even when nothing used the
+ * answer. So these drive the menu instead of a radio group.
+ *
+ * The source section is only rendered when something uses a centre, hence the
+ * `sort=nearest` in each case: with `relevance` and no distance set, asking
+ * which point to measure from would be the noise the redesign removed.
+ */
+describe('HomePage — location source, inside the Location control', () => {
+  const openLocation = async () =>
+    userEvent.click(screen.getByRole('button', { name: /location/i }));
+  const pickNearest = async () => {
+    await userEvent.click(screen.getByRole('button', { name: /sort/i }));
+    await userEvent.click(screen.getByRole('option', { name: /nearest/i }));
+  };
+
+  it('offers no source choice when the browser cannot supply a location', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = false;
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    expect(screen.queryByRole('radio', { name: 'Current location' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /current location/i })).toBeDisabled();
   });
 
   it('requests the browser location and re-resolves against the picked source', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = true;
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Current location' }));
+    await userEvent.click(screen.getByRole('button', { name: /current location/i }));
 
     expect(requestBrowserLocation).toHaveBeenCalled();
     expect(preferredSources[preferredSources.length - 1]).toBe('browser');
@@ -980,15 +1197,32 @@ describe('HomePage — location source toggle', () => {
 
   it('offers to enable location after a failed browser request', async () => {
     signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
     state.browserSupported = true;
     state.browserStatus = 'error';
     renderHome('/?view=list');
     await findCard('Acme Welding');
+    await pickNearest();
+    await openLocation();
 
-    await userEvent.click(screen.getByRole('radio', { name: 'Current location' }));
+    await userEvent.click(screen.getByRole('button', { name: /current location/i }));
 
     expect(await screen.findByText('Showing results near your profile')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Turn on location' })).toBeInTheDocument();
+  });
+
+  it('does not render the source choice when nothing uses a centre', async () => {
+    // Relevance, no distance: the centre question has no consumer.
+    signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    state.locationSource = 'profile';
+    state.browserSupported = true;
+    renderHome('/?view=list');
+    await findCard('Acme Welding');
+    await openLocation();
+
+    expect(screen.queryByText(/measured from/i)).toBeNull();
   });
 });
 
@@ -1026,7 +1260,7 @@ describe('HomePage — bulk selection', () => {
     renderHome('/?view=list&domain=provider');
     await findCard('Acme Welding');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Select' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Select items' }));
     expect(await screen.findByRole('button', { name: 'Done' })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /Acme Welding/ }));
@@ -1039,6 +1273,42 @@ describe('HomePage — bulk selection', () => {
     state.myItems = [];
     renderHome('/?view=list&domain=provider');
 
-    expect(screen.queryByRole('button', { name: 'Select' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select items' })).not.toBeInTheDocument();
+  });
+});
+
+describe('HomePage — clear-all only offers what the view applies', () => {
+  it('offers no clear-all on the MAP for a distance the map ignores', async () => {
+    // The map scopes by viewport: `area` never reaches `useMapMarkers`, and
+    // Sort and Location are not rendered there. Counting them left a lone
+    // "Clear all" on the map offering to clear something invisible that was
+    // having no effect (#644 QA).
+    signedInSeeker();
+    state.location = { lat: 12.97, lng: 77.59 };
+    renderHome('/?view=list&domain=provider');
+    await findCard('Acme Welding');
+
+    // Apply a distance in the list, where it does apply.
+    await userEvent.click(screen.getByRole('button', { name: /location/i }));
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /distance in kilometres/i }),
+      '11',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /apply this distance/i }));
+    expect(await screen.findByRole('button', { name: /clear all/i })).toBeInTheDocument();
+
+    // Switch to the map: the distance is still in state but inert there.
+    await userEvent.click(screen.getByRole('radio', { name: 'Map view' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /clear all/i })).toBeNull(),
+    );
+  });
+
+  it('still offers clear-all on the map for facets, which the map DOES apply', async () => {
+    signedInSeeker();
+    renderHome('/?view=map&domain=provider&f_gender=female');
+
+    expect(await screen.findByRole('button', { name: /clear all/i })).toBeInTheDocument();
   });
 });

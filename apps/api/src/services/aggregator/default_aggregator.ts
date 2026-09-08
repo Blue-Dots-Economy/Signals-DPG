@@ -16,8 +16,9 @@ import { resolveServedNetworkForDomain } from '@/utils/served_domain_guard';
  * network admin nominates by a direct backend/support request — a hand-written
  * UPDATE of `organization.default_for_bindings` (#640's answer; there is no API
  * for it, and the database enforces the rules: a CHECK for `type='aggregator'`,
- * `organization_single_default_idx` for one default while #661 is open,
- * and an audit trigger so the change is traceable).
+ * a trigger for per-binding exclusivity, a trigger rejecting a binding whose
+ * domain the org does not declare, and an audit trigger so the change is
+ * traceable).
  *
  * It is deliberately never system-generated: an org minted by the system has no
  * enabled Keycloak user, so the "unverified queue" it owns would be a queue
@@ -25,30 +26,30 @@ import { resolveServedNetworkForDomain } from '@/utils/served_domain_guard';
  * `organization` has no approval/status column, so "already-approved" is a
  * process guarantee the runbook has to carry, not an enforced one.
  *
- * ## Resolution is per binding; only ONE default may exist for now
+ * ## Resolution is per binding, and several defaults may coexist
  *
  * `organization.default_for_bindings` is per (network, domain) — product asked
- * for a per-domain default (#640 Q3) — and lookups are per binding, so one
- * aggregator holding `['blue_dot/seeker','blue_dot/provider']` serves both
- * populations. That is the expected launch shape.
+ * for a per-domain default (#640 Q3) — and lookups are per binding. So one
+ * aggregator may hold `['blue_dot/seeker','blue_dot/provider']`, AND two
+ * different aggregators may hold one binding each.
  *
- * What is withheld is two *different* orgs holding one binding each, blocked by
- * `organization_single_default_idx` (migration 0013). The reason: the tag
- * (`user.onboarded_by_org_id`) is per ACCOUNT and write-once, while
- * `participant_decrypt` scopes on it with **no domain condition** — so a user
- * with profiles in two domains has their whole account owned by whichever
- * domain wrote first, and the other domain's default could decrypt a
- * participant it does not own. `user.domains` normally holds one entry, but
- * admin api-key callers bypass the single-role lock that keeps it that way
- * (`create_item.ts`), so a multi-domain user is reachable in practice.
+ * The second shape used to be blocked by `organization_single_default_idx`,
+ * because the tag (`user.onboarded_by_org_id`) is per ACCOUNT and write-once
+ * while items are per DOMAIN: an account spanning two domains had one owner
+ * covering both, so the other domain's default could decrypt a participant it
+ * did not own. That index is gone (migration 0016), because the ambiguity is
+ * now removed at the source — `assertSingleDomain` in
+ * `services/item_service.ts` keeps every account to a single domain at the one
+ * choke point every create path shares, and `POST /api/v1/user/domains` is
+ * write-once so a user cannot grant themselves a second one.
  *
- * Per-domain defaults across separate orgs are the intended end state, unlocked
- * by the per-profile `profile_origin` work (#661) in
- * `docs/superpowers/specs/2026-08-30-account-profile-identity-model-design.md`:
- * once ownership is per profile the exposure is gone, 0013's index comes off,
- * and the `organization_default_binding_exclusive` trigger becomes the guard
- * that matters. Nothing else changes — the column is already an array and
- * resolution is already per binding.
+ * `participant_decrypt` additionally filters on the acting org's declared
+ * domains, so a leak would need both invariants to fail rather than one.
+ *
+ * What remains enforced is per-binding exclusivity — no two orgs are the
+ * default for the SAME binding — by the
+ * `organization_default_binding_exclusive` trigger (migration 0014). Postgres
+ * cannot unique-index an array element, which is why that one is a trigger.
  */
 
 export interface DefaultAggregatorResolution {
@@ -190,8 +191,11 @@ export async function resolveOwnerGateContext(
  * established — the three places that decide which domain a user belongs to:
  *
  *   1. `applySignupExtras` (provisioning) — portal signup, from the stash
- *   2. `POST /api/v1/user/domains`        — explicit pick
- *   3. `create_item`'s first-create bootstrap
+ *   2. `POST /api/v1/user/domains`        — explicit pick (write-once)
+ *
+ * A third caller used to live in `create_item`'s first-create bootstrap; that
+ * bootstrap moved into `assertSingleDomain`, and `create_item` now calls
+ * `tagUserWithDefaultAggregator` directly with the request's concrete network.
  *
  * Tagging belongs here rather than on every item write: ownership is a property
  * of the ACCOUNT, decided once when its domain is decided. Running it per item

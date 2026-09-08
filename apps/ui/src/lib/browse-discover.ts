@@ -5,33 +5,66 @@ import { itemPassesEnumFilters } from '@/lib/enum-filters';
 
 // ─── Search box + facets → discover params ──────────────────────────────────
 //
-// Maps the LIST view's search box + facet selections to the
-// `useInfiniteBrowseItems` opts. #394: the list ALWAYS uses the discover BFF —
-// there is no more ranked-vs-proximity toggle ("Near me" is gone). `relevance`
-// stays a field (rather than being dropped) purely because
-// `useInfiniteBrowseItems`/`isDiscoverActive` already key off it as one of
-// three ways to activate discover; it is unconditionally `true` here. The
-// caller (home-page) now ALWAYS forwards the resolved viewer location too
-// (`browseCoords`, from the `LocationSourceToggle`/`preferredSource` — profile
-// location or browser geolocation) — there is no `useLocation` gate anymore.
+// Maps the LIST view's search box, facet selections, area choice and sort to
+// the `useInfiniteBrowseItems` opts. #394: the list ALWAYS uses the discover
+// BFF — there is no ranked-vs-proximity toggle. `relevance` stays a field
+// (rather than being dropped) purely because `useInfiniteBrowseItems` /
+// `isDiscoverActive` already key off it as one of three ways to activate
+// discover; it is unconditionally `true` here.
 //
-// DEFAULT-BEHAVIOUR NOTE (#394, intended): signals-search treats the spatial
-// clause as a HARD filter (s_dwithin), so a signed-in user with a location
-// gets a list bounded to the effective radius (~30km default, configurable via
-// SIGNALS_SEARCH_DISTANCE_METERS) — results beyond it are excluded, and there
-// is NO global-ranked opt-out (the removed "Near me OFF" used to give one).
-// The "within X km" list note surfaces this to the user. A "search wider"
-// affordance (larger radius / omit-spatial "search anywhere") is a possible
-// follow-up. When no location is available at all, no spatial clause is sent.
+// #644 — THE LIST IS NO LONGER LOCATION-BOUNDED BY DEFAULT. Previously the
+// page forwarded the resolved viewer location on every request, and
+// signals-search treats a spatial clause as a HARD `s_dwithin` filter, so
+// every signed-in viewer with a location silently saw only items within ~30 km
+// with no way to widen it. That inverted the list view's actual requirement:
+// page through ALL items in the network in a defined order. The map owns
+// location-based discovery. Now:
+//
+//   - `area` defaults to `{ mode: 'anywhere' }` and sends NO coordinates, so
+//     the candidate set is the whole network.
+//   - `radius` is opt-in and explicit. The viewer's location is merely the
+//     default CENTRE OFFERED when they choose it, never an implicit filter.
+//   - `sort: 'nearest'` orders by distance using a separate ORDERING CENTRE
+//     that bounds nothing — location may sort without truncating.
+//
+// The list still needs an optional area filter because the map cannot be the
+// only location-aware view: `map-caps.ts` caps markers per viewport, and in a
+// dense cell at maximum zoom there is no further zoom to escape to. The list
+// is that escape hatch — hence explicit and opt-in, never defaulted.
+export type BrowseSort = 'relevance' | 'newest' | 'nearest';
+
+export type BrowseArea =
+  | { mode: 'anywhere' }
+  | { mode: 'radius'; center: { lat: number; lng: number }; meters: number }
+  /**
+   * The exact rectangle the map is showing (#644 scope, restored). Spec D6
+   * had dropped this mode because signals-search offered only a Point +
+   * radius, so a viewport had to be approximated by its circumscribed circle
+   * — always larger than the rectangle, so the list would have included items
+   * that were off the edges of the map. signals-search now has a `bbox` op,
+   * so this is exact and the "approximate" label #644 asked for is gone.
+   */
+  | {
+      mode: 'viewport';
+      bounds: { minLat: number; minLng: number; maxLat: number; maxLng: number };
+    };
+
+/** Shared so the page, the hook and their tests agree on the default. */
+export const DEFAULT_BROWSE_AREA: BrowseArea = { mode: 'anywhere' };
+
 export interface DeriveBrowseParamsInput {
   search: string;
   activeFieldFilters: Record<string, string[]>;
+  area?: BrowseArea;
+  sort?: BrowseSort;
 }
 
 export interface DerivedBrowseParams {
   relevance: true;
   q?: string;
   filters: DiscoverFacetFilter[];
+  area: BrowseArea;
+  sort: BrowseSort;
 }
 
 export function deriveBrowseParams(input: DeriveBrowseParamsInput): DerivedBrowseParams {
@@ -43,6 +76,11 @@ export function deriveBrowseParams(input: DeriveBrowseParamsInput): DerivedBrows
     relevance: true,
     ...(q ? { q } : {}),
     filters,
+    area: input.area ?? DEFAULT_BROWSE_AREA,
+    // `relevance` is the UI's default ask. The BFF downgrades it to `newest`
+    // when there is neither an anchor nor typed text to rank by, and reports
+    // what it actually applied — so the UI never labels an order it didn't get.
+    sort: input.sort ?? 'relevance',
   };
 }
 
@@ -78,7 +116,7 @@ export function isDiscoverActive(params: {
 //      km" only.
 //   5. no anchor, no location: nothing to say — no note.
 //
-// `locationSource` mirrors the `LocationSourceToggle`/`PreferredLocationSource`
+// `locationSource` mirrors `PreferredLocationSource`
 // value ('profile' | 'browser'), translated here to the word the copy uses
 // ('profile' | 'current'); the i18n VALUE itself is resolved by the caller
 // (home-page) via `home.location_source_${locationSource}` so the word stays
@@ -94,8 +132,20 @@ export interface ResolveListNoteInput {
   // profile", but the caller wires it from the real anchor-sent condition
   // rather than re-deriving that rule here.
   hasProfileAnchor: boolean;
+  /**
+   * Whether the server actually RANKED by relevance (`meta.sort_applied ===
+   * 'relevance'`), as opposed to us merely having sent an anchor.
+   *
+   * Required, not optional: sending an anchor is not the same as it being
+   * usable. signals-search 404s an anchor it has not indexed yet, the BFF
+   * retries anchor-less, and the response comes back `sort_applied: 'newest'`
+   * with `degraded: false` — so the degraded branch below never fires and the
+   * note claimed "relevant to your profile" over a date-ordered list. A caller
+   * has to state this explicitly rather than have it default.
+   */
+  relevanceApplied: boolean;
   // Whether a location is being sent as the discover spatial filter (i.e. the
-  // `LocationSourceToggle`-resolved coordinate resolved to something, not
+  // source-resolved coordinate resolved to something, not
   // null). Combined with `distanceMeters` below to decide whether a truthful
   // "within X km" can be shown.
   hasLocation: boolean;
@@ -117,17 +167,21 @@ export interface ListNoteResult {
 export function resolveListNote(input: ResolveListNoteInput): ListNoteResult | null {
   if (input.degraded) return { key: 'home.list_ranking_unavailable' };
 
+  // The note may only claim profile-relevance when the anchor was both SENT
+  // and honoured.
+  const claimsRelevance = input.hasProfileAnchor && input.relevanceApplied;
+
   const hasKm = input.hasLocation && input.distanceMeters !== undefined;
   if (hasKm) {
     const km = Math.round(input.distanceMeters! / 1000);
     const locationSource = input.locationSource === 'browser' ? 'current' : 'profile';
     return {
-      key: input.hasProfileAnchor ? 'home.list_note_anchor_location' : 'home.list_note_location_only',
+      key: claimsRelevance ? 'home.list_note_anchor_location' : 'home.list_note_location_only',
       values: { km, locationSource },
     };
   }
 
-  if (input.hasProfileAnchor) return { key: 'home.list_note_anchor_only' };
+  if (claimsRelevance) return { key: 'home.list_note_anchor_only' };
 
   return null;
 }
@@ -207,7 +261,6 @@ export function itemToCardItem(item: Item): CardItem {
 
 export interface BuildFilteredCardsOpts {
   search: string;
-  mapSelectedDomains: string[];
   activeFieldFilters: Record<string, string[]>;
   enumFilterFields: EnumFilterField[];
   // #203 List PR Task 5 (correctness): when the feed was served by the discover
@@ -220,22 +273,20 @@ export interface BuildFilteredCardsOpts {
   discover: boolean;
 }
 
-// Shared card filter for the LIST view: the map's domain multi-select, plus (on
-// the native path only) free-text search + enum-field filters. Used by both the
-// paged single-domain list and the "All" tab's merged paged union, so the
-// predicate is defined exactly once.
+// Card filter for the LIST view: on the native path only, free-text search +
+// enum-field filters.
+//
+// #644: the map's domain multi-select no longer takes part. It used to blank
+// the list entirely when it selected a domain other than the browsed one — a
+// coupling that made sense while the "All" tab existed and the panel's toggle
+// narrowed that union. The map is now the only consumer of that selection
+// (spec D12), and the list has its own single-select domain control, so a map
+// concern must not be able to empty the list.
 export function buildFilteredCardsForDomain(
-  domainId: string,
+  _domainId: string,
   items: Item[],
   opts: BuildFilteredCardsOpts,
 ): CardItem[] {
-  // Map domain filter: skip this domain entirely if the filter is active and
-  // this domain is not selected. Applies in BOTH modes (client-side membership
-  // check, no server support needed).
-  if (opts.mapSelectedDomains.length > 0 && !opts.mapSelectedDomains.includes(domainId)) {
-    return [];
-  }
-
   const cards = items.map(itemToCardItem);
 
   // Discover path: the server already applied text + facet filtering. Bypass

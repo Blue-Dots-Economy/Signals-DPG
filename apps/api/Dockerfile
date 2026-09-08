@@ -156,4 +156,23 @@ COPY --from=builder /app/apps/api/drizzle ./apps/api/drizzle
 EXPOSE ${API_PORT}
 USER node
 
+# Checks GET /health/live — the pure process-liveness route
+# (apps/api/src/routes/health/health_route.ts), which returns 200 whenever the
+# event loop runs.
+#
+# It needs no credential because `health_routes` registers no preHandler and
+# buildApp installs no global auth hook — NOT because of PUBLIC_OPERATION_URLS,
+# which only feeds documentAuthTransform (the OpenAPI schema transform) and, as
+# its own docblock says, leaves runtime auth untouched. If an auth hook is ever
+# added to the health plugin, this healthcheck has to gain a credential or the
+# container will report `unhealthy`.
+# Deliberately NOT /health/ready: that one probes Postgres and Redis and returns
+# 503, so a transient dependency blip would flap the container to `unhealthy`.
+# Exec form + node's global fetch(), because the hardened runtime ships no shell,
+# curl or wget. Kubernetes ignores Docker HEALTHCHECKs (the chart configures its
+# own probes); this serves `docker run` / compose users and image scanners.
+# (Trivy DS-0026, #548)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.API_PORT||2742}/health/live`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+
 CMD ["node", "apps/api/dist/server.js"]

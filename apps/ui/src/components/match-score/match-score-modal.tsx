@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { RefreshCw, TrendingUp, MapPin, BookOpen, Award, Clock, AlertCircle, CheckCircle2, Star } from 'lucide-react';
+import { RefreshCw, AlertCircle, Star } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   DialogHeader,
@@ -10,8 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import type { MatchScoreResult, MatchScoreSignal } from '@/lib/match-score-api';
-import { getMatchScoreBand, formatScorePercentage } from '@/utils/match-score-cache';
+import type { MatchScoreResult } from '@/lib/match-score-api';
+import { formatScorePercentage } from '@/utils/match-score-cache';
 
 export interface MatchScoreModalProps {
   isOpen: boolean;
@@ -22,62 +22,12 @@ export interface MatchScoreModalProps {
   networkItemName: string;
   onRecalculate: () => void;
   onProceed?: () => void;
-}
-
-const signalIcons: Record<string, React.ComponentType<{ className?: string }>> = {
-  location: MapPin,
-  subject: BookOpen,
-  expertise: Award,
-  experience: Award,
-  availability: Clock,
-  default: CheckCircle2,
-};
-
-function getSignalIcon(name: string) {
-  const lowerName = name.toLowerCase();
-  for (const [key, icon] of Object.entries(signalIcons)) {
-    if (lowerName.includes(key)) return icon;
-  }
-  return signalIcons.default;
-}
-
-function getSignalImpactColor(impact: string): string {
-  const lowerImpact = impact.toLowerCase();
-  if (lowerImpact.includes('strong') || lowerImpact.includes('high')) {
-    return 'text-emerald-600';
-  }
-  if (lowerImpact.includes('moderate') || lowerImpact.includes('medium')) {
-    return 'text-amber-600';
-  }
-  if (lowerImpact.includes('weak') || lowerImpact.includes('low')) {
-    return 'text-rose-600';
-  }
-  if (lowerImpact.includes('partial')) {
-    return 'text-amber-600';
-  }
-  return 'text-slate-600';
-}
-
-function SignalItem({ signal }: { signal: MatchScoreSignal }) {
-  const Icon = getSignalIcon(signal.name);
-  const impactColor = getSignalImpactColor(signal.impact);
-
-  return (
-    <div className="flex items-start gap-3 py-3 border-b border-border/50 last:border-0">
-      <div className="mt-0.5 shrink-0">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between gap-2">
-          <h4 className="font-medium text-sm truncate">{signal.name}</h4>
-          <span className={cn('text-xs font-medium shrink-0', impactColor)}>
-            {signal.impact}
-          </span>
-        </div>
-        <p className="text-xs text-muted-foreground mt-1">{signal.summary}</p>
-      </div>
-    </div>
-  );
+  /**
+   * #646 C4: the "why this result, in this position" panel. Optional so the
+   * modal still works where the caller has no schema/sort context to build it
+   * from (a public profile, My Actions).
+   */
+  explanation?: React.ReactNode;
 }
 
 export function MatchScoreModal({
@@ -89,19 +39,19 @@ export function MatchScoreModal({
   networkItemName,
   onRecalculate,
   onProceed,
+  explanation,
 }: MatchScoreModalProps) {
   const { t } = useTranslation();
   const scoreValue = score?.score ?? 0;
-  const styles = getMatchScoreBand(scoreValue);
   const [progressValue, setProgressValue] = React.useState(0);
 
   // Animate progress bar when score changes
   React.useEffect(() => {
     if (score?.score !== undefined && !isLoading) {
-      // Backend returns scores on a 0-10 scale; normalize to a 0-100 percent
-      // before animating the progress bar (was `score.score * 100`, which
-      // rendered e.g. 710 for a score of 7.1).
-      const targetValue = Math.round((score.score / 10) * 100);
+      // #646 §5.2: scores are 0-100 end to end now, so the percent IS the
+      // score. The previous /10 normalization existed because the provider
+      // divided by 10 on the way in.
+      const targetValue = Math.round(score.score);
       const duration = 600;
       const startTime = performance.now();
 
@@ -150,20 +100,19 @@ export function MatchScoreModal({
               <>
                 {/* Score Header */}
                 <div className="text-center space-y-4">
-                  <div className={cn(
-                    'inline-flex items-center justify-center w-20 h-20 rounded-full',
-                    styles.bgColor,
-                    styles.textColor
-                  )}>
+                  {/* #646 §5.5: one neutral treatment. The colour used to come
+                      from an Excellent/Good/Moderate/Low band whose
+                      0.85/0.70/0.50 thresholds implied a calibration BGE-M3
+                      similarities do not have — the band read as near-constant
+                      across a result set, so colouring by it told the user
+                      nothing while looking authoritative. */}
+                  <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary text-primary-foreground">
                     <Star className="h-10 w-10 fill-current" />
                   </div>
 
                   <div>
                     <div className="text-4xl font-bold tracking-tight">
                       {formatScorePercentage(scoreValue)}
-                    </div>
-                    <div className={cn('text-lg font-medium mt-1', styles.textColor.replace('text-white', `text-${styles.color}-600`))}>
-                      {styles.label}
                     </div>
                   </div>
 
@@ -180,40 +129,17 @@ export function MatchScoreModal({
                     </div>
                   </div>
 
-                  {score.confidence !== undefined && (
-                    <p className="text-sm text-muted-foreground">
-                      {t('match.confidence', { value: Math.round(score.confidence * 100) })}
-                    </p>
-                  )}
                 </div>
 
-                {/* Matching Factors */}
-                {score.signals && score.signals.length > 0 && (
-                  <div className="border rounded-lg p-4 space-y-3">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <TrendingUp className="h-4 w-4" />
-                      {t('match.factors_heading')}
-                    </h3>
-                    <div className="divide-y divide-border">
-                      {score.signals.map((signal, index) => (
-                        <SignalItem key={index} signal={signal} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {explanation}
 
-                {/* AI Reasoning */}
-                {score.reasoning && (
-                  <div className="border rounded-lg p-4 space-y-3">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <span className="text-lg">🤔</span>
-                      {t('match.ai_reasoning_heading')}
-                    </h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      {score.reasoning}
-                    </p>
-                  </div>
-                )}
+                {/* #646 §5.5: the Matching Factors and AI Reasoning panels
+                    are gone. They rendered `score.signals` and
+                    `score.reasoning`, dpg-scoring-era fields the
+                    signals_search provider never populates — so the modal
+                    advertised explanations that were always absent. The
+                    relevance explanation below replaces them with something
+                    derivable from the schema. */}
               </>
             ) : (
               <div className="text-center py-12 text-muted-foreground">

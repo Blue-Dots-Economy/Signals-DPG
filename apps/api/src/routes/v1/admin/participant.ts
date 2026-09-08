@@ -85,6 +85,18 @@ type OnboardingFields = {
   onboarded_by_default: boolean;
   channel: UpsertBody['channel'];
   source_id: string | undefined;
+  /**
+   * The domain this participant is being onboarded into, when the caller named
+   * one. Recorded on the user row so the single-domain lock has something to
+   * lock against — this API never wrote `user.domains`, which left every
+   * aggregator-onboarded participant permanently unlocked (and made
+   * `GET /api/v1/user/domains` return `[]` for them in the UI).
+   *
+   * Undefined for an aggregator caller that omits `domain` on the account-only
+   * path; the column then stays empty and the participant's first item create
+   * records it (`assertSingleDomain`).
+   */
+  domain: string | undefined;
   now: Date;
 };
 
@@ -154,6 +166,9 @@ const buildOnboardingSet = (f: OnboardingFields) => ({
   onboardedSourceId: f.source_id ?? null,
   onboardedAt: f.now,
   updatedAt: f.now,
+  // Only when the caller named a domain — never write an empty array, which
+  // would read as "locked to nothing" rather than "not yet decided".
+  ...(f.domain ? { domains: [f.domain] } : {}),
 });
 
 // ---------------------------------------------------------------------------
@@ -694,6 +709,7 @@ async function handleAccountOnlyNewUser(ctx: ParticipantCtx) {
     onboarded_by_default: owner.onboarded_by_default,
     channel: body.channel,
     source_id: body.source_id,
+    domain: body.domain,
     now,
   };
 
@@ -1007,6 +1023,7 @@ async function handleCreateNewUser(ctx: ParticipantCtx) {
     onboarded_by_default: owner.onboarded_by_default,
     channel: body.channel,
     source_id: body.source_id,
+    domain: body.domain,
     now,
   };
 

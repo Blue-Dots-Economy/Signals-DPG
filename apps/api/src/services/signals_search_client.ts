@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import z from '@dpg/schemas';
+import z, { type DiscoverSort } from '@dpg/schemas';
 import { signalsSearchConfig } from '@/config';
 
 /**
@@ -48,6 +48,16 @@ export interface SearchSignalsInput {
   lat?: number;
   lng?: number;
   distanceMeters?: number;
+  /**
+   * VIEWPORT area mode — the exact rectangle the map is showing (contract
+   * §1.5). Mutually exclusive with `lat`/`lng`/`distanceMeters`; all four
+   * bounds travel together or none do, enforced on the way in by
+   * `DiscoverItemsBodySchema`.
+   */
+  minLat?: number;
+  minLng?: number;
+  maxLat?: number;
+  maxLng?: number;
   limit: number;
   offset: number;
   /**
@@ -57,6 +67,19 @@ export interface SearchSignalsInput {
    * anchor — see `buildSignalsSearchRequest`.
    */
   anchorItemId?: string;
+  /**
+   * Explicit ordering (#644), forwarded as `intent.sort`. Omitted entirely
+   * when undefined so signals-search keeps its historical inferred behaviour
+   * (cosine → distance → recency) for any caller that doesn't set it.
+   */
+  sort?: DiscoverSort;
+  /**
+   * Ordering centre → `intent.orderingCenter`. Orders ONLY; produces no
+   * spatial clause. Deliberately named differently from `lat`/`lng` above —
+   * those FILTER — so the two can never be confused at a call site.
+   */
+  orderingLat?: number;
+  orderingLng?: number;
 }
 
 const SignalsSearchFilterClauseSchema = z.object({
@@ -75,14 +98,43 @@ const SignalsSearchFilterClauseSchema = z.object({
   value: z.unknown(),
 });
 
-const SignalsSearchSpatialClauseSchema = z.object({
-  op: z.literal('s_dwithin'),
-  geometry: z.object({
-    type: z.literal('Point'),
-    // GeoJSON order — [lng, lat], not [lat, lng].
-    coordinates: z.tuple([z.number(), z.number()]),
+// Two ops, discriminated on `op` (contract §1.5). A DISCRIMINATED union, not
+// a plain one, so adding a third op makes the compiler point at every site
+// that has to branch — which is how signals-search found that its
+// anchorless-spatial refine had to be scoped to `s_dwithin` (a bbox carries
+// its own bounds, so it must not demand an anchor).
+const SignalsSearchSpatialClauseSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('s_dwithin'),
+    geometry: z.object({
+      type: z.literal('Point'),
+      // GeoJSON order — [lng, lat], not [lat, lng].
+      coordinates: z.tuple([z.number(), z.number()]),
+    }),
+    distanceMeters: z.number().optional(),
   }),
-  distanceMeters: z.number().optional(),
+  // Named fields rather than a GeoJSON [west,south,east,north] tuple:
+  // `orderingCenter` already carries one [lng,lat] transposition hazard and a
+  // second was not worth the brevity. camelCase matches signals-search's wire
+  // convention; the UI's snake_case `min_lat` etc. map straight across.
+  z.object({
+    op: z.literal('bbox'),
+    minLat: z.number(),
+    minLng: z.number(),
+    maxLat: z.number(),
+    maxLng: z.number(),
+  }),
+]);
+
+// The ORDERING centre (#644). Same GeoJSON shape as the spatial clause's
+// geometry, but a separate schema because it must never be mistaken for one:
+// signals-search turns `spatial` into a hard ST_DWithin predicate, so an
+// ordering centre leaking in there would silently truncate the candidate set
+// to the default radius — the exact bug #644 fixes.
+const SignalsSearchOrderingCenterSchema = z.object({
+  type: z.literal('Point'),
+  // GeoJSON order — [lng, lat], not [lat, lng].
+  coordinates: z.tuple([z.number(), z.number()]),
 });
 
 const SignalsSearchRequestSchema = z.object({
@@ -99,6 +151,12 @@ const SignalsSearchRequestSchema = z.object({
       filters: z.array(SignalsSearchFilterClauseSchema).optional(),
       spatial: z.array(SignalsSearchSpatialClauseSchema).max(1).optional(),
       item: z.object({ id: z.string() }).optional(),
+      // #644. Both live INSIDE `intent` on purpose: signals-search's result
+      // cache key hashes the whole intent, so placing them on `message`
+      // alongside `pagination` would make two different sorts share a cache
+      // entry.
+      sort: z.enum(['relevance', 'newest', 'nearest']).optional(),
+      orderingCenter: SignalsSearchOrderingCenterSchema.optional(),
     }),
     pagination: z.object({
       limit: z.number().int().min(1).max(MAX_PAGE_SIZE),
@@ -146,13 +204,25 @@ const SignalsSearchResponseSchema = z.object({
       total: z.number(),
       limit: z.number(),
       offset: z.number(),
+      // #644: the order signals-search actually applied. OPTIONAL here, not
+      // required, and that is deliberate — this BFF must keep working against
+      // a signals-search deployed BEFORE its sort change. The two repos ship
+      // independently and either PR may reach production first, so the BFF
+      // falls back to the sort it requested when the field is absent.
+      sort_applied: z.enum(['relevance', 'newest', 'nearest']).optional(),
     }),
   }),
 });
 
 export interface SearchSignalsResult {
   items: SignalsSearchItem[];
-  meta: { total: number; limit: number; offset: number };
+  meta: {
+    total: number;
+    limit: number;
+    offset: number;
+    /** Absent when talking to a signals-search without #644's sort support. */
+    sort_applied?: DiscoverSort;
+  };
 }
 
 /**
@@ -190,7 +260,30 @@ function buildFilterClause(facet: SignalsSearchFacetInput) {
   };
 }
 
+/**
+ * The ONE spatial clause, or none.
+ *
+ * A bbox wins over a radius when both somehow arrive, but that state is
+ * already rejected by `DiscoverItemsBodySchema` — the envelope's `spatial`
+ * array is `.max(1)`, so there is no shape in which both could be sent
+ * anyway. The ordering here is a last line of defence, not a policy.
+ */
 function buildSpatialClause(input: SearchSignalsInput) {
+  if (
+    input.minLat !== undefined &&
+    input.minLng !== undefined &&
+    input.maxLat !== undefined &&
+    input.maxLng !== undefined
+  ) {
+    return {
+      op: 'bbox' as const,
+      minLat: input.minLat,
+      minLng: input.minLng,
+      maxLat: input.maxLat,
+      maxLng: input.maxLng,
+    };
+  }
+
   if (input.lat === undefined || input.lng === undefined) {
     return undefined;
   }
@@ -207,6 +300,20 @@ function buildSpatialClause(input: SearchSignalsInput) {
   };
 }
 
+// Ordering centre → GeoJSON Point. Kept separate from `buildSpatialClause`
+// (rather than sharing a helper) so there is no code path by which an ordering
+// centre can become an `s_dwithin` clause.
+function buildOrderingCenter(input: SearchSignalsInput) {
+  if (input.orderingLat === undefined || input.orderingLng === undefined) {
+    return undefined;
+  }
+
+  return {
+    type: 'Point' as const,
+    coordinates: [input.orderingLng, input.orderingLat] as [number, number],
+  };
+}
+
 /**
  * Builds the Beckn-envelope request body for `/v1/search`. Exported
  * separately from `searchSignals` so envelope construction (facet/spatial
@@ -218,6 +325,7 @@ export function buildSignalsSearchRequest(
 ): SignalsSearchRequest {
   const filters = (input.filters ?? []).map(buildFilterClause);
   const spatial = buildSpatialClause(input);
+  const orderingCenter = buildOrderingCenter(input);
 
   return SignalsSearchRequestSchema.parse({
     context: {
@@ -233,6 +341,8 @@ export function buildSignalsSearchRequest(
         ...(filters.length > 0 ? { filters } : {}),
         ...(spatial ? { spatial: [spatial] } : {}),
         ...(input.anchorItemId ? { item: { id: input.anchorItemId } } : {}),
+        ...(input.sort ? { sort: input.sort } : {}),
+        ...(orderingCenter ? { orderingCenter } : {}),
       },
       pagination: {
         limit: clampLimit(input.limit),

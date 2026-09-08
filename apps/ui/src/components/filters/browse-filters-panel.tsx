@@ -8,13 +8,21 @@ import { ResponsiveDialog } from '@/components/ui/responsive-dialog';
 import { DrawerTitle } from '@/components/ui/drawer';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { formatDomainLabel } from '@/lib/domain-icons';
 import type { DotNetworkDomain, ViewMode } from '@/engine/types';
 import { getEnumFilterFieldsForDomains } from '@/lib/enum-filters';
 import type { EnumFilterField } from '@/lib/enum-filters';
 import { MultiSelectGroup, CHIP_THRESHOLD } from '@/components/filters/multi-select-group';
 
-export interface MapFiltersPanelProps {
+/**
+ * The facet editor for BOTH browse views.
+ *
+ * Renamed from `MapFiltersPanel` and moved out of `components/map/` (#645):
+ * it has served the list view as well since #394, so the old name and location
+ * misdescribed it to every reader. It is the EDITOR — the applied-filter chip
+ * bar is the read-out (spec §7.1), and the two must not both try to own the
+ * state.
+ */
+export interface BrowseFiltersPanelProps {
   /** All visible domains (from the network config) to show as filter options. */
   domains: DotNetworkDomain[];
   /**
@@ -25,10 +33,6 @@ export interface MapFiltersPanelProps {
    * domain.
    */
   filterFieldDomains?: DotNetworkDomain[];
-  /** Currently selected domain filter values. Empty array = all. */
-  selectedDomains: string[];
-  /** Called when the domain filter selection changes. */
-  onDomainsChange: (domains: string[]) => void;
   /**
    * Currently selected enum-field filter values.
    * Map of fieldKey → selected option values. Empty array = all.
@@ -36,14 +40,17 @@ export interface MapFiltersPanelProps {
   selectedFields: Record<string, string[]>;
   /** Called when any enum field filter selection changes. */
   onFieldsChange: (fields: Record<string, string[]>) => void;
-  /**
-   * Whether to show the DOMAIN chip group. Defaults to true. Hidden when the
-   * sidebar already scopes browse to a single domain — the toggle would be
-   * redundant, and the enum groups below already reflect just that domain.
-   */
-  showDomainToggle?: boolean;
   /** Current browse view — tailors the help text (map markers vs listings). */
   viewMode?: ViewMode;
+  /**
+   * Where the trigger is mounted, which decides its chrome.
+   *
+   * `'toolbar'` (default) matches the Sort and Location pills it now sits
+   * beside — same radius, border and padding, no shadow. `'overlay'` keeps the
+   * raised, blurred chip the map needs, since there it floats over tiles
+   * rather than sitting in a row.
+   */
+  trigger?: 'toolbar' | 'overlay';
 }
 
 // ─── Chip toggle button ────────────────────────────────────────────────────────
@@ -56,7 +63,7 @@ interface ChipProps {
   ariaLabel?: string;
 }
 
-function Chip({ label, selected, onToggle, title, ariaLabel }: ChipProps) {
+function Chip({ label, selected, onToggle, title, ariaLabel }: Readonly<ChipProps>) {
   return (
     <button
       type="button"
@@ -85,7 +92,7 @@ interface FilterGroupProps {
   children: React.ReactNode;
 }
 
-function FilterGroup({ title, children }: FilterGroupProps) {
+function FilterGroup({ title, children }: Readonly<FilterGroupProps>) {
   return (
     <div className="space-y-2">
       <span className="block text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -111,16 +118,14 @@ function FilterGroup({ title, children }: FilterGroupProps) {
  * Active-filter count is shown as a badge on the trigger pill.  A "Clear all"
  * link in the header resets all groups. An X button closes the popover.
  */
-export function MapFiltersPanel({
+export function BrowseFiltersPanel({
   domains,
   filterFieldDomains,
-  selectedDomains,
-  onDomainsChange,
   selectedFields,
   onFieldsChange,
-  showDomainToggle = true,
   viewMode = 'map',
-}: MapFiltersPanelProps) {
+  trigger = 'toolbar',
+}: Readonly<BrowseFiltersPanelProps>) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [open, setOpen] = React.useState(false);
@@ -139,7 +144,6 @@ export function MapFiltersPanel({
     [filterFieldDomains, domains],
   );
 
-  const showDomainGroup = showDomainToggle && domains.length > 1;
   const showEnumGroups = enumFilterFields.length > 0;
 
   // Count of active selections across all enum fields
@@ -148,19 +152,13 @@ export function MapFiltersPanel({
     0,
   );
 
-  const activeCount = selectedDomains.length + enumActiveCount;
+  // Facets ONLY. Domain used to be counted here, which made a single facet
+  // read as "2" on the trigger badge — domain moved out to the toolbar's
+  // DomainControl (#645 D10) and is no longer one of this panel's groups.
+  const activeCount = enumActiveCount;
 
   const handleClearAll = () => {
-    onDomainsChange([]);
     onFieldsChange({});
-  };
-
-  const toggleDomain = (domainId: string) => {
-    onDomainsChange(
-      selectedDomains.includes(domainId)
-        ? selectedDomains.filter((d) => d !== domainId)
-        : [...selectedDomains, domainId],
-    );
   };
 
   const toggleEnumValue = (fieldKey: string, value: string) => {
@@ -177,8 +175,10 @@ export function MapFiltersPanel({
     onFieldsChange(updated);
   };
 
-  // Nothing to filter — don't render the pill at all
-  if (!showDomainGroup && !showEnumGroups) return null;
+  // Nothing to filter — don't render the pill at all. Facets are now the only
+  // group (domain moved to the toolbar's DomainControl), so this is the sole
+  // condition.
+  if (!showEnumGroups) return null;
 
   const renderTrigger = (onClick?: () => void) => (
     <Button
@@ -186,7 +186,17 @@ export function MapFiltersPanel({
       size="sm"
       onClick={onClick}
       className={cn(
-        'h-8 gap-1.5 border border-input bg-background/95 text-xs shadow-md backdrop-blur-sm',
+        'gap-1.5 text-xs',
+        // Toolbar: identical chrome to the Sort and Location pills beside it.
+        // The raised/blurred treatment below was for floating over map tiles
+        // and read as a different KIND of control once it joined the row.
+        trigger === 'toolbar'
+          ? 'h-auto rounded-lg border-border bg-background px-2.5 py-1.5 font-semibold shadow-none'
+        // Square on touch like the icon-only Sort and Location beside it —
+        // three icon buttons in a row that are not the same size read as a
+        // mistake. Released from `sm` up, where all three show their text.
+        + ' pointer-coarse:min-h-11 pointer-coarse:min-w-11 sm:pointer-coarse:min-w-0'
+          : 'h-8 border-input bg-background/95 shadow-md backdrop-blur-sm',
         activeCount > 0 && 'border-primary/50 bg-primary/5',
       )}
       aria-label={t('filters.open')}
@@ -250,23 +260,6 @@ export function MapFiltersPanel({
 
       {/* ── Scrollable filter groups ────────────────────────────────────────── */}
       <div className="max-h-[75dvh] space-y-5 overflow-y-auto px-4 py-4">
-        {showDomainGroup && (
-          <FilterGroup title={t('filters.domain_group')}>
-            {domains.map((domain) => {
-              const label = formatDomainLabel(domain.id, domains);
-              return (
-                <Chip
-                  key={domain.id}
-                  label={label}
-                  selected={selectedDomains.includes(domain.id)}
-                  onToggle={() => toggleDomain(domain.id)}
-                  ariaLabel={`Filter by domain: ${label}`}
-                />
-              );
-            })}
-          </FilterGroup>
-        )}
-
         {enumFilterFields.map((field) => {
           const fieldSelected = selectedFields[field.key] ?? [];
 

@@ -50,13 +50,16 @@ export interface Item {
   // #394: only populated on items returned by the discover BFF
   // (`fetchDiscover` in `@/lib/network-api`, `DiscoverResponse.items`) — the
   // SAME cosine-similarity relevance score `/api/v1/match-score/calculate`
-  // computes via signals-search `/v1/relevance`, but raw ~0-1 (unscaled),
-  // whereas the match-score UI's internal scale is 0-10
-  // (`MatchScoreResult.score`). `useMatchScore` multiplies by 10 to seed an
-  // upfront badge from this value instead of requiring a click. Absent on
-  // native-fetched items (`fetchItems`/`fetchNetworkItems`), which never set
-  // it. `distanceMeters` is unused today but carried for parity with the
-  // discover response shape.
+  // computes via signals-search `/v1/relevance`.
+  //
+  // On the wire it is the RAW cosine (~0-1); `fetchDiscover` rescales it to
+  // **0-100** before it reaches any component, so by the time it is on an
+  // `Item` it is already a percentage. See `toPercentScale` there — that is
+  // the only place that knows the wire scale.
+  //
+  // Absent on native-fetched items (`fetchItems`/`fetchNetworkItems`), which
+  // never set it. `distanceMeters` is unused today but carried for parity
+  // with the discover response shape.
   score?: number;
   distanceMeters?: number;
 }

@@ -84,7 +84,7 @@ the configured `VITE_API_URL` (defaults to `http://localhost:2742`).
 
 ## Reused from the signals app (imported read-only)
 
-`components/map/map-container.tsx` (`MapView`), `components/map/map-filters-panel.tsx`,
+`components/map/map-container.tsx` (`MapView`), `components/map/browse-filters-panel.tsx`,
 `components/cards/item-card.tsx`, `lib/enum-filters.ts`, `lib/geo/*`
 (`distance`, `directions`, `types`), `hooks/use-browser-location.ts`,
 `lib/network-api.ts`, `lib/item-api.ts`, the shadcn UI primitives, and the

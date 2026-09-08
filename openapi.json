@@ -3644,6 +3644,13 @@
                       "type": "string",
                       "minLength": 1
                     },
+                    "unavailable_reason": {
+                      "type": "string",
+                      "enum": [
+                        "not_indexed",
+                        "not_comparable"
+                      ]
+                    },
                     "signals": {
                       "type": "array",
                       "items": {
@@ -4394,6 +4401,13 @@
                       "true",
                       "false"
                     ]
+                  },
+                  "order_by": {
+                    "type": "string",
+                    "enum": [
+                      "distance",
+                      "created_at"
+                    ]
                   }
                 },
                 "required": [
@@ -5139,6 +5153,14 @@
                       ]
                     }
                   },
+                  "sort": {
+                    "type": "string",
+                    "enum": [
+                      "relevance",
+                      "newest",
+                      "nearest"
+                    ]
+                  },
                   "item_latitude": {
                     "type": "number",
                     "minimum": -90,
@@ -5149,10 +5171,40 @@
                     "minimum": -180,
                     "maximum": 180
                   },
+                  "min_lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "min_lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
+                  "max_lat": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "max_lng": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
+                  },
                   "distance_meters": {
                     "type": "number",
                     "minimum": 0,
                     "exclusiveMinimum": true
+                  },
+                  "ordering_latitude": {
+                    "type": "number",
+                    "minimum": -90,
+                    "maximum": 90
+                  },
+                  "ordering_longitude": {
+                    "type": "number",
+                    "minimum": -180,
+                    "maximum": 180
                   },
                   "anchor_item_id": {
                     "type": "string",
@@ -5213,6 +5265,14 @@
                         },
                         "distance_meters": {
                           "type": "number"
+                        },
+                        "sort_applied": {
+                          "type": "string",
+                          "enum": [
+                            "relevance",
+                            "newest",
+                            "nearest"
+                          ]
                         }
                       },
                       "required": [
@@ -8308,6 +8368,7 @@
                 "properties": {
                   "domains": {
                     "minItems": 1,
+                    "maxItems": 1,
                     "type": "array",
                     "items": {
                       "type": "string",

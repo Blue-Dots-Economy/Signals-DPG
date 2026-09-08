@@ -369,6 +369,9 @@ describe('DiscoverResponseSchema', () => {
     offset: 0,
     source: 'signals_search' as const,
     degraded: false,
+    // #644: every 200 response now reports the order actually applied, so the
+    // UI labels from what happened rather than from what it requested.
+    sort_applied: 'newest' as const,
   };
 
   it('accepts an empty result set without distance_meters', () => {
@@ -416,5 +419,168 @@ describe('DiscoverResponseSchema', () => {
 
   it('rejects a missing items array', () => {
     expect(DiscoverResponseSchema.safeParse({ meta }).success).toBe(false);
+  });
+});
+
+// ─── #644: explicit sort + opt-in area filter ────────────────────────────────
+//
+// Contract: docs/superpowers/plans/2026-09-03-list-view-wire-contract.md §5-§6.
+// The AREA FILTER (item_latitude/item_longitude/distance_meters) is now
+// opt-in, and an ORDERING CENTRE (ordering_latitude/ordering_longitude) is a
+// distinct concept that orders WITHOUT filtering.
+
+const sortBase = {
+  item_network: 'purple_dot',
+  item_domain: 'provider',
+  item_type: 'profile_1.0',
+};
+
+describe('DiscoverItemsBodySchema — explicit sort (contract §5)', () => {
+  it('accepts each sort value', () => {
+    for (const sort of ['relevance', 'newest', 'nearest'] as const) {
+      expect(DiscoverItemsBodySchema.safeParse({ ...sortBase, sort }).success).toBe(true);
+    }
+  });
+
+  it('rejects an unknown sort', () => {
+    expect(DiscoverItemsBodySchema.safeParse({ ...sortBase, sort: 'cheapest' }).success).toBe(false);
+  });
+
+  it('treats sort as optional — the BFF defaults it', () => {
+    expect(DiscoverItemsBodySchema.safeParse(sortBase).success).toBe(true);
+  });
+});
+
+describe('DiscoverItemsBodySchema — ordering centre is not an area filter', () => {
+  it('accepts an ordering centre with NO area filter (nearest + anywhere)', () => {
+    // The crux of #644: order by distance across the whole network, bounding
+    // nothing. Sending only the ordering centre must be valid.
+    const parsed = DiscoverItemsBodySchema.safeParse({
+      ...sortBase,
+      sort: 'nearest',
+      ordering_latitude: 12.97,
+      ordering_longitude: 77.59,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('requires ordering lat/lng together', () => {
+    expect(
+      DiscoverItemsBodySchema.safeParse({ ...sortBase, ordering_latitude: 12.97 }).success
+    ).toBe(false);
+    expect(
+      DiscoverItemsBodySchema.safeParse({ ...sortBase, ordering_longitude: 77.59 }).success
+    ).toBe(false);
+  });
+
+  it('still requires item lat/lng together (existing rule intact)', () => {
+    expect(
+      DiscoverItemsBodySchema.safeParse({ ...sortBase, item_latitude: 12.97 }).success
+    ).toBe(false);
+  });
+
+  it('accepts both centres at once — an area filter plus an ordering centre', () => {
+    const parsed = DiscoverItemsBodySchema.safeParse({
+      ...sortBase,
+      sort: 'nearest',
+      item_latitude: 12.97,
+      item_longitude: 77.59,
+      distance_meters: 25000,
+      ordering_latitude: 12.97,
+      ordering_longitude: 77.59,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('rejects out-of-range ordering coordinates', () => {
+    expect(
+      DiscoverItemsBodySchema.safeParse({
+        ...sortBase,
+        ordering_latitude: 99,
+        ordering_longitude: 0,
+      }).success
+    ).toBe(false);
+    expect(
+      DiscoverItemsBodySchema.safeParse({
+        ...sortBase,
+        ordering_latitude: 0,
+        ordering_longitude: 200,
+      }).success
+    ).toBe(false);
+  });
+
+  it('accepts a body with no location of any kind — the new default', () => {
+    const parsed = DiscoverItemsBodySchema.safeParse(sortBase);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.item_latitude).toBeUndefined();
+      expect(parsed.data.ordering_latitude).toBeUndefined();
+      expect(parsed.data.distance_meters).toBeUndefined();
+    }
+  });
+});
+
+describe('DiscoverResponseSchema — sort_applied (#644 contract §6)', () => {
+  const meta = {
+    total: 0,
+    limit: 20,
+    offset: 0,
+    source: 'signals_search' as const,
+    degraded: false,
+  };
+
+  it('allows sort_applied to be ABSENT, because absence means "unknown"', () => {
+    // It used to be required. Review of #665: a signals-search predating the
+    // explicit sort omits the field AND ignores `intent.sort`, so the BFF
+    // cannot reconstruct the order — and substituting its own request claimed
+    // an order it never got (distance metrics over a recency-ordered list for
+    // `nearest`; a recency label over a cosine order for `newest` + anchor).
+    // The field is optional so that absence can travel to the UI as unknown.
+    expect(DiscoverResponseSchema.safeParse({ meta, items: [] }).success).toBe(true);
+    expect(
+      DiscoverResponseSchema.safeParse({
+        meta: { ...meta, sort_applied: 'newest' },
+        items: [],
+      }).success
+    ).toBe(true);
+  });
+
+  it('still rejects a sort_applied outside the three known orders', () => {
+    // Optional must not mean "anything goes" — an unrecognised order would
+    // reach the card-metric switch and silently render nothing.
+    expect(
+      DiscoverResponseSchema.safeParse({
+        meta: { ...meta, sort_applied: 'whatever' },
+        items: [],
+      }).success
+    ).toBe(false);
+  });
+
+  it('rejects an unknown sort_applied', () => {
+    expect(
+      DiscoverResponseSchema.safeParse({
+        meta: { ...meta, sort_applied: 'cheapest' },
+        items: [],
+      }).success
+    ).toBe(false);
+  });
+
+  it('keeps distance_meters optional — absent for a non-area search', () => {
+    // An ordering centre bounds nothing, so reporting a radius would be a lie.
+    const parsed = DiscoverResponseSchema.safeParse({
+      meta: { ...meta, sort_applied: 'nearest' },
+      items: [],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.meta.distance_meters).toBeUndefined();
+  });
+
+  it('still carries distance_meters when an area filter was applied', () => {
+    const parsed = DiscoverResponseSchema.safeParse({
+      meta: { ...meta, sort_applied: 'nearest', distance_meters: 25000 },
+      items: [],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.meta.distance_meters).toBe(25000);
   });
 });

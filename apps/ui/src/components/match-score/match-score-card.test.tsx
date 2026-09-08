@@ -72,7 +72,7 @@ describe('MatchScoreCard', () => {
         schema={schema}
         data={{ name: 'Dest' }}
         localItem={item('mine')}
-        networkItem={{ ...item('dest'), score: 0.71 }}
+        networkItem={{ ...item('dest'), score: 71 }}
       />,
     );
 
@@ -88,7 +88,7 @@ describe('MatchScoreCard', () => {
         schema={schema}
         data={{ name: 'Dest' }}
         localItem={item('mine')}
-        networkItem={{ ...item('dest'), score: 0.71 }}
+        networkItem={{ ...item('dest'), score: 71 }}
       />,
     );
 

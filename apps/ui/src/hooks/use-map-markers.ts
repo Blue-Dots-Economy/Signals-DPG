@@ -4,14 +4,29 @@ import { fetchNetworkMarkers, MAP_FETCH_LIMIT } from '@/lib/network-api';
 import type { Marker } from '@/lib/network-api';
 import type { DotNetworkSchema, DotNetworkDomain, MapViewport } from '@/engine/types';
 import { queryKeys } from '@/lib/query-keys';
-import { snapViewportForKey, padBbox, shouldRefetch, zoomBand, clampBbox } from '@/lib/map-viewport-snap';
+import { snapViewportForKey, padBbox, shouldRefetch, zoomBand, clampBbox, bboxContains } from '@/lib/map-viewport-snap';
 import type { RawBbox, ZoomBand } from '@/lib/map-viewport-snap';
 import { capForZoom } from '@/lib/map-caps';
+import { resolveFacetFieldLabels } from '@/lib/facet-fields';
 
 // Map tier (spec §5.2 / §8): markers are lightweight pins, cached ~90s
 // client-side, mirrored by `cache_ttl_seconds` sent to the server so the
 // client's freshness intent lines up with the server's own cache knob.
 const MAP_STALE_TIME_MS = 90 * 1000;
+
+/** True when any of an item's locations falls inside `bbox`. */
+function markerInBbox(
+  m: Marker,
+  bbox: { minLat: number; minLng: number; maxLat: number; maxLng: number },
+): boolean {
+  return (m.item_locations ?? []).some(
+    (l) =>
+      l.lat >= bbox.minLat &&
+      l.lat <= bbox.maxLat &&
+      l.lng >= bbox.minLng &&
+      l.lng <= bbox.maxLng,
+  );
+}
 const MAP_CACHE_TTL_SECONDS = 90;
 
 // Viewport bucketing (spec §8 flag-back: "rounded viewport bucket"). Only the
@@ -124,7 +139,7 @@ interface HeldBboxState {
  * `{ gender: ['female'] }`) — forwarded to the server as `item_state` and
  * folded into the query key so a filter change always produces a distinct
  * cache entry. Defaults to `{}` (no filters). `home-page.tsx` passes
- * `MapFiltersPanel`'s `selectedFields` (as `activeFieldFilters`) here (#203
+ * `BrowseFiltersPanel`'s `selectedFields` (as `activeFieldFilters`) here (#203
  * map-serverside-search Task 7); this parameter's shape has been stable
  * since Task 4, which wired the key ahead of the panel actually being
  * connected to it.
@@ -144,6 +159,37 @@ export function useMapMarkers(
 ): UseMapMarkersResult {
   const q = search.trim();
   const active = network && viewport ? domains : [];
+
+  // Route each active facet to the domains that can actually honour it.
+  //
+  // The map issues ONE markers request per selected domain but used to send
+  // the same `filters` object to all of them. The server honours a facet only
+  // when the field is declared, non-private, on that domain's schema and
+  // drops any other one SILENTLY (`resolveAllowedFacetFields` — never a 4xx,
+  // so a caller cannot probe for private fields). With blue_dot's seeker and
+  // provider schemas sharing zero field names, filtering on a seeker field
+  // while both domains were selected returned every PROVIDER unfiltered.
+  //
+  // A domain that cannot satisfy an active facet is dropped from the fetch
+  // entirely rather than queried without it: the user constrained on an
+  // attribute those items do not have, so the honest answer is that none of
+  // them match — not all of them.
+  const facetRouting = React.useMemo(() => {
+    const activeFields = Object.keys(filters);
+    return new Map(
+      active.map((domain) => {
+        if (activeFields.length === 0) return [domain.id, { filters: {}, satisfiable: true }];
+        const declared = resolveFacetFieldLabels([domain]);
+        const applicable: Record<string, unknown> = {};
+        let satisfiable = true;
+        for (const field of activeFields) {
+          if (field in declared) applicable[field] = filters[field];
+          else satisfiable = false;
+        }
+        return [domain.id, { filters: applicable, satisfiable }];
+      }),
+    );
+  }, [active, filters]);
 
   // Bbox path (#203 map-serverside-search Task 4): both live map providers
   // now report `map.getBounds()` corners on every emit, so `viewport` has a
@@ -266,16 +312,29 @@ export function useMapMarkers(
     queries: active.map((domain) => {
       const itemTypeKeys = domain.item_schemas ? Object.keys(domain.item_schemas) : [];
       const itemType = itemTypeKeys.length > 0 ? itemTypeKeys[0] : 'profile';
+      // Per-domain, so the cache key matches what is actually sent and two
+      // domains under the same facet selection don't share an entry.
+      const routed = facetRouting.get(domain.id) ?? { filters: {}, satisfiable: true };
+      const domainFilters = routed.filters;
       const keyFilters = snappedKey
         ? {
             snappedBbox: snappedKey.snappedBbox,
             zoomBand: snappedKey.zoomBand,
             bboxToken: bboxTokenRef.current,
-            filters,
+            filters: domainFilters,
+            satisfiable: routed.satisfiable,
             q,
             limit,
           }
-        : { latBucket, lngBucket, radiusBucket, filters, q, limit };
+        : {
+            latBucket,
+            lngBucket,
+            radiusBucket,
+            filters: domainFilters,
+            satisfiable: routed.satisfiable,
+            q,
+            limit,
+          };
       return {
         queryKey: queryKeys.markers(network!.id, domain.id, keyFilters),
         queryFn: async ({ signal }: { signal: AbortSignal }) =>
@@ -301,7 +360,7 @@ export function useMapMarkers(
                     item_longitude: viewport!.lng,
                     radius_meters: viewport!.radiusMeters,
                   }),
-              ...(Object.keys(filters).length > 0 ? { item_state: filters } : {}),
+              ...(Object.keys(domainFilters).length > 0 ? { item_state: domainFilters } : {}),
               ...(q ? { q } : {}),
               limit,
               cache_ttl_seconds: MAP_CACHE_TTL_SECONDS,
@@ -309,6 +368,11 @@ export function useMapMarkers(
             signal,
           ),
         staleTime: MAP_STALE_TIME_MS,
+        // A domain that cannot honour one of the active facets contributes
+        // nothing. Skipping the request (rather than sending it and letting
+        // the server drop the facet) is what makes the map agree with the
+        // filter: the alternative returned that domain's pins UNFILTERED.
+        enabled: routed.satisfiable,
       };
     }),
   });
@@ -327,6 +391,42 @@ export function useMapMarkers(
   // over-dense "N+ in this area — zoom in" indicator this hook's caller
   // renders, so neither trusts a set that's only representative for some
   // domains.
+  // The bbox the user is LOOKING at, which is not always the one last fetched
+  // — see the count derivation below.
+  const shownBbox =
+    viewport?.minLat !== undefined &&
+    viewport.minLng !== undefined &&
+    viewport.maxLat !== undefined &&
+    viewport.maxLng !== undefined
+      ? {
+          minLat: viewport.minLat,
+          minLng: viewport.minLng,
+          maxLat: viewport.maxLat,
+          maxLng: viewport.maxLng,
+        }
+      : null;
+  const shownBboxSignature = shownBbox
+    ? `${shownBbox.minLat},${shownBbox.minLng},${shownBbox.maxLat},${shownBbox.maxLng}`
+    : null;
+
+  // Recounting from the returned markers is only sound when the fetch covered
+  // AT LEAST the area on screen. The displayed viewport can be WIDER than
+  // `effectiveBbox` for a render or two — the bbox is snapped and held, and a
+  // zoom-out has to wait for the next fetch to land — and in that window the
+  // marker set knows nothing about items outside the fetched box. Counting it
+  // then under-reports: a fully zoomed-out map read "94" while 8 items simply
+  // had not been fetched yet. `meta.total` is the honest answer until the
+  // wider fetch settles.
+  const canRecount =
+    shownBbox !== null &&
+    effectiveBbox !== null &&
+    bboxContains(effectiveBbox, {
+      minLat: shownBbox.minLat,
+      minLng: shownBbox.minLng,
+      maxLat: shownBbox.maxLat,
+      maxLng: shownBbox.maxLng,
+    });
+
   const aggregated = React.useMemo(() => {
     const markers: Marker[] = [];
     let total = 0;
@@ -335,14 +435,36 @@ export function useMapMarkers(
     for (const result of results) {
       if (result.data) {
         markers.push(...result.data.markers);
-        total += result.data.meta.total;
+        const serverTotal = result.data.meta.total;
+        const domainTruncated = serverTotal > cap;
         partial = partial || result.data.meta.partial;
-        truncated = truncated || result.data.meta.total > cap;
+        truncated = truncated || domainTruncated;
+
+        // COUNT WHAT IS ON SCREEN, not what was last requested.
+        //
+        // `shouldRefetch` deliberately reuses a cached result whenever the new
+        // bbox is CONTAINED in the previous padded one (zooming in, or
+        // returning to the map at a tighter viewport). The markers stay
+        // correct — they are a superset, and the out-of-view ones simply are
+        // not on screen — but `meta.total` still describes the LARGER fetched
+        // area. That is why zooming out to 72 and coming back to a city
+        // viewport kept reading "72 listings" while showing a city's worth of
+        // pins.
+        //
+        // When a domain is not truncated its `markers` array IS the complete
+        // set for the fetched area, so filtering to the shown bbox gives the
+        // exact on-screen count. When it IS truncated we do not hold the full
+        // set, and the caller renders an "N+ in this area" pill from
+        // `truncated` anyway, so the server total remains the right input.
+        total +=
+          canRecount && shownBbox && !domainTruncated
+            ? result.data.markers.filter((m) => markerInBbox(m, shownBbox)).length
+            : serverTotal;
       }
     }
     return { markers, total, partial, truncated };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- dataSignature captures the results' data identity; cap is a cheap derived primitive listed explicitly
-  }, [dataSignature, cap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dataSignature captures the results' data identity; cap, shownBboxSignature and canRecount are cheap derived primitives listed explicitly
+  }, [dataSignature, cap, shownBboxSignature, canRecount]);
 
   // Update the held refetch state (Task 5) once every active domain's query
   // for `effectiveBbox` has settled — in an effect, not during render, so

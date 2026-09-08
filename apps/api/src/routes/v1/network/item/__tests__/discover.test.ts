@@ -81,7 +81,7 @@ vi.mock('@/utils/inter_instance_fetch', () => ({
 }));
 
 // Imported after mocks.
-import { discover } from '../discover.js';
+import { discover, resolveDiscoverSort } from '../discover.js';
 import { SignalsSearchError } from '@/services/signals_search_client';
 import { signalsSearchConfig } from '@/config';
 
@@ -153,7 +153,7 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
     // caught by asserting this exact order.
     searchSignalsMock.mockResolvedValueOnce({
       items: [FULL_ITEM_B, FULL_ITEM_A],
-      meta: { total: 2, limit: 20, offset: 0 },
+      meta: { total: 2, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -198,6 +198,8 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
       offset: 0,
       source: 'signals_search',
       degraded: false,
+      // #644: every 200 reports the order actually applied.
+      sort_applied: 'newest',
     });
   });
 
@@ -239,7 +241,7 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
   it('returns an empty items array (with meta) when signals-search has no matches, without touching a DB', async () => {
     searchSignalsMock.mockResolvedValueOnce({
       items: [],
-      meta: { total: 0, limit: 20, offset: 0 },
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -250,7 +252,14 @@ describe('POST /api/v1/network/item/discover — direct map (revised, no hydrate
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      meta: { total: 0, limit: 20, offset: 0, source: 'signals_search', degraded: false },
+      meta: {
+        total: 0,
+        limit: 20,
+        offset: 0,
+        source: 'signals_search',
+        degraded: false,
+        sort_applied: 'newest',
+      },
       items: [],
     });
   });
@@ -292,7 +301,7 @@ describe('POST /api/v1/network/item/discover — profile anchor relevance (#394)
     searchSignalsMock.mockRejectedValueOnce(notFoundErr);
     searchSignalsMock.mockResolvedValueOnce({
       items: [FULL_ITEM_A],
-      meta: { total: 1, limit: 20, offset: 0 },
+      meta: { total: 1, limit: 20, offset: 0, sort_applied: 'newest' },
     });
 
     const res = await app.inject({
@@ -317,6 +326,8 @@ describe('POST /api/v1/network/item/discover — profile anchor relevance (#394)
       offset: 0,
       source: 'signals_search',
       degraded: false,
+      // #644: every 200 reports the order actually applied.
+      sort_applied: 'newest',
     });
     expect(body.items[0]).toMatchObject({ item_id: FULL_ITEM_A.item_id });
   });
@@ -468,6 +479,8 @@ describe('POST /api/v1/network/item/discover — native fallback (#203 List PR, 
       offset: 0,
       source: 'native_fallback',
       degraded: true,
+      // #644: every 200 reports the order actually applied.
+      sort_applied: 'newest',
     });
     expect(body.items).toHaveLength(1);
     expect(body.items[0]).toMatchObject({ item_id: FULL_ITEM_A.item_id });
@@ -663,6 +676,66 @@ describe('POST /api/v1/network/item/discover — native fallback (#203 List PR, 
     expect(callArgs).not.toHaveProperty('text_search');
     expect(callArgs).not.toHaveProperty('item_state');
     expect(fetchItemsAcrossInstancesMock).not.toHaveBeenCalled();
+  });
+
+  // Natively, item_latitude/longitude is BOTH the filter centre and the
+  // distance origin — buildWhereClause and buildDistanceOrderBy read the same
+  // pair. signals-search can separate them; the native path cannot. Preferring
+  // the ordering centre moved the radius onto a different point, so this path
+  // filtered a DIFFERENT CIRCLE than signals-search would for the same
+  // request — two result sets for one query, depending on whether the search
+  // service happened to be up.
+  it('nearest filters around the AREA centre, not the ordering centre', async () => {
+    searchSignalsMock.mockRejectedValueOnce(new Error('signals-search unreachable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+      items: [],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({
+        sort: 'nearest',
+        item_latitude: 12.9,
+        item_longitude: 77.5,
+        distance_meters: 4000,
+        ordering_latitude: 13.4,
+        ordering_longitude: 77.9,
+      }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const callArgs = fetchItemsAcrossInstancesMock.mock.calls[0][0] as {
+      filters: Record<string, unknown>;
+    };
+    expect(callArgs.filters.item_latitude).toBe(12.9);
+    expect(callArgs.filters.item_longitude).toBe(77.5);
+    expect(callArgs.filters.radius_meters).toBe(4000);
+    expect(callArgs.filters.order_by).toBe('distance');
+  });
+
+  it('nearest uses the ordering centre UNBOUNDED when no area was requested', async () => {
+    // An ordering centre bounds nothing — that is the whole point of #644.
+    searchSignalsMock.mockRejectedValueOnce(new Error('signals-search unreachable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+      items: [],
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'nearest', ordering_latitude: 13.4, ordering_longitude: 77.9 }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const callArgs = fetchItemsAcrossInstancesMock.mock.calls[0][0] as {
+      filters: Record<string, unknown>;
+    };
+    expect(callArgs.filters.item_latitude).toBe(13.4);
+    expect(callArgs.filters.radius_meters).toBeUndefined();
+    expect(callArgs.filters.order_by).toBe('distance');
   });
 
   it('returns a clean 500 (never throws) when BOTH signals-search and the native fallback fail', async () => {
@@ -931,5 +1004,741 @@ describe('POST /api/v1/network/item/discover — configurable spatial radius (#3
       filters: Record<string, unknown>;
     };
     expect(callArgs.filters.radius_meters).toBeUndefined();
+  });
+});
+
+// ─── #644: opt-in area filter + explicit sort ────────────────────────────────
+//
+// Contract: docs/superpowers/plans/2026-09-03-list-view-wire-contract.md §5-§7.
+
+describe('resolveDiscoverSort — defaulting and fallbacks (contract §5.2)', () => {
+  const base = { hasAnchor: false, hasQ: false, hasOrderingCenter: false };
+
+  it('defaults to relevance when an anchor is sent', () => {
+    expect(resolveDiscoverSort({ ...base, hasAnchor: true })).toBe('relevance');
+  });
+
+  it('defaults to newest with no anchor', () => {
+    expect(resolveDiscoverSort(base)).toBe('newest');
+  });
+
+  it('falls back to newest for relevance with neither anchor nor q', () => {
+    // Never errors — the response reports what was actually applied.
+    expect(resolveDiscoverSort({ ...base, requested: 'relevance' })).toBe('newest');
+  });
+
+  it('honours relevance when q is present without an anchor', () => {
+    expect(resolveDiscoverSort({ ...base, requested: 'relevance', hasQ: true })).toBe(
+      'relevance',
+    );
+  });
+
+  it('falls back to newest for nearest with no ordering centre', () => {
+    expect(resolveDiscoverSort({ ...base, requested: 'nearest' })).toBe('newest');
+  });
+
+  it('honours nearest with an ordering centre', () => {
+    expect(
+      resolveDiscoverSort({ ...base, requested: 'nearest', hasOrderingCenter: true }),
+    ).toBe('nearest');
+  });
+
+  it('always honours an explicit newest', () => {
+    expect(resolveDiscoverSort({ ...base, requested: 'newest', hasAnchor: true })).toBe(
+      'newest',
+    );
+  });
+});
+
+describe('POST /discover — the area filter is opt-in (#644)', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  async function post(
+    extra: Record<string, unknown> = {},
+    upstreamSort: 'relevance' | 'newest' | 'nearest' = 'newest',
+  ) {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: upstreamSort },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return {
+      res,
+      body: res.json() as { meta: Record<string, unknown> },
+      sent: searchSignalsMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined,
+    };
+  }
+
+  it('sends no coordinates and no radius when no area is requested', async () => {
+    const { res, body, sent } = await post();
+
+    expect(res.statusCode).toBe(200);
+    expect(sent?.lat).toBeUndefined();
+    expect(sent?.lng).toBeUndefined();
+    expect(sent?.distanceMeters).toBeUndefined();
+    expect(body.meta.distance_meters).toBeUndefined();
+  });
+
+  it('does NOT apply the configured env radius without an area filter', async () => {
+    // Regression guard for the #644 root cause: the env fallback previously
+    // resolved a radius whenever a location was sent, and the UI always sent
+    // one — so every signed-in viewer was silently bounded.
+    signalsSearchConfig.distanceMeters = 30000;
+    const { sent, body } = await post();
+
+    expect(sent?.distanceMeters).toBeUndefined();
+    expect(body.meta.distance_meters).toBeUndefined();
+  });
+
+  it('sends and reports a radius in radius mode', async () => {
+    const { sent, body } = await post({
+      item_latitude: 12.97,
+      item_longitude: 77.59,
+      distance_meters: 25000,
+    });
+
+    expect(sent?.lat).toBe(12.97);
+    expect(sent?.lng).toBe(77.59);
+    expect(sent?.distanceMeters).toBe(25000);
+    expect(body.meta.distance_meters).toBe(25000);
+  });
+
+  it('applies the env radius when an area filter is requested without one', async () => {
+    signalsSearchConfig.distanceMeters = 15000;
+    const { sent, body } = await post({ item_latitude: 12.97, item_longitude: 77.59 });
+
+    expect(sent?.distanceMeters).toBe(15000);
+    expect(body.meta.distance_meters).toBe(15000);
+  });
+
+  it('forwards an ordering centre WITHOUT reporting a radius', async () => {
+    // An ordering centre bounds nothing, so a "within X km" note would be a lie.
+    const { sent, body } = await post(
+      { sort: 'nearest', ordering_latitude: 12.97, ordering_longitude: 77.59 },
+      'nearest',
+    );
+
+    expect(sent?.orderingLat).toBe(12.97);
+    expect(sent?.orderingLng).toBe(77.59);
+    expect(sent?.lat).toBeUndefined();
+    expect(body.meta.distance_meters).toBeUndefined();
+    expect(body.meta.sort_applied).toBe('nearest');
+  });
+});
+
+describe('POST /discover — sort defaulting and reporting (#644)', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  it('defaults to relevance when an anchor is sent, and forwards it', async () => {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: 'relevance' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ anchor_item_id: '11111111-1111-4111-8111-111111111111' }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(searchSignalsMock.mock.calls[0][0].sort).toBe('relevance');
+    expect((res.json() as { meta: { sort_applied: string } }).meta.sort_applied).toBe(
+      'relevance',
+    );
+  });
+
+  it('defaults to newest with no anchor', async () => {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: 'newest' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(),
+    });
+
+    expect(searchSignalsMock.mock.calls[0][0].sort).toBe('newest');
+  });
+
+  it('prefers the upstream sort_applied over its own request', async () => {
+    // signals-search is the authority on what it actually did.
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: 'newest' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'relevance', q: 'solar' }),
+    });
+
+    expect(searchSignalsMock.mock.calls[0][0].sort).toBe('relevance');
+    expect((res.json() as { meta: { sort_applied: string } }).meta.sort_applied).toBe(
+      'newest',
+    );
+  });
+
+  it('reports NO order when the upstream omits sort_applied, rather than its own', async () => {
+    // This used to assert the opposite — that the BFF substituted its own
+    // resolution "rather than fail serialization". Review of #665 showed that
+    // is a claim, not a fallback: a signals-search old enough to omit the
+    // field also ignores `intent.sort`, so our resolution describes nothing it
+    // did. The response field is optional precisely so absence can travel.
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0 },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'newest' }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { meta: { sort_applied?: string } }).meta.sort_applied).toBeUndefined();
+  });
+});
+
+describe('POST /discover — native fallback ordering (contract §7)', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+    searchSignalsMock.mockRejectedValue(new Error('signals-search down'));
+    fetchItemsAcrossInstancesMock.mockResolvedValue({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0 },
+    });
+  });
+
+  async function post(extra: Record<string, unknown> = {}) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return {
+      res,
+      body: res.json() as { meta: Record<string, unknown> },
+      filters: (fetchItemsAcrossInstancesMock.mock.calls[0]?.[0] as {
+        filters: Record<string, unknown>;
+      })?.filters,
+    };
+  }
+
+  it('newest sends no coordinates, so the native ORDER BY is created_at DESC', async () => {
+    const { res, body, filters } = await post({ sort: 'newest' });
+
+    expect(res.statusCode).toBe(200);
+    expect(filters.item_latitude).toBeUndefined();
+    expect(filters.item_longitude).toBeUndefined();
+    expect(filters.radius_meters).toBeUndefined();
+    expect(body.meta.sort_applied).toBe('newest');
+  });
+
+  it('nearest sends coordinates with NO radius — distance-ordered, unbounded', async () => {
+    const { filters, body } = await post({
+      sort: 'nearest',
+      ordering_latitude: 12.97,
+      ordering_longitude: 77.59,
+    });
+
+    // buildWhereClause only adds a radius clause when lat, lng AND
+    // radius_meters are all present, so omitting the radius orders without
+    // filtering.
+    expect(filters.item_latitude).toBe(12.97);
+    expect(filters.item_longitude).toBe(77.59);
+    expect(filters.radius_meters).toBeUndefined();
+    expect(body.meta.sort_applied).toBe('nearest');
+  });
+
+  it('reports newest for a relevance request — the native path cannot rank', async () => {
+    const { body } = await post({
+      sort: 'relevance',
+      anchor_item_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(body.meta.degraded).toBe(true);
+    expect(body.meta.sort_applied).toBe('newest');
+  });
+
+  it('still honours an explicit area filter on the degraded path', async () => {
+    const { filters, body } = await post({
+      item_latitude: 12.97,
+      item_longitude: 77.59,
+      distance_meters: 25000,
+    });
+
+    expect(filters.radius_meters).toBe(25000);
+    expect(body.meta.distance_meters).toBe(25000);
+  });
+});
+
+describe('POST /discover — viewport area mode (contract §1.5)', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  const BOX = { min_lat: 12.8, min_lng: 77.4, max_lat: 13.1, max_lng: 77.8 };
+
+  async function post(
+    extra: Record<string, unknown> = {},
+    upstreamSort: 'relevance' | 'newest' | 'nearest' = 'newest',
+  ) {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: upstreamSort },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return {
+      res,
+      body: res.json() as { meta: Record<string, unknown> },
+      sent: searchSignalsMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined,
+    };
+  }
+
+  it('forwards the four bounds and no radius', async () => {
+    // Spec D6 dropped this mode because signals-search had only a Point +
+    // radius op, and a circumscribed circle is always LARGER than the
+    // rectangle — the list would have shown items that were off the edges of
+    // the map. The bbox op makes it exact, so the mode is back.
+    const { res, sent } = await post(BOX);
+
+    expect(res.statusCode).toBe(200);
+    expect(sent?.minLat).toBe(12.8);
+    expect(sent?.minLng).toBe(77.4);
+    expect(sent?.maxLat).toBe(13.1);
+    expect(sent?.maxLng).toBe(77.8);
+    expect(sent?.lat).toBeUndefined();
+    expect(sent?.distanceMeters).toBeUndefined();
+  });
+
+  it('reports NO radius for a viewport search — it never applied one', async () => {
+    // Review finding. `hasAreaFilter` folded the bbox in with the radius pair,
+    // so `effectiveDistanceMeters` resolved to DEFAULT_SEARCH_DISTANCE_METERS
+    // and went out as `meta.distance_meters`. The UI note is area-mode-blind
+    // (`resolveListNote` only checks hasLocation && distanceMeters), so a
+    // signed-in viewer who zoomed to one street and hit "Search this area" was
+    // told "within 30 km of your profile location" — and still 30 km after
+    // zooming out to a whole state. This is precisely the lie the ordering
+    // centre was split out to avoid: report a bound only where one applies.
+    const { body, sent } = await post(BOX);
+
+    expect(body.meta.distance_meters).toBeUndefined();
+    // The bbox itself must still be the filter that travels.
+    expect(sent?.minLat).toBe(12.8);
+    expect(sent?.distanceMeters).toBeUndefined();
+  });
+
+  it('still reports the radius when a viewport carries an ordering centre', async () => {
+    // An ordering centre bounds nothing either, so it must not resurrect a
+    // reported radius.
+    const { body } = await post(
+      { ...BOX, sort: 'nearest', ordering_latitude: 12.97, ordering_longitude: 77.59 },
+      'nearest',
+    );
+
+    expect(body.meta.distance_meters).toBeUndefined();
+  });
+
+  it('a viewport contributes NO ordering centre, so nearest degrades', async () => {
+    // Contract §1.3 rule 2 is `s_dwithin` only. Deriving a centre from the
+    // rectangle's midpoint would let "search this area" silently change the
+    // sort the user picked.
+    const { body } = await post({ ...BOX, sort: 'nearest' });
+
+    expect(body.meta.sort_applied).toBe('newest');
+  });
+
+  it('orders by distance when an ordering centre accompanies the viewport', async () => {
+    const { body, sent } = await post(
+      { ...BOX, sort: 'nearest', ordering_latitude: 12.97, ordering_longitude: 77.59 },
+      'nearest',
+    );
+
+    expect(body.meta.sort_applied).toBe('nearest');
+    expect(sent?.orderingLat).toBe(12.97);
+    expect(sent?.minLat).toBe(12.8);
+  });
+
+  it('rejects a partial box rather than defaulting the missing side', async () => {
+    // Defaulting a side would search somewhere the caller did not ask about.
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ min_lat: 12.8, min_lng: 77.4 }),
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects transposed bounds rather than silently swapping them', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ min_lat: 13.1, min_lng: 77.4, max_lat: 12.8, max_lng: 77.8 }),
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects an antimeridian-crossing box instead of returning nothing', async () => {
+    // signals-search does not support it, and an empty set reads as
+    // "nothing here" rather than "unsupported".
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ min_lat: 12.8, min_lng: 170, max_lat: 13.1, max_lng: -170 }),
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects a bbox and a radius together — they are alternative area modes', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({
+        ...BOX,
+        item_latitude: 12.97,
+        item_longitude: 77.59,
+        distance_meters: 5000,
+      }),
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('passes the bbox to the NATIVE fallback, which has always supported one', async () => {
+    // So the mode works with signals-search down — which is every local run.
+    searchSignalsMock.mockRejectedValueOnce(new Error('unavailable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(BOX),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const nativeFilters = fetchItemsAcrossInstancesMock.mock.calls[0]?.[0]?.filters as
+      | Record<string, unknown>
+      | undefined;
+    expect(nativeFilters?.min_lat).toBe(12.8);
+    expect(nativeFilters?.max_lng).toBe(77.8);
+    // The bbox filters; the order still comes from `sort`.
+    expect(nativeFilters?.order_by).toBe('created_at');
+    expect(nativeFilters?.radius_meters).toBeUndefined();
+  });
+});
+
+/**
+ * PARITY. Every area mode and sort has to behave the same whether
+ * signals-search answers or the native fallback does — otherwise the list
+ * silently changes meaning when the search service is down, which locally is
+ * always and in production is an outage.
+ *
+ * The two implementations necessarily differ (an HTTP envelope vs SQL), so
+ * this asserts the OBSERVABLE contract on both: which spatial constraint is
+ * applied, and which ordering. It is the test that would have caught the
+ * native path still inferring its ORDER BY from the presence of coordinates
+ * (#644 P3), where an area filter silently reordered a `newest` list.
+ */
+describe('POST /discover — signals-search and native parity (contract §7)', () => {
+  let app: FastifyInstance;
+
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  const RADIUS = { item_latitude: 12.97, item_longitude: 77.59, distance_meters: 5000 };
+  const BOX = { min_lat: 12.8, min_lng: 77.4, max_lat: 13.1, max_lng: 77.8 };
+
+  async function viaSearch(extra: Record<string, unknown>, applied = 'newest') {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, sort_applied: applied },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return {
+      applied: (res.json() as { meta: { sort_applied: string } }).meta.sort_applied,
+      sent: searchSignalsMock.mock.calls[0]?.[0] as Record<string, unknown>,
+    };
+  }
+
+  async function viaNative(extra: Record<string, unknown>) {
+    searchSignalsMock.mockRejectedValueOnce(new Error('unavailable'));
+    fetchItemsAcrossInstancesMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, partial: false, unavailable_instances: [] },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return {
+      applied: (res.json() as { meta: { sort_applied: string } }).meta.sort_applied,
+      filters: fetchItemsAcrossInstancesMock.mock.calls[0]?.[0]?.filters as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+
+  it('anywhere + newest: neither path applies any spatial constraint', async () => {
+    const search = await viaSearch({ sort: 'newest' });
+    expect(search.sent.lat).toBeUndefined();
+    expect(search.sent.minLat).toBeUndefined();
+
+    const native = await viaNative({ sort: 'newest' });
+    expect(native.filters.item_latitude).toBeUndefined();
+    expect(native.filters.min_lat).toBeUndefined();
+    expect(native.filters.order_by).toBe('created_at');
+  });
+
+  it('radius + newest: both bound by the radius, and NEITHER reorders', async () => {
+    // The defect this pins: the native ORDER BY used to key off the presence
+    // of coordinates, so this exact request came back distance-ordered.
+    const search = await viaSearch({ sort: 'newest', ...RADIUS });
+    expect(search.sent.lat).toBe(12.97);
+    expect(search.sent.distanceMeters).toBe(5000);
+    expect(search.applied).toBe('newest');
+
+    const native = await viaNative({ sort: 'newest', ...RADIUS });
+    expect(native.filters.item_latitude).toBe(12.97);
+    expect(native.filters.radius_meters).toBe(5000);
+    expect(native.filters.order_by).toBe('created_at');
+    expect(native.applied).toBe('newest');
+  });
+
+  it('radius + nearest: both bound AND order by distance', async () => {
+    const search = await viaSearch({ sort: 'nearest', ...RADIUS }, 'nearest');
+    expect(search.sent.lat).toBe(12.97);
+    expect(search.applied).toBe('nearest');
+
+    const native = await viaNative({ sort: 'nearest', ...RADIUS });
+    expect(native.filters.item_latitude).toBe(12.97);
+    expect(native.filters.order_by).toBe('distance');
+    expect(native.applied).toBe('nearest');
+  });
+
+  it('viewport + newest: both bound by the box, and NEITHER reorders', async () => {
+    const search = await viaSearch({ sort: 'newest', ...BOX });
+    expect(search.sent.minLat).toBe(12.8);
+    expect(search.sent.maxLng).toBe(77.8);
+    expect(search.sent.lat).toBeUndefined();
+
+    const native = await viaNative({ sort: 'newest', ...BOX });
+    expect(native.filters.min_lat).toBe(12.8);
+    expect(native.filters.max_lng).toBe(77.8);
+    expect(native.filters.radius_meters).toBeUndefined();
+    expect(native.filters.order_by).toBe('created_at');
+  });
+
+  it('viewport alone + nearest: BOTH degrade to newest, having no centre', async () => {
+    // A bbox carries no centre, and neither path may invent one from the
+    // rectangle's midpoint — that would let "search this area" change the
+    // sort (contract §1.3 rule 2 is s_dwithin-only).
+    const search = await viaSearch({ sort: 'nearest', ...BOX });
+    expect(search.applied).toBe('newest');
+
+    const native = await viaNative({ sort: 'nearest', ...BOX });
+    expect(native.applied).toBe('newest');
+    expect(native.filters.order_by).toBe('created_at');
+  });
+
+  it('viewport + an explicit ordering centre + nearest: both bound by the box and order by distance', async () => {
+    const centre = { ordering_latitude: 12.95, ordering_longitude: 77.6 };
+
+    const search = await viaSearch({ sort: 'nearest', ...BOX, ...centre }, 'nearest');
+    expect(search.sent.minLat).toBe(12.8);
+    expect(search.sent.orderingLat).toBe(12.95);
+    expect(search.applied).toBe('nearest');
+
+    const native = await viaNative({ sort: 'nearest', ...BOX, ...centre });
+    expect(native.filters.min_lat).toBe(12.8);
+    // The native path measures distance from the ordering centre it was given.
+    expect(native.filters.item_latitude).toBe(12.95);
+    expect(native.filters.order_by).toBe('distance');
+    expect(native.applied).toBe('nearest');
+  });
+
+  it('nearest with an ordering centre and NO area: both order without bounding', async () => {
+    // #644's headline: location may sort without truncating.
+    const centre = { ordering_latitude: 12.97, ordering_longitude: 77.59 };
+
+    const search = await viaSearch({ sort: 'nearest', ...centre }, 'nearest');
+    expect(search.sent.orderingLat).toBe(12.97);
+    expect(search.sent.distanceMeters).toBeUndefined();
+    expect(search.sent.minLat).toBeUndefined();
+
+    const native = await viaNative({ sort: 'nearest', ...centre });
+    expect(native.filters.item_latitude).toBe(12.97);
+    expect(native.filters.order_by).toBe('distance');
+    // No bound of any kind.
+    expect(native.filters.radius_meters).toBeUndefined();
+    expect(native.filters.min_lat).toBeUndefined();
+  });
+});
+
+describe('an unreported sort stays unreported (review of #665)', () => {
+  /**
+   * A signals-search predating the explicit sort does not merely omit
+   * `sort_applied` — it ignores `intent.sort` and falls back to its own
+   * inferred precedence, so nothing here can predict its order. Substituting
+   * our resolution claimed an order we never got: `nearest` drew distance
+   * pills over a recency-ordered list, and `newest` with an anchor labelled a
+   * cosine order as recency.
+   *
+   * Merge order is not deploy order — `api` and `search` carry independently
+   * pinned image tags, so either half can reach a cluster first and a
+   * search-only rollback reopens the window.
+   */
+  let app: FastifyInstance;
+  beforeEach(() => {
+    searchSignalsMock.mockReset();
+    fetchItemsAcrossInstancesMock.mockReset();
+    signalsSearchConfig.distanceMeters = undefined;
+    app = buildApp();
+  });
+
+  const postWithUpstreamMeta = async (
+    meta: Record<string, unknown>,
+    extra: Record<string, unknown> = {},
+  ) => {
+    searchSignalsMock.mockResolvedValueOnce({
+      items: [],
+      meta: { total: 0, limit: 20, offset: 0, ...meta },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody(extra),
+    });
+    return { res, body: res.json() as { meta: Record<string, unknown> } };
+  };
+
+  it('omits sort_applied rather than echoing the request back as fact', async () => {
+    const { res, body } = await postWithUpstreamMeta({}, { sort: 'nearest' });
+
+    expect(res.statusCode).toBe(200);
+    expect(body.meta.sort_applied).toBeUndefined();
+    // Emphatically NOT the requested sort.
+    expect(body.meta.sort_applied).not.toBe('nearest');
+  });
+
+  it('does not claim newest either, when an anchor could have driven cosine', async () => {
+    const { body } = await postWithUpstreamMeta({}, {
+      sort: 'newest',
+      anchor_item_id: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(body.meta.sort_applied).toBeUndefined();
+  });
+
+  it('still reports the order when the service DOES state one', async () => {
+    const { body } = await postWithUpstreamMeta({ sort_applied: 'newest' }, { sort: 'relevance' });
+
+    expect(body.meta.sort_applied).toBe('newest');
+  });
+
+  it('leaves a log trail, since a 200 with a missing field is otherwise invisible', async () => {
+    // Captured off a real Fastify logger stream rather than a stubbed
+    // `request.log`, so this asserts what actually reaches the logs.
+    const written: string[] = [];
+    const logged = Fastify({
+      logger: {
+        level: 'warn',
+        stream: { write: (chunk: string) => { written.push(chunk); } },
+      },
+    }).withTypeProvider<ZodTypeProvider>();
+    logged.setValidatorCompiler(validatorCompiler);
+    logged.setSerializerCompiler(serializerCompiler);
+    await logged.register(discover, { prefix: '/api/v1/network' });
+
+    searchSignalsMock.mockResolvedValueOnce({ items: [], meta: { total: 0, limit: 20, offset: 0 } });
+    const res = await logged.inject({
+      method: 'POST',
+      url: '/api/v1/network/item/discover',
+      payload: baseBody({ sort: 'nearest' }),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const warned = written.join('\n');
+    expect(warned).toContain('no sort_applied');
+    expect(warned).toContain('"requestedSort":"nearest"');
+  });
+});
+
+describe('resolveDiscoverSort — review findings', () => {
+  it('keeps relevance for an UNSPECIFIED sort when only text is present', () => {
+    // Compat regression. `hasQ` was honoured in the explicit-relevance branch
+    // but ignored in the unspecified default, which returned 'newest'. Since
+    // `buildSearchInput` now always sends `sort`, that default OVERRODE
+    // signals-search's own inference — so every pre-existing caller POSTing
+    // just `{ item_network, item_domain, item_type, q }` silently lost cosine
+    // ordering and got date-ordered rows, while still paying for the embed.
+    // `sort` is a new field, so no existing non-UI caller sets it.
+    expect(
+      resolveDiscoverSort({ hasAnchor: false, hasQ: true, hasOrderingCenter: false }),
+    ).toBe('relevance');
+  });
+
+  it('still degrades an unspecified sort to newest with neither anchor nor text', () => {
+    expect(
+      resolveDiscoverSort({ hasAnchor: false, hasQ: false, hasOrderingCenter: false }),
+    ).toBe('newest');
+  });
+
+  it('agrees with its own explicit-relevance branch about what a query vector is', () => {
+    // The two branches must not disagree: whatever makes explicit relevance
+    // satisfiable must make it the inferred default too.
+    for (const [hasAnchor, hasQ] of [[true, false], [false, true], [true, true]] as const) {
+      expect(resolveDiscoverSort({ requested: 'relevance', hasAnchor, hasQ, hasOrderingCenter: false })).toBe(
+        resolveDiscoverSort({ hasAnchor, hasQ, hasOrderingCenter: false }),
+      );
+    }
   });
 });

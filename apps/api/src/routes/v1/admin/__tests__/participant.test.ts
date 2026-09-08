@@ -616,9 +616,35 @@ describe('POST /admin/participant', () => {
     expect(dbState.updates[0].set).toMatchObject({
       onboardedByOrgId: 'org_agg_1',
       onboardedVia: 'bulk',
+      // This API never wrote `user.domains`, which left every participant it
+      // onboarded permanently exempt from the single-domain lock (empty reads
+      // as "not decided yet") and made GET /api/v1/user/domains return [] for
+      // them in the UI. Recorded here, on the account-only path too, since the
+      // caller states the domain.
+      domains: ['seeker'],
     });
     expect(dbState.updates[0].set).not.toHaveProperty('termsAccepted');
     expect(dbState.updates[0].set).not.toHaveProperty('privacyAccepted');
+  });
+
+  it('omits domains entirely when an aggregator caller sends no domain', async () => {
+    // An aggregator IS the owner, so `domain` is optional for it. Writing `[]`
+    // would read as "locked to nothing" rather than "not yet decided" — the
+    // participant's first item create records it instead.
+    dbState.signUpUserId = 'usr_new_nodomain';
+    const app = await buildApp({ org_id: 'org_agg_1', org_type: 'aggregator' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: baseBody({
+        phone_number: VALID_PHONE,
+        email: undefined,
+        item_state: undefined,
+        domain: undefined,
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(dbState.updates[0].set).not.toHaveProperty('domains');
   });
 
   it('accepts a request with terms_accepted/privacy_accepted omitted (now optional) → 200', async () => {

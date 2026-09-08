@@ -8,32 +8,39 @@ export interface MapCountPillProps {
   shown: number;
   /** Whether `total` exceeds the active zoom-band marker cap (#203 map-serverside-search Task 6, `useMapMarkers`'s `truncated`). */
   truncated: boolean;
-  /** Whether a user is signed in. */
-  signedIn: boolean;
 }
 
 /**
  * The map's bottom-center count pill (#203 map-serverside-search §7 revised,
- * extended by Task 6). Two mutually exclusive variants share the one pill
- * slot:
+ * extended by Task 6).
  *
- *  - **Over-dense** ("{{count}}+ in this area — zoom in"): shown for BOTH
- *    anonymous and signed-in visitors whenever the viewport's true total
- *    exceeds the active zoom-band marker cap. Zooming in (which refetches per
- *    Task 5's padded-bbox/truncated-result rule) drops the count under the
- *    cap on its own, so the pill disappears without any extra wiring here —
- *    it just stops being told `truncated`.
- *  - **Plain count** (signed-out only, unchanged from the original §7 pill):
- *    "Showing X of Y" / "Y listings" for a logged-out visitor's non-truncated
- *    view. Signed-in visitors already have the header's `ContentHeader`
- *    count, so this variant stays hidden for them — only the over-dense
- *    variant is new for signed-in visitors.
+ * THIS IS THE VIEWPORT COUNT, and it is the only place that number appears.
+ * The browse toolbar above states the FILTER total — how many items match,
+ * regardless of location (#644 QA N5) — so the two answer different questions
+ * and both are needed: "102 listings · 8 not on the map" up there, "94
+ * listings" here.
+ *
+ * Shown to signed-out AND signed-in visitors. It used to hide its plain-count
+ * variant when signed in, on the grounds that `ContentHeader` already showed a
+ * count for those users. That header count was removed in #645 (it duplicated
+ * the toolbar), and the toolbar's replacement is deliberately NOT
+ * viewport-scoped — so leaving the gate in place left signed-in users with no
+ * viewport count anywhere.
+ *
+ * Two variants share the slot:
+ *
+ *  - **Over-dense** ("{{count}}+ in this area — zoom in") whenever the
+ *    viewport's true total exceeds the active zoom-band marker cap. Zooming in
+ *    (which refetches per Task 5's padded-bbox/truncated-result rule) drops
+ *    the count under the cap on its own, so the pill reverts without extra
+ *    wiring here — it just stops being told `truncated`.
+ *  - **Plain count** — "Showing X of Y" when some matches in view are not
+ *    rendered (the viewer's own pins are excluded), else "Y listings".
  */
-export function MapCountPill({ total, shown, truncated, signedIn }: MapCountPillProps) {
+export function MapCountPill({ total, shown, truncated }: Readonly<MapCountPillProps>) {
   const { t } = useTranslation();
 
   if (total <= 0) return null;
-  if (!truncated && signedIn) return null;
 
   const label = truncated
     ? t('home.map_zoom_in_for_more', { count: total })

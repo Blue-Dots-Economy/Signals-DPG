@@ -4,9 +4,9 @@ import z, {
 } from '@dpg/schemas';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { db } from '@api/db/postgres/drizzle_config';
-import { DrizzleQueryError, and, eq, sql } from 'drizzle-orm';
+import { DrizzleQueryError } from 'drizzle-orm';
 import { DatabaseError, ensureItemPartition } from '@dpg/database';
-import { consent_record, user } from '@api/db/postgres/schema';
+import { consent_record } from '@api/db/postgres/schema';
 import { resolveConsentVersion } from '@/services/consent_version';
 import { auth_middleware_if_enabled } from '@api/plugins/auth/auth_middleware';
 import {
@@ -75,7 +75,16 @@ function mapCreateItemError(
     };
   }
   if (err instanceof ItemServiceError) {
-    return { status: err.statusCode, body: { error: err.errorCode, message: err.message } };
+    // `details` carries the extra fields a published error shape promises —
+    // DOMAIN_LOCKED's `locked_domain` / `requested_domain`. Spread FIRST, so a
+    // future guard whose `details` happens to carry an `error` or `message` key
+    // cannot override the error code. Spread straight from `details`: object
+    // spread of `undefined` contributes nothing, so a `?? {}` fallback would
+    // only add an empty object literal.
+    return {
+      status: err.statusCode,
+      body: { ...err.details, error: err.errorCode, message: err.message },
+    };
   }
   if (err instanceof DrizzleQueryError && err.cause instanceof DatabaseError) {
     // 23505 = unique_violation (fallback safety), 23503 = foreign_key_violation.
@@ -133,37 +142,6 @@ async function resolveSelfConsentPromotes(
   if (!guardianConsentRequired(networkConfig, body.item_domain)) return true;
   const age = await getWardAge(userId);
   return !(age === null || isMinor(age));
-}
-
-/**
- * Single-role lock (driven by `user.domains`, the source of truth): a user may
- * create profiles only in the domain(s) on their row. Empty ⇒ not yet set, so
- * any served domain is allowed (first create records it). Returns a
- * machine-readable `DOMAIN_LOCKED` body when the requested domain is locked
- * out, else `null`. Admin api-key callers bypass (the caller skips this).
- */
-async function resolveDomainLockError(
-  userId: string,
-  requestedDomain: string,
-): Promise<{
-  error: 'DOMAIN_LOCKED';
-  message: string;
-  locked_domain: string;
-  requested_domain: string;
-} | null> {
-  const [row] = await db
-    .select({ domains: user.domains })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  const allowed = row?.domains ?? [];
-  if (allowed.length === 0 || allowed.includes(requestedDomain)) return null;
-  return {
-    error: 'DOMAIN_LOCKED',
-    message: `You are registered as "${allowed[0]}" and cannot create items under "${requestedDomain}".`,
-    locked_domain: allowed[0] as string,
-    requested_domain: requestedDomain,
-  };
 }
 
 export const create_item_handler = async (
@@ -231,18 +209,6 @@ export const create_item_handler = async (
     );
   }
 
-  // Single-role lock, driven by `user.domains` (the source of truth, persisted
-  // at signup / bootstrapped on first create below). A user may create profiles
-  // only in the domain(s) on their user row. The column is an array for a
-  // FUTURE multi-role case, but today it holds exactly one entry and this never
-  // grows it, so the role stays single. Empty => not yet set, so any served
-  // domain is allowed and the first create records it. Admin api-key callers
-  // bypass — they act on behalf of a user with explicit intent.
-  if (!isAdminApiCaller) {
-    const lockError = await resolveDomainLockError(userId, body.item_domain);
-    if (lockError) return reply.code(403).send(lockError);
-  }
-
   try {
     await ensureItemPartition(
       db,
@@ -297,10 +263,9 @@ export const create_item_handler = async (
       // classified unowned and lands in `draft`, only going live on some later
       // write. Same transaction, so it is atomic with the item.
       //
-      // Not guarded on the role bootstrap below: that only fires when
-      // `user.domains` was empty, and `applySignupExtras` already populates it
-      // at signup — gating on it stranded the population this feature exists
-      // for (signed up before a default was nominated, so never tagged).
+      // Unconditional, deliberately: gating this on "is this the user's first
+      // create" stranded the population the feature exists for — people who
+      // signed up before a default was nominated, and so were never tagged.
       //
       // Cheap on every create: one statement whose `IS NULL` guard
       // short-circuits the org lookup for an already-owned user, matching no
@@ -361,19 +326,6 @@ export const create_item_handler = async (
           throw new ConsentWriteError(err instanceof Error ? err.message : 'consent write failed');
         }
       }
-
-      // Bootstrap the single role on the user's first create so `user.domains`
-      // stays the source of truth for the lock. Sets only when unset; never
-      // grows to a second domain, so the role stays single.
-      await tx
-        .update(user)
-        .set({ domains: [body.item_domain], updatedAt: new Date() })
-        .where(
-          and(
-            eq(user.id, userId),
-            sql`(${user.domains} IS NULL OR cardinality(${user.domains}) = 0)`,
-          ),
-        );
 
       return c;
     });

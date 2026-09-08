@@ -106,6 +106,27 @@
       "when": 1788437034289,
       "tag": "0014_default_aggregator_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1788505503310,
+      "tag": "0015_backfill_user_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788505548765,
+      "tag": "0016_drop_single_default_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788520438886,
+      "tag": "0017_nomination_requires_declared_domains",
+      "breakpoints": true
     }
   ]
 }

@@ -5,7 +5,6 @@ import {
   boolean,
   integer,
   index,
-  uniqueIndex,
   jsonb,
   check,
 } from 'drizzle-orm/pg-core';
@@ -132,37 +131,30 @@ export const organization = pgTable('organization', {
     'organization_default_requires_aggregator',
     sql`${table.defaultForBindings} IS NULL OR ${table.type} = 'aggregator'`,
   ),
-  // AT MOST ONE default aggregator per instance.
+  // NO global "one default per instance" index any more.
   //
-  // A unique index on a constant expression, restricted to rows that hold a
-  // binding, so a second org becoming a default fails with 23505 rather than
-  // leaving two claimants behind.
+  // There used to be a unique index on a constant expression here, allowing a
+  // single default-holding org instance-wide. It was a stand-in for a rule the
+  // write paths did not yet enforce: `user.onboarded_by_org_id` (which grants
+  // PII-decrypt rights) is per ACCOUNT, while profiles are per DOMAIN, and
+  // `participant_decrypt` scopes on the tag with no domain condition. A user
+  // holding profiles in two domains therefore had one owner covering both, so a
+  // second per-domain default could decrypt a participant it did not own.
   //
-  // Why a *global* limit when the column is per-binding: the tag this drives
-  // (`user.onboarded_by_org_id`) is per ACCOUNT and write-once, and
-  // `participant_decrypt` scopes on it with **no domain condition**
-  // (`participant_decrypt.ts`). With two per-domain defaults, a user holding
-  // profiles in both domains has their whole account owned by whichever domain
-  // wrote first — so the other domain's default could decrypt a participant it
-  // does not own. `user.domains` normally holds one entry, but the single-role
-  // lock that keeps it that way is bypassed for admin api-key callers
-  // (`create_item.ts`), which is the path aggregator-dpg uses, so a
-  // multi-domain user is reachable in practice.
+  // That ambiguity is now impossible at the source: `assertSingleDomain`
+  // (`services/item_service.ts`) locks every account to one domain on its first
+  // item create, at the shared choke point every path goes through — including
+  // `admin/participant` and admin api-key callers, both of which skipped the
+  // old route-level check. Migration 0015 backfills the historical rows the old
+  // check never recorded. With one domain per account the tag is unambiguous,
+  // so separate default aggregators per domain are safe and the index is gone
+  // (migration 0016).
   //
-  // The array shape is deliberate and stays: per-domain defaults are the
-  // intended end state, and one org may already hold several bindings
-  // (`['blue_dot/seeker','blue_dot/provider']`) — which is the expected launch
-  // shape. What is withheld is two *different* orgs holding one binding each.
-  // That is unlocked by the per-profile `profile_origin` work (#661): once
-  // ownership is recorded per profile rather than per account, the cross-domain
-  // exposure is gone and this index comes off. Enforced here rather than in
-  // application code so the guarantee does not depend on which write paths
-  // happen to exist.
-  uniqueIndex('organization_single_default_idx')
-    .on(sql`(true)`)
-    .where(
-      sql`${table.defaultForBindings} IS NOT NULL AND cardinality(${table.defaultForBindings}) > 0`,
-    ),
+  // Per-binding exclusivity — "no two orgs are the default for the SAME
+  // binding" — is unaffected and still enforced, by the
+  // `organization_default_binding_exclusive` trigger in migration 0014.
+  // Postgres cannot unique-index an array element, which is why that one is a
+  // trigger and not an index.
 ]);
 
 export const member = pgTable('member', {

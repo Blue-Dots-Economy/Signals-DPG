@@ -78,6 +78,38 @@ export interface CapForZoomOptions {
  * call so callers (and tests) never need to re-import the module to exercise
  * a different threshold/cap.
  */
+/**
+ * The zoom floor for offering "Search this area" (#644 QA).
+ *
+ * Below it, the viewport is not a *meaningful* area to search — narrowing the
+ * list to it says nothing a viewer would call "this area", so the count pill's
+ * "zoom in" is the honest advice.
+ *
+ * Set to STREET level, not city level. At 10 the whole of Bengaluru fits on
+ * screen and the button still appeared, which is not an "area" in any sense
+ * the user recognises — filtering a list to "Bengaluru and its outskirts" is
+ * indistinguishable from not filtering it. 15 is where Google's tiles start
+ * naming individual streets, and it sits just above
+ * `DEFAULT_CLUSTER_DISABLE_ZOOM` (14), so the button only shows once markers
+ * have broken out of their clusters and the viewer can see the individual
+ * items the rectangle would keep.
+ *
+ * The floor alone is not enough, though. The button is only worth offering
+ * when searching this area would CHANGE something, which is either:
+ *
+ *   - the map cannot draw everything in view (`truncated`) — the dense-cell
+ *     case #644 describes, where there is no further zoom to escape to and the
+ *     list is the escape hatch; or
+ *   - matching items exist OUTSIDE the view, so scoping to the rectangle
+ *     actually narrows the list.
+ *
+ * Gating on `truncated` alone made the button unreachable in practice: it
+ * needs more than `INDIVIDUAL_MARKER_CAP` (500) or `CLUSTERED_MARKER_CAP`
+ * (1000) markers in a single viewport, so a network with tens of items never
+ * qualified and the control never appeared at any zoom.
+ */
+export const SEARCH_AREA_MIN_ZOOM = 15;
+
 export function capForZoom(zoom: number, options?: CapForZoomOptions): number {
   const clusterDisableZoom = options?.clusterDisableZoom ?? CLUSTER_DISABLE_ZOOM;
   const clusteredCap = options?.clusteredCap ?? CLUSTERED_MARKER_CAP;

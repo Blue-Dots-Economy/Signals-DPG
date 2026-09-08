@@ -9,7 +9,7 @@ import { useBrowserLocation } from '@/hooks/use-browser-location';
 import { useGeolocationPermission } from '@/hooks/use-geolocation-permission';
 import type { LatLng } from '@/lib/geo/types';
 import { getEnumFilterFieldsForDomains, itemPassesEnumFilters } from '@/lib/enum-filters';
-import { MapFiltersPanel } from '@/components/map/map-filters-panel';
+import { BrowseFiltersPanel } from '@/components/filters/browse-filters-panel';
 import { Button } from '@/components/ui/button';
 import type { ViewMode } from '@/engine/types';
 import { TouristTopBar } from './tourist-top-bar';
@@ -94,10 +94,8 @@ export function TouristApp() {
   const filtersSlot = React.useMemo(
     () =>
       domain ? (
-        <MapFiltersPanel
+        <BrowseFiltersPanel
           domains={[domain]}
-          selectedDomains={[]}
-          onDomainsChange={() => {}}
           selectedFields={selectedFields}
           onFieldsChange={setSelectedFields}
           viewMode={viewMode}

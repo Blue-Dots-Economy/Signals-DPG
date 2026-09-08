@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { DotNetworkSchema, DotNetworkDomain } from '@/engine/types';
 import type { Item } from '@/lib/item-api';
 import { useInfiniteBrowseItems } from './use-infinite-browse-items';
+import type { BrowseArea } from '@/lib/browse-discover';
 
 vi.mock('@/lib/network-api', () => ({
   fetchNetworkItems: vi.fn(),
@@ -126,7 +127,7 @@ describe('useInfiniteBrowseItems', () => {
   it('routes to fetchDiscover when q is set, and resets paging when q changes', async () => {
     vi.mocked(fetchDiscover).mockImplementation(async (q) => ({
       items: q.q === 'foo' ? [item('x')] : [item('y')],
-      meta: { total: 1, limit: 2, offset: q.offset ?? 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: q.offset ?? 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     }));
     const { result, rerender } = renderHook(
       ({ q }: { q: string }) => useInfiniteBrowseItems(network, domain, null, { q }),
@@ -150,7 +151,7 @@ describe('useInfiniteBrowseItems', () => {
   it('routes to fetchDiscover when facet filters are set, even without q', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('z')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () =>
@@ -170,7 +171,7 @@ describe('useInfiniteBrowseItems', () => {
   it('routes to fetchDiscover when relevance is forced, even with no q/filters', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('r')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () => useInfiniteBrowseItems(network, domain, null, { relevance: true }),
@@ -184,7 +185,7 @@ describe('useInfiniteBrowseItems', () => {
   it('surfaces source and degraded from the discover response (native_fallback case)', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('a')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'native_fallback', degraded: true },
+      meta: { total: 1, limit: 2, offset: 0, source: 'native_fallback', degraded: true, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () => useInfiniteBrowseItems(network, domain, null, { q: 'x' }),
@@ -204,8 +205,8 @@ describe('useInfiniteBrowseItems', () => {
     vi.mocked(fetchDiscover).mockImplementation(async (q) => {
       const offset = q.offset ?? 0;
       return offset === 0
-        ? { items: [item('a'), item('b')], meta: { total: 3, limit: 2, offset, source: 'native_fallback' as const, degraded: true } }
-        : { items: [item('c')], meta: { total: 3, limit: 2, offset, source: 'signals_search' as const, degraded: false } };
+        ? { items: [item('a'), item('b')], meta: { total: 3, limit: 2, offset, source: 'native_fallback' as const, degraded: true, sort_applied: 'relevance' } }
+        : { items: [item('c')], meta: { total: 3, limit: 2, offset, source: 'signals_search' as const, degraded: false, sort_applied: 'relevance' } };
     });
     const { result } = renderHook(
       () => useInfiniteBrowseItems(network, domain, null, { q: 'x' }),
@@ -236,7 +237,7 @@ describe('useInfiniteBrowseItems', () => {
   it('passes anchor_item_id to fetchDiscover in discover mode', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('a')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () =>
@@ -256,7 +257,7 @@ describe('useInfiniteBrowseItems', () => {
   it('resets paging and refetches with the new anchor when anchorItemId changes in discover mode', async () => {
     vi.mocked(fetchDiscover).mockImplementation(async (q) => ({
       items: q.anchor_item_id === 'profile-a' ? [item('x')] : [item('y')],
-      meta: { total: 1, limit: 2, offset: q.offset ?? 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: q.offset ?? 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     }));
     const { result, rerender } = renderHook(
       ({ anchorItemId }: { anchorItemId: string }) =>
@@ -283,7 +284,7 @@ describe('useInfiniteBrowseItems', () => {
   it('surfaces distanceMeters from the discover response meta.distance_meters', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('a')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, distance_meters: 30000 },
+      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, distance_meters: 30000, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () => useInfiniteBrowseItems(network, domain, { lat: 19, lng: 72 }, { relevance: true }),
@@ -296,7 +297,7 @@ describe('useInfiniteBrowseItems', () => {
   it('leaves distanceMeters undefined when the discover response omits it (no location sent)', async () => {
     vi.mocked(fetchDiscover).mockResolvedValue({
       items: [item('a')],
-      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false },
+      meta: { total: 1, limit: 2, offset: 0, source: 'signals_search', degraded: false, sort_applied: 'relevance' },
     });
     const { result } = renderHook(
       () => useInfiniteBrowseItems(network, domain, null, { relevance: true }),
@@ -338,5 +339,284 @@ describe('useInfiniteBrowseItems', () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(fetchNetworkItems).toHaveBeenCalledTimes(1);
     expect(fetchDiscover).not.toHaveBeenCalled();
+  });
+});
+
+// ─── #644: location no longer FILTERS the list ───────────────────────────────
+//
+// Before this, the hook forwarded `userLocation` as item_latitude/
+// item_longitude on every discover request, and signals-search turns that into
+// a hard s_dwithin predicate — so a signed-in viewer's list was silently
+// bounded to ~30 km. `userLocation` is now an ORDERING centre only, used when
+// the caller asks for sort: 'nearest'.
+
+const discoverPage = (sortApplied: 'relevance' | 'newest' | 'nearest' = 'relevance') => ({
+  items: [item('a')],
+  meta: {
+    total: 1,
+    limit: 2,
+    offset: 0,
+    source: 'signals_search' as const,
+    degraded: false,
+    sort_applied: sortApplied,
+  },
+});
+
+describe('useInfiniteBrowseItems — area and sort (#644)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sends NO coordinates when area is anywhere, even with a resolved location', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('relevance'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, { lat: 12.97, lng: 77.59 }, {
+          relevance: true,
+          area: { mode: 'anywhere' },
+          sort: 'relevance',
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    expect(body.item_latitude).toBeUndefined();
+    expect(body.item_longitude).toBeUndefined();
+    expect(body.distance_meters).toBeUndefined();
+    expect(body.ordering_latitude).toBeUndefined();
+  });
+
+  it('sends the area filter in radius mode', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('relevance'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          sort: 'relevance',
+          area: { mode: 'radius', center: { lat: 12.97, lng: 77.59 }, meters: 25000 },
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    expect(body.item_latitude).toBe(12.97);
+    expect(body.item_longitude).toBe(77.59);
+    expect(body.distance_meters).toBe(25000);
+  });
+
+  it('sends the viewer location as an ORDERING centre for nearest + anywhere', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('nearest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, { lat: 12.97, lng: 77.59 }, {
+          relevance: true,
+          area: { mode: 'anywhere' },
+          sort: 'nearest',
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    expect(body.ordering_latitude).toBe(12.97);
+    expect(body.ordering_longitude).toBe(77.59);
+    // Orders, does not filter.
+    expect(body.item_latitude).toBeUndefined();
+    expect(body.distance_meters).toBeUndefined();
+  });
+
+  it('omits the ordering centre when an area filter already supplies one', async () => {
+    // signals-search reuses the filter's centre for ordering, so sending both
+    // would be redundant.
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('nearest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, { lat: 1, lng: 2 }, {
+          relevance: true,
+          sort: 'nearest',
+          area: { mode: 'radius', center: { lat: 12.97, lng: 77.59 }, meters: 25000 },
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    expect(body.ordering_latitude).toBeUndefined();
+    expect(body.item_latitude).toBe(12.97);
+  });
+
+  it('forwards the requested sort', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('newest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          sort: 'newest',
+          area: { mode: 'anywhere' },
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+    expect(vi.mocked(fetchDiscover).mock.calls[0][0].sort).toBe('newest');
+  });
+
+  it('changing sort resets paging with a fresh query key', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('relevance'));
+    const { rerender } = renderHook(
+      ({ sort }: { sort: 'relevance' | 'newest' }) =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          sort,
+          area: { mode: 'anywhere' },
+        }),
+      { wrapper, initialProps: { sort: 'relevance' as 'relevance' | 'newest' } },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalledTimes(1));
+
+    rerender({ sort: 'newest' });
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(fetchDiscover).mock.calls[1][0].offset).toBe(0);
+  });
+
+  it('changing area resets paging', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('relevance'));
+    const { rerender } = renderHook(
+      ({ area }: { area: BrowseArea }) =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          sort: 'relevance',
+          area,
+        }),
+      { wrapper, initialProps: { area: { mode: 'anywhere' } as BrowseArea } },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalledTimes(1));
+
+    rerender({ area: { mode: 'radius', center: { lat: 1, lng: 2 }, meters: 5000 } });
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it('a resolved location alone does NOT change the discover query key', async () => {
+    // It is no longer part of the request under relevance/newest, so it must
+    // not trigger a refetch either.
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('relevance'));
+    const { rerender } = renderHook(
+      ({ loc }: { loc: { lat: number; lng: number } | null }) =>
+        useInfiniteBrowseItems(network, domain, loc, {
+          relevance: true,
+          sort: 'relevance',
+          area: { mode: 'anywhere' },
+        }),
+      { wrapper, initialProps: { loc: null as { lat: number; lng: number } | null } },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalledTimes(1));
+
+    rerender({ loc: { lat: 12.97, lng: 77.59 } });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchDiscover).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces meta.sort_applied so the UI labels what the server did', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('newest'));
+    const { result } = renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          sort: 'relevance',
+          area: { mode: 'anywhere' },
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.sortApplied).toBe('newest'));
+  });
+
+  it('still forwards userLocation on the NATIVE path (out of #644 scope)', async () => {
+    vi.mocked(fetchNetworkItems).mockResolvedValue({
+      meta: { total: 1, limit: 2, offset: 0 },
+      items: [item('a')],
+    } as never);
+    renderHook(
+      () => useInfiniteBrowseItems(network, domain, { lat: 12.97, lng: 77.59 }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchNetworkItems).toHaveBeenCalled());
+    expect(vi.mocked(fetchNetworkItems).mock.calls[0][0].item_latitude).toBe(12.97);
+  });
+});
+
+describe('useInfiniteBrowseItems — viewport area mode', () => {
+  // This block asserts on the FIRST call, so the mock must start clean —
+  // otherwise `calls[0]` is whatever an earlier test happened to leave.
+  beforeEach(() => vi.mocked(fetchDiscover).mockClear());
+
+  const BOUNDS = { minLat: 12.8, minLng: 77.4, maxLat: 13.1, maxLng: 77.8 };
+
+  it('sends all four bounds and no radius', async () => {
+    // Regression guard for a silent drop: `fetchDiscover` builds its body from
+    // an explicit ALLOWLIST, so a field it does not name is discarded however
+    // correctly the caller supplied it. The bbox first shipped inert exactly
+    // that way — the hook and the BFF both handled it, this body builder did
+    // not, and nothing failed loudly. Measured symptom: the list showed 79 of
+    // 79 with a viewport applied, where the API returns 71 for that box.
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('newest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, null, {
+          relevance: true,
+          area: { mode: 'viewport', bounds: BOUNDS },
+          sort: 'newest',
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    expect(body.min_lat).toBe(12.8);
+    expect(body.min_lng).toBe(77.4);
+    expect(body.max_lat).toBe(13.1);
+    expect(body.max_lng).toBe(77.8);
+    // Alternative modes — the BFF rejects both together.
+    expect(body.item_latitude).toBeUndefined();
+    expect(body.distance_meters).toBeUndefined();
+  });
+
+  it('sends the viewport MIDPOINT as the ordering centre under nearest', async () => {
+    // A bbox has no centre on the wire, and the BFF deliberately will not
+    // derive one from the rectangle (contract §1.3 rule 2 is s_dwithin-only),
+    // because that would let "search this area" silently change the sort. So
+    // nearest-inside-a-viewport has to send the centre explicitly.
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('nearest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, { lat: 1, lng: 2 }, {
+          relevance: true,
+          area: { mode: 'viewport', bounds: BOUNDS },
+          sort: 'nearest',
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    const body = vi.mocked(fetchDiscover).mock.calls[0][0];
+    // The viewport's own midpoint, NOT the viewer's location — the area the
+    // user asked about is the thing to measure from.
+    expect(body.ordering_latitude).toBeCloseTo(12.95);
+    expect(body.ordering_longitude).toBeCloseTo(77.6);
+    expect(body.min_lat).toBe(12.8);
+  });
+
+  it('sends no ordering centre for a viewport under newest', async () => {
+    vi.mocked(fetchDiscover).mockResolvedValue(discoverPage('newest'));
+    renderHook(
+      () =>
+        useInfiniteBrowseItems(network, domain, { lat: 1, lng: 2 }, {
+          relevance: true,
+          area: { mode: 'viewport', bounds: BOUNDS },
+          sort: 'newest',
+        }),
+      { wrapper },
+    );
+    await waitFor(() => expect(fetchDiscover).toHaveBeenCalled());
+
+    expect(vi.mocked(fetchDiscover).mock.calls[0][0].ordering_latitude).toBeUndefined();
   });
 });

@@ -367,3 +367,122 @@ describe('searchSignals — HTTP call + response mapping', () => {
     signalsSearchConfig.api_key = 'test-key';
   });
 });
+
+// ─── #644: explicit sort + an ordering centre that never filters ─────────────
+//
+// Contract: docs/superpowers/plans/2026-09-03-list-view-wire-contract.md
+// §1 (envelope) and §5.1 (discover → envelope mapping).
+
+describe('buildSignalsSearchRequest — sort and ordering centre (#644)', () => {
+  it('places sort INSIDE intent, so the upstream cache key covers it', () => {
+    const req = buildSignalsSearchRequest({ ...baseInput, sort: 'nearest' });
+
+    expect(req.message.intent.sort).toBe('nearest');
+    // Placement guard: signals-search hashes the WHOLE intent for its result
+    // cache key. On `message` beside `pagination`, two different sorts would
+    // silently share a cache entry.
+    expect((req.message as Record<string, unknown>).sort).toBeUndefined();
+  });
+
+  it('omits sort entirely when not supplied, preserving inferred ordering', () => {
+    const req = buildSignalsSearchRequest(baseInput);
+    expect('sort' in req.message.intent).toBe(false);
+  });
+
+  it('emits orderingCenter as a GeoJSON Point in [lng, lat] order', () => {
+    const req = buildSignalsSearchRequest({
+      ...baseInput,
+      sort: 'nearest',
+      orderingLat: 12.97,
+      orderingLng: 77.59,
+    });
+
+    expect(req.message.intent.orderingCenter).toEqual({
+      type: 'Point',
+      coordinates: [77.59, 12.97],
+    });
+  });
+
+  it('builds NO spatial clause for an ordering centre alone — nearest must not filter', () => {
+    // The crux of #644: signals-search applies `spatial` as a hard ST_DWithin
+    // predicate. If an ordering centre leaked into it, sorting by distance
+    // would silently truncate the candidate set to the default radius.
+    const req = buildSignalsSearchRequest({
+      ...baseInput,
+      sort: 'nearest',
+      orderingLat: 12.97,
+      orderingLng: 77.59,
+    });
+
+    expect(req.message.intent.spatial).toBeUndefined();
+  });
+
+  it('omits orderingCenter when only one coordinate is supplied', () => {
+    expect(
+      buildSignalsSearchRequest({ ...baseInput, orderingLat: 12.97 }).message.intent
+        .orderingCenter,
+    ).toBeUndefined();
+    expect(
+      buildSignalsSearchRequest({ ...baseInput, orderingLng: 77.59 }).message.intent
+        .orderingCenter,
+    ).toBeUndefined();
+  });
+
+  it('still builds a spatial clause for an area filter', () => {
+    const req = buildSignalsSearchRequest({
+      ...baseInput,
+      lat: 12.97,
+      lng: 77.59,
+      distanceMeters: 25000,
+    });
+
+    expect(req.message.intent.spatial).toEqual([
+      {
+        op: 's_dwithin',
+        geometry: { type: 'Point', coordinates: [77.59, 12.97] },
+        distanceMeters: 25000,
+      },
+    ]);
+  });
+
+  it('carries the two centres independently when both are supplied', () => {
+    const req = buildSignalsSearchRequest({
+      ...baseInput,
+      sort: 'nearest',
+      lat: 1,
+      lng: 2,
+      distanceMeters: 500,
+      orderingLat: 3,
+      orderingLng: 4,
+    });
+
+    const clause = req.message.intent.spatial?.[0];
+    // `spatial` is a discriminated union since the bbox op landed (§1.5), so
+    // narrow before reaching for the Point's geometry.
+    expect(clause?.op).toBe('s_dwithin');
+    if (clause?.op !== 's_dwithin') throw new Error('expected an s_dwithin clause');
+    expect(clause.geometry.coordinates).toEqual([2, 1]);
+    expect(req.message.intent.orderingCenter?.coordinates).toEqual([4, 3]);
+  });
+
+  it('cross-repo contract fixture (wire-contract §9)', () => {
+    // Asserted independently in signals-search too, so a divergence between
+    // the repos fails a test rather than only failing on the dev cluster.
+    const req = buildSignalsSearchRequest({
+      ...baseInput,
+      anchorItemId: '00000000-0000-4000-8000-0000000000aa',
+      q: 'solar',
+      sort: 'nearest',
+      orderingLat: 12.97,
+      orderingLng: 77.59,
+    });
+
+    expect(req.message.intent).toMatchObject({
+      item: { id: '00000000-0000-4000-8000-0000000000aa' },
+      textSearch: 'solar',
+      sort: 'nearest',
+      orderingCenter: { type: 'Point', coordinates: [77.59, 12.97] },
+    });
+    expect(req.message.intent.spatial).toBeUndefined();
+  });
+});

@@ -15,6 +15,11 @@ import {
 import { classify_item, DEFAULT_GO_LIVE_GATES, type GoLiveGate } from './items/classifier.js';
 import type { DbOrTx } from '@/services/db_types';
 import {
+  claimDomain,
+  domainLockedMessage,
+  readLockedDomains,
+} from './items/single_domain_lock.js';
+import {
   resolveOwnerGateContext,
   type OwnerGateContext,
 } from './aggregator/default_aggregator.js';
@@ -90,10 +95,30 @@ function locationsForStorage(
 export class ItemServiceError extends Error {
   statusCode: number;
   errorCode: string;
-  constructor(statusCode: number, errorCode: string, message: string) {
+  /**
+   * Extra machine-readable fields merged into the route's error body.
+   *
+   * Most service errors are `{ error, message }` and leave this undefined. It
+   * exists so a guard that moves down into the service keeps the response shape
+   * it had at the route: `DOMAIN_LOCKED` carries `locked_domain` /
+   * `requested_domain`, which is the documented body an external client can
+   * branch on.
+   *
+   * No in-repo consumer reads those two fields — `apps/ui/src/lib/domain-gate.ts`
+   * derives held domains from `items`, not from the error body — so this is
+   * about not silently narrowing a published error, not about unblocking the UI.
+   */
+  details?: Record<string, unknown>;
+  constructor(
+    statusCode: number,
+    errorCode: string,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.statusCode = statusCode;
     this.errorCode = errorCode;
+    this.details = details;
   }
 }
 
@@ -302,6 +327,48 @@ async function assertProfileLimit(
   }
 }
 
+/**
+ * Single-domain lock, on the create path.
+ *
+ * Enforced at this choke point so every create path inherits it — the same
+ * reasoning as the profile cap directly below. The route-level check this
+ * replaced was skipped for admin api-key callers and absent entirely from
+ * `POST /admin/participant`, which is precisely the aggregator/voice path where
+ * a second domain could be introduced.
+ *
+ * The rule, the SQL and the reasoning live in
+ * `services/items/single_domain_lock.ts`, shared with
+ * `POST /api/v1/user/domains` — the other place an account's domain is decided.
+ * They were two copies of the same statement and the copies drifted, which is
+ * how the route ended up without the `NOT EXISTS items` guard.
+ *
+ * Only a MISMATCH is refused: a first create, a repeat in the same domain, and a
+ * backfilled legacy account in either of its domains all pass.
+ *
+ * @throws ItemServiceError 403 DOMAIN_LOCKED when the account is locked to
+ *   another domain. The body carries `locked_domain` / `requested_domain`.
+ */
+async function assertSingleDomain(
+  exec: DbOrTx,
+  params: Pick<CreateItemServiceParams, 'created_by' | 'item_domain'>,
+): Promise<void> {
+  if (await claimDomain(exec, params.created_by, params.item_domain)) return;
+
+  const allowed = await readLockedDomains(exec, params.created_by);
+
+  // Empty ⇒ the user row is missing (`claimDomain` declines for an account that
+  // owns items, so an existing account never lands here empty). Let the items
+  // FK raise that, rather than dressing a missing user up as a domain error.
+  if (allowed.length === 0 || allowed.includes(params.item_domain)) return;
+
+  throw new ItemServiceError(
+    403,
+    'DOMAIN_LOCKED',
+    domainLockedMessage(allowed[0] as string, params.item_domain, 'create items under'),
+    { locked_domain: allowed[0], requested_domain: params.item_domain },
+  );
+}
+
 export async function createItemInternal(
   exec: DbOrTx,
   params: CreateItemServiceParams
@@ -313,6 +380,11 @@ export async function createItemInternal(
     item_type: params.item_type,
     submittedItemState,
   });
+
+  // Single-domain lock. Before the cap: being in the wrong domain entirely is a
+  // more fundamental refusal than being at the cap within the right one, and a
+  // fixed order between the two guards keeps their locking non-reorderable.
+  await assertSingleDomain(exec, params);
 
   // Per-user profile cap (#349). Enforced at this single choke point so every
   // create path (item/create, admin/participant, aggregator bulk + reg-links)

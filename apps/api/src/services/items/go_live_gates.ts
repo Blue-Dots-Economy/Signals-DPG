@@ -21,10 +21,11 @@ export interface GoLiveContext {
   /** `owner_required`: whether the profile owner has an owning aggregator. */
   hasOwner: boolean;
   /**
-   * `owner_required`: whether a default aggregator is nominated at all. Binary
-   * because `organization_single_default_idx` guarantees at most one default
-   * org exists —
-   * there is no "two defaults" case to distinguish. See guard 1 below.
+   * `owner_required`: whether a default aggregator is nominated for THIS
+   * binding. Resolved per (network, domain) by `resolveOwnerGateContext`, so
+   * it stays binary even now that several orgs may each be the default for a
+   * different binding — the question is only ever "is there one for the
+   * binding this item is in". See guard 1 below.
    */
   defaultConfigured: boolean;
   /**
@@ -61,9 +62,7 @@ export const GO_LIVE_GATE_CHECKS: Record<GoLiveGate, (ctx: GoLiveContext) => boo
    *   from launch until that happens, so Q1 and Q4 would contradict each other.
    *
    *   This is only safe to express as a boolean because the database enforces
-   *   that a binding can never be contested — today by
-   *   `organization_single_default_idx` (one default org at all, migration
-   *   0013), and once #661 lifts that, by
+   *   that a binding can never be contested, by
    *   `organization_default_binding_exclusive` (migration 0014). If a binding
    *   could be contested, "not configured" and "cannot tell" would need
    *   OPPOSITE answers here, and treating them alike would make the gate fail
@@ -82,6 +81,18 @@ export const GO_LIVE_GATE_CHECKS: Record<GoLiveGate, (ctx: GoLiveContext) => boo
   owner_required: (ctx) => {
     if (ctx.currentStatus === 'live') return true;
     if (!ctx.defaultConfigured) return true;
+    // `hasOwner` asks "does this owner have ANY owning aggregator", not "does
+    // it have the one for THIS item's domain". Those were the same question
+    // while a single default existed instance-wide. They still coincide for
+    // every account created since `assertSingleDomain` landed, because such an
+    // account has exactly one domain, so its owner is that domain's owner.
+    //
+    // They can differ for a legacy account that already held items in two
+    // domains before the lock (migration 0015 records both, so the lock keeps
+    // honouring both): a create in the second domain would pass this gate with
+    // an owner belonging to the first. No domain enables `owner_required` in
+    // any shipped `network.json`, so this is dormant — but it must be resolved
+    // before one does, together with the per-profile ownership work in #661.
     return ctx.hasOwner;
   },
 };

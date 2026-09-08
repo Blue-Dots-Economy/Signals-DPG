@@ -20,7 +20,6 @@ import { ProfileCardModal } from '@/components/actions/profile-card-modal';
 import { MatchScoreBadge } from '@/components/match-score/match-score-badge';
 import { formatDomainLabel } from '@/lib/domain-icons';
 import { useNetworkConfig } from '@/hooks/use-network-config';
-import type { MatchScoreResult } from '@/lib/match-score-api';
 
 interface ActionCardProps {
   action: Action;
@@ -159,10 +158,14 @@ export function ActionCard({ action, ownershipRole, onStatusUpdate, selectionMod
               {status.labelKey ? t(status.labelKey) : action.action_status}
             </span>
             {action.match_score != null ? (
+              // #646: My Actions shows a connect-time relevance SNAPSHOT, not
+              // a browse-list metric — there is no sort here, so the basis is
+              // always the profile match. The column is 0-10 (see
+              // compute_match_score) while the pill renders 0-100.
               <MatchScoreBadge
-                score={{ score: action.match_score } as MatchScoreResult}
+                metric={{ kind: 'relevance', percent: action.match_score * 10 }}
+                basis="profile"
                 size="sm"
-                showLabel={false}
               />
             ) : (
               <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-500">

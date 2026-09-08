@@ -415,7 +415,7 @@ describe('MarkerPopupCard', () => {
     const user = userEvent.setup();
     vi.mocked(calculateMatchScore).mockResolvedValue({
       provider: 'signals_search',
-      score: 6,
+      score: 60,
     });
     render(
       <MarkerPopupCard
@@ -440,7 +440,7 @@ describe('MarkerPopupCard', () => {
         marker={markerFixture()}
         localItem={itemFixture('mine')}
         // A discover-supplied relevance score seeds the modal, so no API call.
-        networkItem={{ ...itemFixture('dest-1'), score: 0.8 }}
+        networkItem={{ ...itemFixture('dest-1'), score: 80 }}
         actions={[
           {
             action_type: 'connect',
@@ -468,7 +468,7 @@ describe('MarkerPopupCard', () => {
       <MarkerPopupCard
         marker={markerFixture()}
         localItem={itemFixture('mine')}
-        networkItem={{ ...itemFixture('dest-1'), score: 0.8 }}
+        networkItem={{ ...itemFixture('dest-1'), score: 80 }}
         actions={[
           {
             action_type: 'connect',
@@ -509,7 +509,7 @@ describe('MatchScoreCard modal hand-off', () => {
         data={{ name: 'Dest' }}
         localItem={itemFixture('mine')}
         // Seeded by discover, so the badge is present without an API round trip.
-        networkItem={{ ...itemFixture('dest'), score: 0.8 }}
+        networkItem={{ ...itemFixture('dest'), score: 80 }}
         actions={[connectAction]}
         onAction={onAction}
       />,
@@ -530,7 +530,7 @@ describe('MatchScoreCard modal hand-off', () => {
         schema={nameSchema}
         data={{ name: 'Dest' }}
         localItem={itemFixture('mine')}
-        networkItem={{ ...itemFixture('dest'), score: 0.8 }}
+        networkItem={{ ...itemFixture('dest'), score: 80 }}
         actions={[connectAction]}
         onAction={onAction}
         actionsDisabled
@@ -549,8 +549,8 @@ describe('MatchScoreCard modal hand-off', () => {
   it('re-runs the calculation from inside the modal without closing it', async () => {
     const user = userEvent.setup();
     vi.mocked(calculateMatchScore)
-      .mockResolvedValueOnce({ provider: 'signals_search', score: 4 })
-      .mockResolvedValueOnce({ provider: 'signals_search', score: 9 });
+      .mockResolvedValueOnce({ provider: 'signals_search', score: 40 })
+      .mockResolvedValueOnce({ provider: 'signals_search', score: 90 });
     render(
       <MatchScoreCard
         schema={nameSchema}

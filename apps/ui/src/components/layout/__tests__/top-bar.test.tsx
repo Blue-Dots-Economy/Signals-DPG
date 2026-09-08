@@ -100,3 +100,49 @@ describe('TopBar — form variant', () => {
     expect(screen.getByRole('radio', { name: /map view/i })).toBeInTheDocument();
   });
 });
+
+describe('TopBar search row placement on mobile', () => {
+  /**
+   * Reported from a real phone: row one held nothing but icons and a gap while
+   * the search sat on a line of its own below it — two rows of chrome before
+   * any content. The search now shares row one WHEN THERE IS ROOM, and the
+   * room depends on auth: the language + theme pair beside it is hidden under
+   * `md` only for a signed-in viewer.
+   */
+  const searchWrapper = () =>
+    document.querySelector('input[type="search"]')?.parentElement;
+
+  it('lets the search share row one when signed in', () => {
+    mockUseAuth.mockReturnValue({ isAuthenticated: true, isLoading: false });
+    renderBar();
+
+    const cls = searchWrapper()?.className ?? '';
+    expect(cls).toContain('flex-1');
+    // `order-last w-full` is what pushed it onto its own line.
+    expect(cls).not.toContain('order-last');
+    expect(cls).not.toMatch(/(^|\s)w-full(\s|$)/);
+  });
+
+  it('keeps the search on its own line when signed out, rather than crushing it', () => {
+    // Signed out, the language switcher and theme toggle are both present, so
+    // the row genuinely cannot fit a legible search box beside them. A stub of
+    // a search box is worse than a second line.
+    mockUseAuth.mockReturnValue({ isAuthenticated: false, isLoading: false });
+    renderBar();
+
+    const cls = searchWrapper()?.className ?? '';
+    expect(cls).toContain('order-last');
+    expect(cls).toContain('w-full');
+  });
+
+  it('is inline and wide from sm up regardless of auth', () => {
+    for (const isAuthenticated of [true, false]) {
+      mockUseAuth.mockReturnValue({ isAuthenticated, isLoading: false });
+      const { unmount } = renderBar();
+      const cls = searchWrapper()?.className ?? '';
+      expect(cls).toContain('sm:flex-1');
+      expect(cls).toContain('sm:max-w-2xl');
+      unmount();
+    }
+  });
+});
