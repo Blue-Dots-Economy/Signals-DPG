@@ -608,7 +608,7 @@ describe('#558 — first-time-login profile redirect', () => {
       rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
       renderPage();
 
-      const button = await screen.findByRole('button', { name: /different account/i });
+      const button = await screen.findByRole('button', { name: /sign out and switch account/i });
       fireEvent.click(button);
 
       await waitFor(() => expect(oidcLogout).toHaveBeenCalled());
@@ -624,7 +624,7 @@ describe('#558 — first-time-login profile redirect', () => {
       rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'RAW-API-ENGLISH-SHOULD-NOT-RENDER');
       renderPage();
       expect(
-        await screen.findByText(/signed in as an aggregator account/i),
+        await screen.findByText(/signed in with your aggregator portal account/i),
       ).toBeInTheDocument();
       expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
     });
@@ -638,11 +638,11 @@ describe('#558 — first-time-login profile redirect', () => {
       renderPage();
 
       expect(
-        await screen.findByRole('button', { name: /different account/i }),
+        await screen.findByRole('button', { name: /sign out and switch account/i }),
       ).toBeInTheDocument();
       // Localised, not the API's English.
       expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
-      expect(screen.getByText(/isn't a Signals participant/i)).toBeInTheDocument();
+      expect(screen.getByText(/already signed in with a different account/i)).toBeInTheDocument();
     });
 
     it('keeps the plain retry when signing out could not possibly help', async () => {
@@ -652,7 +652,7 @@ describe('#558 — first-time-login profile redirect', () => {
       renderPage();
 
       expect(await screen.findByText(/not configured/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /different account/i })).toBeNull();
+      expect(screen.queryByRole('button', { name: /sign out and switch account/i })).toBeNull();
     });
 
     it('falls back to the login page when the sign-out cannot start', async () => {
@@ -661,7 +661,7 @@ describe('#558 — first-time-login profile redirect', () => {
       oidcLogout.mockRejectedValueOnce(new Error('keycloak unreachable'));
       renderPage();
 
-      fireEvent.click(await screen.findByRole('button', { name: /different account/i }));
+      fireEvent.click(await screen.findByRole('button', { name: /sign out and switch account/i }));
       await waitFor(() =>
         expect(navigate).toHaveBeenCalledWith('/auth/login', { replace: true }),
       );
