@@ -21,9 +21,11 @@ export function registerRawBodyCapture(app: FastifyInstance): void {
   app.addContentTypeParser(
     'application/json',
     { parseAs: 'string' },
-    (request, rawBody, done) => {
-      const raw = typeof rawBody === 'string' ? rawBody : rawBody.toString('utf8');
+    // `parseAs: 'string'` means `raw` is always a string — no Buffer branch.
+    (request, raw: string, done) => {
       (request as FastifyRequest & { rawBody?: string }).rawBody = raw;
+      // An empty body parses to `undefined` and is left to the route's schema to
+      // reject, which every POST/PUT/PATCH in this API declares.
       if (raw.length === 0) return done(null, undefined);
       try {
         done(null, JSON.parse(raw));
