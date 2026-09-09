@@ -69,17 +69,9 @@ export const participant_read_handler = async (
   request: GetParticipantRequestType,
   reply: FastifyReply,
 ) => {
-  const body = request.query;
-  const email_norm = body.email?.trim().toLowerCase() ?? null;
-  // Stored phone numbers are canonical E.164 ("+91..."). Callers may send the
-  // number without the leading "+" (e.g. "919876543210"), so prepend it before
-  // the exact-match lookup; otherwise an existing user would silently miss.
-  const phone_trimmed = body.phone_number?.trim();
-  const phone_norm = phone_trimmed
-    ? phone_trimmed.startsWith('+')
-      ? phone_trimmed
-      : `+${phone_trimmed}`
-    : null;
+  const { email: email_norm, phone: phone_norm } = normalizeLookupIdentifier(
+    request.query,
+  );
 
   if (!email_norm && !phone_norm) {
     return reply.code(400).send({
@@ -88,29 +80,14 @@ export const participant_read_handler = async (
     });
   }
 
-  if (!request.acting_org) {
-    return reply.code(403).send({
-      error: 'INVALID_ACTING_ORG',
-      message: 'acting_org is required for /admin/participant',
+  const orgCheck = resolveReadableActingOrg(request.acting_org);
+  if (!orgCheck.ok) {
+    return reply.code(orgCheck.status).send({
+      error: orgCheck.error,
+      message: orgCheck.message,
     });
   }
-
-  // `voice` is admitted alongside aggregator and network_service: voice-dpg is
-  // an integrating DPG that authenticates the same way (client-credentials
-  // token, service org whose slug matches its Keycloak client id), and the
-  // platform layers below already accept it (`SERVICE_ORG_TYPES`,
-  // `ALLOWED_ORG_TYPES`) — this list predates it.
-  if (
-    request.acting_org.org_type !== 'aggregator' &&
-    request.acting_org.org_type !== 'network_service' &&
-    request.acting_org.org_type !== 'voice'
-  ) {
-    return reply.code(403).send({
-      error: 'ACTING_ORG_TYPE_NOT_ALLOWED',
-      message:
-        'only aggregator, network_service or voice acting orgs are allowed',
-    });
-  }
+  const acting_org = orgCheck.acting_org;
 
   // Look up existing user
   const conditions = [];
@@ -141,16 +118,11 @@ export const participant_read_handler = async (
     });
   }
 
-  // User exists — check ownership rules
-  const acting_org_id = request.acting_org.org_id;
-  let itemsList: Awaited<ReturnType<typeof readItemsForUser>> = [];
-  let disclose = false;
-
-  if (request.acting_org.org_type === 'aggregator') {
-    disclose = existing.onboardedByOrgId === acting_org_id;
-  } else {
-    disclose = true; // network_service can always read
-  }
+  // User exists — check ownership rules. An aggregator sees only the users it
+  // onboarded; network_service and voice can always read.
+  const disclose =
+    acting_org.org_type !== 'aggregator' ||
+    existing.onboardedByOrgId === acting_org.org_id;
 
   if (!disclose) {
     // Aggregator that did not onboard this user — no consent disclosure.
@@ -183,11 +155,7 @@ export const participant_read_handler = async (
   // Placed AFTER the disclose verdict, exactly as the POST places its age gates
   // after the ownership verdict: `U18_NOT_ALLOWED` reveals minor status, so it
   // must never answer a caller that is not entitled to see this user at all.
-  if (
-    age != null &&
-    isMinor(age) &&
-    request.acting_org.org_type !== 'aggregator'
-  ) {
+  if (isMinorBlockedForCaller(age, acting_org.org_type)) {
     return reply.code(400).send({
       error: 'U18_NOT_ALLOWED',
       message:
@@ -207,7 +175,7 @@ export const participant_read_handler = async (
     });
   }
 
-  itemsList = await readItemsForUser(existing.id);
+  const itemsList = await readItemsForUser(existing.id);
   const consentedItemIds = await readProfileConsentedItemIds(
     itemsList.map((i) => i.item_id),
     network,
@@ -226,6 +194,86 @@ export const participant_read_handler = async (
 };
 
 // --- helpers ---
+
+/**
+ * Canonicalises the lookup identifier from the query string.
+ *
+ * Stored phone numbers are canonical E.164 ("+91..."). Callers may send the
+ * number without the leading "+" (e.g. "919876543210"), so it is prepended
+ * before the exact-match lookup; otherwise an existing user would silently
+ * miss.
+ *
+ * @param query - The validated query string (email and/or phone_number).
+ * @returns The normalised pair, each `null` when not supplied.
+ */
+function normalizeLookupIdentifier(query: GetParticipantQueryType): {
+  email: string | null;
+  phone: string | null;
+} {
+  const trimmedPhone = query.phone_number?.trim();
+  let phone: string | null = null;
+  if (trimmedPhone) {
+    phone = trimmedPhone.startsWith('+') ? trimmedPhone : `+${trimmedPhone}`;
+  }
+  return { email: query.email?.trim().toLowerCase() ?? null, phone };
+}
+
+/** Acting orgs permitted to read this endpoint. */
+const READABLE_ORG_TYPES = new Set(['aggregator', 'network_service', 'voice']);
+
+type ReadableActingOrg = NonNullable<GetParticipantRequestType['acting_org']>;
+
+/**
+ * Validates the acting org and narrows it to non-null for the handler.
+ *
+ * `voice` is admitted alongside aggregator and network_service: voice-dpg is an
+ * integrating DPG that authenticates the same way (client-credentials token,
+ * service org whose slug matches its Keycloak client id), and the platform
+ * layers below already accept it (`SERVICE_ORG_TYPES`, `ALLOWED_ORG_TYPES`) —
+ * this list predates it.
+ *
+ * @param acting_org - The request's acting org, if the auth layer resolved one.
+ * @returns The org on success, or the status/error/message to reply with.
+ */
+function resolveReadableActingOrg(
+  acting_org: GetParticipantRequestType['acting_org'],
+):
+  | { ok: true; acting_org: ReadableActingOrg }
+  | { ok: false; status: number; error: string; message: string } {
+  if (!acting_org) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'INVALID_ACTING_ORG',
+      message: 'acting_org is required for /admin/participant',
+    };
+  }
+  if (!READABLE_ORG_TYPES.has(acting_org.org_type)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'ACTING_ORG_TYPE_NOT_ALLOWED',
+      message:
+        'only aggregator, network_service or voice acting orgs are allowed',
+    };
+  }
+  return { ok: true, acting_org };
+}
+
+/**
+ * Whether this caller must be refused because the participant is a minor.
+ *
+ * See the call site for why the rejection is scoped to voice/network_service
+ * and why it runs only after the disclosure verdict.
+ *
+ * @param age - The participant's stored age, or null when none is on file.
+ * @param orgType - The acting org's type.
+ * @returns True when the read must answer `U18_NOT_ALLOWED`.
+ */
+function isMinorBlockedForCaller(age: number | null, orgType: string): boolean {
+  if (orgType === 'aggregator') return false;
+  return age != null && isMinor(age);
+}
 
 const servedNetworks = (): string[] => {
   const set = new Set<string>();
