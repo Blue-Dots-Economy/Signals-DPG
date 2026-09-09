@@ -399,7 +399,11 @@ or every entry was `false`/unrecognised).
   `user_consent { terms_accepted, … }` in #692.
 - **Every consent flag is version-scoped** (#692). `value` is `true` only when
   the consent was accepted at the document version this instance currently
-  serves. A participant who accepted an earlier version reports `false` and must
+  serves — resolved with the **same three discriminators the write side uses**:
+  network, the participant's document set (`u18_documents` for a minor,
+  `documents` otherwise), and the **brand stored on each row**, so a brand whose
+  counter has diverged from the network default is answered against its own
+  document rather than the default's. A participant who accepted an earlier version reports `false` and must
   be re-prompted — previously any accepted version counted, so a participant on
   a superseded document read as consented forever while the portal correctly
   re-prompted them, and the channel had no way to tell. `has_age` is unrelated to
@@ -411,7 +415,11 @@ or every entry was `false`/unrecognised).
 - `?network=` selects which network's consent documents define "current". It is
   optional and defaults to the served network; it is required only on an
   instance whose `SERVED_DOMAINS` spans more than one network, where there is no
-  single current version to compare against (`400 NETWORK_REQUIRED`).
+  single current version to compare against (`400 NETWORK_REQUIRED`). A value
+  the instance does not serve is **refused** (`400 NETWORK_NOT_SERVED`) rather
+  than answered: an unknown network has no consent config, so every flag would
+  come back `false` — indistinguishable from "not consented", which would make a
+  channel re-collect consent the participant already gave.
 
 ### Error matrix (additions)
 
@@ -424,6 +432,7 @@ or every entry was `false`/unrecognised).
 | aggregator + participant already locked to another domain | 403 | `DOMAIN_LOCKED` | **not additive.** An account holds profiles in exactly ONE domain (`assertSingleDomain`). A previously-succeeding call now fails if `domain` (or its `'seeker'` default) differs from the domain the participant already holds. Body carries `locked_domain` / `requested_domain`. Per-row, so a batch is unaffected — the row does not land. |
 | `GET /admin/participant` + minor, caller is `voice`/`network_service` | 400 | `U18_NOT_ALLOWED` | **not additive (#692).** The read now matches the POST: minors onboard through the portal. `aggregator` callers are exempt — their probe never reads consent. Reported only after the disclosure check, so it cannot reveal minor status to a caller not entitled to the user. |
 | `GET /admin/participant` on a multi-network instance with no `?network=` | 400 | `NETWORK_REQUIRED` | **not additive (#692).** Consent documents are per-network, so version comparison needs one named. Single-network instances (all of them today) are unaffected — the served network is used. |
+| `GET /admin/participant` + `?network=` naming an unserved network | 400 | `NETWORK_NOT_SERVED` | **not additive (#692).** A typo (`blue-dot`) previously returned 200 with every flag `false`. Callers that omit `?network=` are unaffected. |
 
 ### `POST /api/v1/admin/participant/decrypt` — error matrix (additions)
 

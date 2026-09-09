@@ -96,6 +96,29 @@ describe('GET /api/v1/admin/participant (unit)', () => {
     expect(res.statusCode).toBe(500);
   });
 
+  // #692 review: the handler-level tests pass `query` objects straight past Zod,
+  // so without these a rename of `network` would leave every one of them green
+  // while `?network=` was silently stripped from real requests.
+  it('accepts the network parameter (#692)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/participant?email=test@example.com&network=blue_dot',
+    });
+    // 500 = passed validation and reached the handler (the db is a stub here).
+    expect(res.statusCode).toBe(500);
+  });
+
+  it('rejects an empty network parameter, proving it is schema-validated (#692)', async () => {
+    // `z.string().min(1)`. This is the assertion that dies on a rename: an
+    // undeclared key would be stripped by Zod and fall through to the handler
+    // (500) instead of being rejected here.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/participant?email=test@example.com&network=',
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('rejects missing acting_org with 403', async () => {
     const app2 = Fastify().withTypeProvider<ZodTypeProvider>();
     app2.setValidatorCompiler(validatorCompiler);

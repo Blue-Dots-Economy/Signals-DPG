@@ -41,9 +41,13 @@ import { isMinor } from '@/services/minor';
  *   version counted, so a participant on a superseded document read as
  *   consented forever and the channel had no way to tell.
  * - A minor is rejected with 400 `U18_NOT_ALLOWED` for voice/network_service
- *   callers (never for aggregators — see the gate for why).
+ *   callers (never for aggregators — see the gate for why). An aggregator
+ *   therefore DOES read a minor, so the version comparison resolves the u18
+ *   document set for one; see `consentVariantForAge`.
  * - `?network=` selects which network's documents define "current"; it defaults
- *   to the served network on a single-network instance.
+ *   to the served network on a single-network instance, and a value this
+ *   instance does not serve is refused (`NETWORK_NOT_SERVED`) rather than
+ *   answered all-false.
  *
  * Error responses are intentionally not declared in the route schema, matching
  * the sibling POST /admin/participant, which likewise returns 400s (including
@@ -166,19 +170,20 @@ export const participant_read_handler = async (
   // The network whose consent documents the accepted versions are compared
   // against. Resolved before the reads because a version comparison is
   // meaningless without it.
-  const network = resolveComplianceNetwork(request.query.network);
-  if (network === null) {
+  const networkCheck = resolveComplianceNetwork(request.query.network);
+  if (!networkCheck.ok) {
     return reply.code(400).send({
-      error: 'NETWORK_REQUIRED',
-      message:
-        'this instance serves more than one network; pass ?network= to select which consent documents to compare against',
+      error: networkCheck.error,
+      message: networkCheck.message,
     });
   }
+  const network = networkCheck.network;
 
   const itemsList = await readItemsForUser(existing.id);
   const consentedItemIds = await readProfileConsentedItemIds(
     itemsList.map((i) => i.item_id),
     network,
+    age,
   );
   const itemsWithConsent = itemsList.map((i) => ({
     ...i,
@@ -327,14 +332,77 @@ async function readItemsForUser(user_id: string) {
  * served bindings decide, which resolves every single-network deployment (all
  * of them today) without the caller changing anything.
  *
+ * A requested network outside the served set is REFUSED rather than answered.
+ * Answering it would be worse than an error: `resolveConsentVersion` finds no
+ * config for an unknown network and returns `null` for every category, so a
+ * typo (`blue-dot` for `blue_dot`) produced a confident `200` with every flag
+ * `false` — indistinguishable from "genuinely not consented", which for a voice
+ * channel means re-collecting consent the participant already gave. A consent
+ * answer for a network this instance does not serve is not an answer.
+ *
  * @param requested - The `?network=` query value, when supplied.
- * @returns The network id, or `null` when the instance serves several and the
- *   caller named none — an ambiguity that must not be guessed.
+ * @returns The resolved network, or a failure naming which of the two problems
+ *   it hit — an unserved value, or an ambiguity that must not be guessed.
  */
-function resolveComplianceNetwork(requested: string | undefined): string | null {
-  if (requested) return requested;
-  const served = new Set(apiConfig.served_domains.map((b) => b.network));
-  return served.size === 1 ? [...served][0] : null;
+function resolveComplianceNetwork(
+  requested: string | undefined,
+):
+  | { ok: true; network: string }
+  | { ok: false; error: string; message: string } {
+  const served = servedNetworks();
+  // No served bindings at all (an unconfigured instance): there is nothing to
+  // check membership against, so an explicitly named network is taken at its
+  // word rather than refused. The typo guard below still applies to every
+  // instance that actually declares SERVED_DOMAINS, which is all of them.
+  if (served.length === 0) {
+    return requested
+      ? { ok: true, network: requested }
+      : {
+          ok: false,
+          error: 'NETWORK_REQUIRED',
+          message:
+            'this instance declares no served domains; pass ?network= to select which consent documents to compare against',
+        };
+  }
+  if (requested) {
+    if (!served.includes(requested)) {
+      return {
+        ok: false,
+        error: 'NETWORK_NOT_SERVED',
+        message: `this instance does not serve network "${requested}"`,
+      };
+    }
+    return { ok: true, network: requested };
+  }
+  if (served.length === 1) return { ok: true, network: served[0] };
+  return {
+    ok: false,
+    error: 'NETWORK_REQUIRED',
+    message:
+      'this instance serves more than one network; pass ?network= to select which consent documents to compare against',
+  };
+}
+
+/**
+ * The document set a participant's rows were written against.
+ *
+ * The write side discriminates on it — `signup_guardian.ts` and
+ * `u18_profile_consent.ts` write a ward's rows with `variant: 'u18'`, against
+ * `u18_documents`, which carries its OWN `current_version` per category. A read
+ * that always resolved the adult version would compare a u18 row against the
+ * wrong counter the moment the two sets diverge, and report a guardian-completed
+ * ward as un-consented to the aggregator that onboarded them (the caller class
+ * deliberately exempt from the U18 rejection, so it does reach here).
+ *
+ * `age == null` resolves to `'adult'`, and either way the mismatch direction is
+ * safe: comparing a row against the other set's counter yields `false`, which
+ * re-prompts rather than claiming a consent that was never verified.
+ *
+ * @param age - The participant's stored age, or null when none is on file.
+ * @returns The variant to resolve versions against.
+ */
+function consentVariantForAge(age: number | null): 'adult' | 'u18' {
+  return age != null && isMinor(age) ? 'u18' : 'adult';
 }
 
 /**
@@ -348,14 +416,20 @@ function resolveComplianceNetwork(requested: string | undefined): string | null 
  * response carries no version, the channel could not detect this itself, so
  * those accounts stayed pinned to the superseded document indefinitely.
  *
- * Compared against the ADULT document set, matching `use-consent-gate.ts` in
- * the UI — which reads `config.documents[c].current_version` for every user.
- * Keeping the two identical is the point; a minor never reaches here anyway
- * (rejected above for the channels this serves).
+ * Each row is compared against the current version for its OWN stored `brand`,
+ * not against the network default. `resolveConsentVersion` prefers a brand
+ * override when one exists (as `mergeConsentConfig` does in the UI) and the
+ * write side passes `brand` (`participant_consent.ts`), so resolving only the
+ * default would break both ways once a brand's counter diverges: a brand that
+ * bumps its terms would leave its whole cohort reported `true` against the
+ * default's older number — a false positive, the worse direction for a consent
+ * answer — while a default that bumps alone would re-prompt a brand cohort that
+ * is already current. Reading the brand off the row needs no new request param
+ * and cannot disagree with what was written.
  *
  * @param userId - The participant.
  * @param network - Network whose documents define "current".
- * @param age - The stored age, for `has_age`.
+ * @param age - The stored age; selects the document set and reports `has_age`.
  * @returns One entry per reported key, every key always present.
  */
 async function readCompliance(
@@ -363,10 +437,7 @@ async function readCompliance(
   network: string,
   age: number | null,
 ): Promise<Array<{ key: ParticipantComplianceKey; value: boolean }>> {
-  const [termsVersion, privacyVersion] = await Promise.all([
-    resolveConsentVersion({ network, category: 'terms' }),
-    resolveConsentVersion({ network, category: 'privacy' }),
-  ]);
+  const variant = consentVariantForAge(age);
 
   // Network-scoped now, where it used to be deliberately network-agnostic:
   // the comparison is against THIS network's document, so a row accepted on
@@ -376,6 +447,7 @@ async function readCompliance(
     .select({
       category: consent_record.consentCategory,
       version: consent_record.documentVersion,
+      brand: consent_record.brand,
     })
     .from(consent_record)
     .where(
@@ -387,20 +459,40 @@ async function readCompliance(
       ),
     );
 
+  // One resolve per (category, brand) actually present on a row. Config lookups
+  // are cached, and a participant holds a handful of rows at most.
+  const currentFor = new Map<string, number | null>();
+  await Promise.all(
+    rows.map(async (r) => {
+      const key = `${r.category}\u0000${r.brand ?? ''}`;
+      if (currentFor.has(key)) return;
+      currentFor.set(key, null); // claim the slot before awaiting
+      currentFor.set(
+        key,
+        await resolveConsentVersion({
+          network,
+          brand: r.brand ?? null,
+          category: r.category as 'terms' | 'privacy',
+          variant,
+        }),
+      );
+    }),
+  );
+
   // An unconfigured category resolves to `null`. Reported as `false`, and this
   // is a decision rather than a fallthrough: with no document there is nothing
   // that could have been accepted, and `false` sends the caller to a consent
   // flow rather than letting it proceed on an unverifiable claim.
-  const acceptedAt = (
-    category: 'terms' | 'privacy',
-    current: number | null,
-  ): boolean =>
-    current !== null &&
-    rows.some((r) => r.category === category && r.version === current);
+  const acceptedAt = (category: 'terms' | 'privacy'): boolean =>
+    rows.some((r) => {
+      if (r.category !== category) return false;
+      const current = currentFor.get(`${r.category}\u0000${r.brand ?? ''}`);
+      return current != null && r.version === current;
+    });
 
   return [
-    { key: 'user_terms', value: acceptedAt('terms', termsVersion) },
-    { key: 'user_privacy', value: acceptedAt('privacy', privacyVersion) },
+    { key: 'user_terms', value: acceptedAt('terms') },
+    { key: 'user_privacy', value: acceptedAt('privacy') },
     { key: 'has_age', value: age != null },
   ];
 }
@@ -408,35 +500,55 @@ async function readCompliance(
 /**
  * Item ids whose `profile_creation` consent is accepted at the current version.
  *
- * Same version blindness as `readCompliance` had, and the same fix. Drives
+ * Same version blindness as `readCompliance` had, and the same fix — including
+ * the network predicate and the per-row brand resolution, which this function
+ * originally lacked even though `readCompliance`'s own comment explains why a
+ * row accepted on another network must not satisfy the query. Drives
  * `ParticipantItemSnapshot.profile_consent_accepted`.
  *
  * @param itemIds - Candidate items.
  * @param network - Network whose document defines "current".
+ * @param age - The stored age; selects the document set.
  * @returns The subset consented at the current version.
  */
 async function readProfileConsentedItemIds(
   itemIds: string[],
   network: string,
+  age: number | null,
 ): Promise<Set<string>> {
   if (itemIds.length === 0) return new Set<string>();
-  const currentVersion = await resolveConsentVersion({
-    network,
-    category: 'profile_creation',
-  });
-  if (currentVersion === null) return new Set<string>();
+  const variant = consentVariantForAge(age);
   const rows = await db
-    .select({ itemId: consent_record.itemId })
+    .select({
+      itemId: consent_record.itemId,
+      version: consent_record.documentVersion,
+      brand: consent_record.brand,
+    })
     .from(consent_record)
     .where(
       and(
         eq(consent_record.level, 'item'),
         eq(consent_record.consentCategory, 'profile_creation'),
-        eq(consent_record.documentVersion, currentVersion),
+        eq(consent_record.network, network),
         inArray(consent_record.itemId, itemIds),
       ),
     );
-  return new Set(rows.map((r) => r.itemId as string));
+
+  const consented = new Set<string>();
+  await Promise.all(
+    rows.map(async (r) => {
+      const current = await resolveConsentVersion({
+        network,
+        brand: r.brand ?? null,
+        category: 'profile_creation',
+        variant,
+      });
+      if (current != null && r.version === current && r.itemId) {
+        consented.add(r.itemId);
+      }
+    }),
+  );
+  return consented;
 }
 
 /**

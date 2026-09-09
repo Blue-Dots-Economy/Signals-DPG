@@ -51,6 +51,12 @@ const {
     // would report it. `null` models an unconfigured category.
     consentVersionState: {
       current: {} as Record<string, number | null>,
+      calls: [] as Array<{
+        category: string;
+        variant?: 'adult' | 'u18';
+        brand?: string | null;
+        network: string;
+      }>,
     },
   }));
 
@@ -178,14 +184,33 @@ vi.mock('@/config', () => ({ apiConfig: configState }));
 // #692: the reads resolve the live document version per category. Mocked so
 // these stay unit tests — `consentVersionState` drives what "current" is, which
 // is exactly the axis the version-scoping tests need to vary.
+// Keyed on category + variant + brand, not category alone: the read has to pass
+// all three (u18 documents and brand overrides carry their own counters), and a
+// mock that ignored them could not observe a missing discriminator at all.
+// `calls` records every resolve so tests can assert what was actually asked for.
 vi.mock('@/services/consent_version', () => ({
-  resolveConsentVersion: async ({ category }: { category: string }) =>
-    consentVersionState.current[category] ?? null,
+  resolveConsentVersion: async (input: {
+    category: string;
+    variant?: 'adult' | 'u18';
+    brand?: string | null;
+    network: string;
+  }) => {
+    consentVersionState.calls.push(input);
+    const variant = input.variant ?? 'adult';
+    const brand = input.brand ?? '';
+    const keyed = consentVersionState.current[
+      `${input.category}|${variant}|${brand}`
+    ];
+    if (keyed !== undefined) return keyed;
+    return consentVersionState.current[input.category] ?? null;
+  },
 }));
 
-vi.mock('@/services/minor', () => ({
-  isMinor: (age: number) => age < 18,
-}));
+// `@/services/minor` is deliberately NOT mocked. `isMinor` is a pure function of
+// a number with no I/O, and the earlier mock (`age < 18`) inverted the real rule
+// (`age <= 18`, fail-closed because the stored age is a year-only snapshot) —
+// making 18 an adult in tests and a minor in production, at exactly the age
+// where the rule is non-obvious.
 
 vi.mock('@/utils/item_decrypt', () => ({
   decryptItemPrivate: (row: { item_state: Record<string, unknown> }) =>
@@ -323,6 +348,9 @@ beforeEach(() => {
   queries.length = 0;
   dbState.failWith = null;
   configState.served_domains = [{ network: 'blue_dot', domain: 'seeker' }];
+  // Reset, or a version set by one test silently drives the next.
+  consentVersionState.current = {};
+  consentVersionState.calls.length = 0;
   declaredDomains.value = ['seeker'];
   networkCfgState.cfg = null;
   vi.clearAllMocks();
@@ -510,7 +538,7 @@ describe('participant_read_handler — item + consent projection', () => {
     rowQueue.push(onboarded);
     rowQueue.push([{ age: null }]);
     rowQueue.push([itemRow()]);
-    rowQueue.push([{ itemId: 'i1' }]);
+    rowQueue.push([{ itemId: 'i1', version: 1, brand: null }]);
     rowQueue.push([]);
     consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
@@ -548,7 +576,10 @@ describe('participant_read_handler — item + consent projection', () => {
       itemRow({ item_id: 'i2' }),
       itemRow({ item_id: 'i3' }),
     ]);
-    rowQueue.push([{ itemId: 'i1' }, { itemId: 'i3' }]);
+    rowQueue.push([
+      { itemId: 'i1', version: 1, brand: null },
+      { itemId: 'i3', version: 1, brand: null },
+    ]);
     rowQueue.push([]);
     consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
@@ -573,12 +604,13 @@ describe('participant_read_handler — item + consent projection', () => {
       a: 'cr.level',
       b: 'item',
     });
-    // #692: scoped to the CURRENT document version, not any version.
-    expect(leafFor(consentWhere, 'cr.documentVersion')).toEqual({
-      op: 'eq',
-      a: 'cr.documentVersion',
-      b: 1,
-    });
+    // The version is deliberately NOT a SQL predicate: each row is compared
+    // against the current version for its OWN stored brand, so there is no
+    // single integer to filter on. The comparison is asserted behaviourally
+    // instead — see the superseded-version tests below.
+    expect(leaves(consentWhere).map((c) => c.a)).not.toContain(
+      'cr.documentVersion',
+    );
     expect(leafFor(consentWhere, 'cr.consentCategory')).toEqual({
       op: 'eq',
       a: 'cr.consentCategory',
@@ -588,6 +620,14 @@ describe('participant_read_handler — item + consent projection', () => {
       op: 'inArray',
       a: 'cr.itemId',
       b: ['i1', 'i2', 'i3'],
+    });
+    // #692 review: the item-level read must carry the SAME network predicate
+    // the user-level read does — a row accepted on another network must not
+    // satisfy this query. Its absence here is what let that bug survive.
+    expect(leafFor(consentWhere, 'cr.network')).toEqual({
+      op: 'eq',
+      a: 'cr.network',
+      b: 'blue_dot',
     });
   });
 
@@ -831,7 +871,10 @@ describe('participant_read_handler — item + consent projection', () => {
     rowQueue.push(onboarded);
     rowQueue.push([{ age: 30 }]);
     rowQueue.push([itemRow({ item_id: 'i1' })]);
-    rowQueue.push([]); // no row AT the current version
+    // The row EXISTS — it is simply at a superseded version. Returning rows
+    // here (rather than none) is what makes this test fail if the version
+    // comparison is removed; an empty result would pass either way.
+    rowQueue.push([{ itemId: 'i1', version: 1, brand: null }]);
     rowQueue.push([]);
     consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
 
@@ -844,6 +887,27 @@ describe('participant_read_handler — item + consent projection', () => {
       items: { profile_consent_accepted: boolean }[];
     }).items;
     expect(items[0].profile_consent_accepted).toBe(false);
+  });
+
+  it('flags an item consented AT the current version', async () => {
+    // The positive half of the pair above: same query, same shape, only the
+    // row's version differs — so together they pin the comparison itself.
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+    rowQueue.push([itemRow({ item_id: 'i1' })]);
+    rowQueue.push([{ itemId: 'i1', version: 2, brand: null }]);
+    rowQueue.push([]);
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    const items = (reply.body as {
+      items: { profile_consent_accepted: boolean }[];
+    }).items;
+    expect(items[0].profile_consent_accepted).toBe(true);
   });
 
   it('rejects a minor for a voice caller with U18_NOT_ALLOWED', async () => {
@@ -896,10 +960,13 @@ describe('participant_read_handler — item + consent projection', () => {
     );
   });
 
-  it('does not reveal minor status to an aggregator that is not entitled to the user', async () => {
-    // The gate sits after the disclose verdict, mirroring the POST's reasoning:
-    // U18_NOT_ALLOWED leaks minor status, so it must never answer a caller who
-    // cannot see this user at all.
+  it('returns all-false for an aggregator not entitled to the user', async () => {
+    // Covers the non-disclosing branch's shape. It does NOT prove the gate
+    // ORDERING, and cannot: no caller can currently be both U18-rejectable and
+    // non-disclosing (network_service and voice always disclose; aggregator is
+    // exempt from the rejection). The ordering is still deliberate — see the
+    // handler comment — but it is structurally inert today, so this test is
+    // named for what it actually pins rather than implying more.
     rowQueue.push([
       { id: 'u1', email: 'a@b.com', phoneNumber: null, onboardedByOrgId: 'org_other' },
     ]);
@@ -951,6 +1018,132 @@ describe('participant_read_handler — item + consent projection', () => {
       a: 'cr.network',
       b: 'yellow_dot',
     });
+  });
+
+  // --- #692 review: the discriminators fed to the version comparison ---
+
+  it('resolves the u18 document set for a minor (aggregator reads one)', async () => {
+    // A ward's rows are written with `variant: 'u18'` against `u18_documents`,
+    // which carries its own per-category counter. The aggregator that onboarded
+    // them is exempt from the U18 rejection, so it DOES reach the comparison —
+    // resolving the adult counter here would report a guardian-completed ward
+    // as un-consented the moment the two sets diverge.
+    queueRead({
+      age: 15,
+      userConsentRows: [
+        { category: 'terms', version: 7 },
+        { category: 'privacy', version: 7 },
+      ],
+    });
+    // adult terms=2, u18 terms=7 — divergent on purpose.
+    consentVersionState.current = {
+      'terms|u18|': 7,
+      'privacy|u18|': 7,
+      'terms|adult|': 2,
+      'privacy|adult|': 2,
+    };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, true, true),
+    );
+    expect(
+      consentVersionState.calls.every((c) => c.variant === 'u18'),
+    ).toBe(true);
+  });
+
+  it('treats age 18 as a minor, matching isMinor (age <= 18)', async () => {
+    // The boundary the old mock inverted. 18 is u18 by the real rule.
+    queueRead({ age: 18, userConsentRows: [{ category: 'terms', version: 1 }] });
+    consentVersionState.current = { terms: 1, privacy: 1 };
+
+    await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(consentVersionState.calls.every((c) => c.variant === 'u18')).toBe(true);
+  });
+
+  it('resolves the adult set when no age is on file', async () => {
+    queueRead({ age: null, userConsentRows: [{ category: 'terms', version: 1 }] });
+    consentVersionState.current = { terms: 1, privacy: 1 };
+
+    await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(consentVersionState.calls.every((c) => c.variant === 'adult')).toBe(true);
+  });
+
+  it("compares each row against its OWN brand's current version", async () => {
+    // The false-positive direction the review flagged: the network default
+    // bumps to 2 while brand `upsdm` stays at 1. A row accepted under upsdm at
+    // v1 is still current FOR UPSDM and must read true; resolving only the
+    // default would have compared it against 2 and reported a false false —
+    // and the inverse (brand bumped, default not) a false TRUE.
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+    rowQueue.push([]);
+    rowQueue.push([
+      { category: 'terms', version: 1, brand: 'upsdm' },
+      { category: 'privacy', version: 2, brand: null },
+    ]);
+    consentVersionState.current = {
+      'terms|adult|upsdm': 1,
+      'terms|adult|': 2,
+      'privacy|adult|': 2,
+    };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, true, true),
+    );
+    expect(
+      consentVersionState.calls.some((c) => c.brand === 'upsdm'),
+    ).toBe(true);
+  });
+
+  it("reports false when the row's brand has moved on", async () => {
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+    rowQueue.push([]);
+    rowQueue.push([{ category: 'terms', version: 1, brand: 'upsdm' }]);
+    consentVersionState.current = { 'terms|adult|upsdm': 2, 'privacy|adult|': 1 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(false, false, true),
+    );
+  });
+
+  it('400s NETWORK_NOT_SERVED for a network this instance does not serve', async () => {
+    // A typo (`blue-dot`) used to return 200 with every flag false — a confident
+    // "not consented" for a network we know nothing about, which for a voice
+    // channel means re-collecting consent the participant already gave.
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com', network: 'blue-dot' },
+    });
+
+    expect(reply.statusCode).toBe(400);
+    expect((reply.body as { error: string }).error).toBe('NETWORK_NOT_SERVED');
   });
 
   it('admits a voice acting org (treated as a service org; retire via #518)', async () => {
