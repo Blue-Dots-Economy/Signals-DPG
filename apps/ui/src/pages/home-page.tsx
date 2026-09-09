@@ -73,6 +73,7 @@ import {
   type ListNoteResult,
 } from '@/lib/browse-discover';
 import { BrowseToolbar } from '@/components/filters/browse-toolbar';
+import { LocationSourceSelect } from '@/components/filters/location-source-select';
 import { useAppliedFilterChips } from '@/hooks/use-applied-filter-chips';
 import { useBrowseTotals } from '@/hooks/use-browse-totals';
 import { resolveFacetFieldLabels } from '@/lib/facet-fields';
@@ -845,12 +846,16 @@ export function HomePage() {
     browserLocation.status,
   );
 
-  // Bumped whenever the user switches source so the map recenters on the chosen
+  // Bumped whenever the user picks a source so the map recenters on the chosen
   // anchor even when the resolved coordinate is unchanged — e.g. switching back
   // to "My profile" after a "Current location" attempt that was denied and fell
-  // back to the same profile coordinate, so panning-away is undone. (Re-picking
-  // the already-active source can't happen: radix single-toggle deselects to ''
-  // and handleLocationSourceChange ignores it.)
+  // back to the same profile coordinate, so panning-away is undone.
+  //
+  // Re-picking the ALREADY-ACTIVE source is a real path now, and deliberately
+  // still bumps this: the map's `LocationSourceSelect` is an option list, so
+  // tapping "My profile" after panning away means "take me back", and it does.
+  // (The list's switch is a radix single-toggle, which deselects to '' on a
+  // second press and so cannot reach here twice.)
   const [recenterNonce, setRecenterNonce] = React.useState(0);
 
   // Bumped right before a marker popup's Connect/Apply action opens the
@@ -2091,6 +2096,20 @@ export function HomePage() {
    * here, next to the props they actually describe. Same idiom as
    * `renderPageHeader` below.
    */
+  // The same control the toolbar renders on the map, for the MAXIMIZED map's
+  // overlay: fullscreen covers the page header, so without this the map's one
+  // location control disappears exactly when the map is the whole screen.
+  // A plain element rather than a render function — it takes no branch, so it
+  // costs this component (already at the cognitive-complexity limit) nothing.
+  const mapLocationControl = (
+    <LocationSourceSelect
+      value={preferredSource}
+      onChange={handleLocationSourceChange}
+      profileAvailable={profileLocation !== null}
+      browserAvailable={browserLocation.isSupported}
+    />
+  );
+
   const renderBrowseToolbar = () =>
     network ? (
       <BrowseToolbar
@@ -2459,6 +2478,7 @@ export function HomePage() {
                   closePopupNonce={closePopupNonce}
                   selfLocation={userLocation}
                   filtersSlot={filtersPanel}
+                  locationSlot={mapLocationControl}
                   onViewportChange={setMapViewport}
                   emptyMessage={t(
                     mapEmptyMessageKey({

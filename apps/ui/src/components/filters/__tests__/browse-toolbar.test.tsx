@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { BrowseToolbar } from '../browse-toolbar';
 import type { BrowseToolbarProps } from '../browse-toolbar';
 
@@ -85,14 +86,59 @@ describe('BrowseToolbar', () => {
     expect(screen.queryByTestId('toolbar-count')).toBeNull();
   });
 
-  it('OMITS both sort and area on the map — absent, not disabled (spec D26)', () => {
+  it('OMITS sort and the RADIUS on the map — absent, not disabled (spec D26)', () => {
     // Area was rendered here originally, which was wrong twice over: the map
     // fetch never received `area` (it scopes by viewport), so the control was
     // inert; and a radius layered on a bbox is a contradictory second spatial
     // filter. On the map the viewport IS the area.
     render(<BrowseToolbar {...base} viewMode="map" />);
     expect(screen.queryByRole('button', { name: /sort/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /location/i })).toBeNull();
+    // The full control — the one whose value is the radius — is gone.
+    expect(screen.queryByRole('button', { name: /location: anywhere/i })).toBeNull();
+  });
+
+  it('KEEPS the location source on the map, which centres it', () => {
+    // D26 removed the whole Location control, but its reasoning only covered
+    // the radius. The source decides where the map opens, where "You are
+    // here" sits, and re-centres it on change — so the map had no way to say
+    // "centre on where I am now" at all.
+    render(<BrowseToolbar {...base} viewMode="map" />);
+    expect(
+      screen.getByRole('button', { name: /location: my profile/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows only the two sources on the map, with no distance field', async () => {
+    render(<BrowseToolbar {...base} viewMode="map" />);
+    await userEvent.click(screen.getByRole('button', { name: /location: my profile/i }));
+
+    // Headed by what picking one DOES, since "Location — My profile" over a
+    // map would otherwise read as a filter on which pins are shown.
+    expect(screen.getByRole('listbox', { name: /centre the map on/i })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /my profile/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('option', { name: /current location/i })).toBeInTheDocument();
+    // No radius: the viewport is the map's area.
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByText(/anywhere/i)).toBeNull();
+  });
+
+  it('switches the map source through the same callback the list uses', async () => {
+    const onLocationSourceChange = vi.fn();
+    render(
+      <BrowseToolbar
+        {...base}
+        viewMode="map"
+        onLocationSourceChange={onLocationSourceChange}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /location: my profile/i }));
+    await userEvent.click(screen.getByRole('option', { name: /current location/i }));
+
+    // One shared `preferredSource`, so the two views can never disagree.
+    expect(onLocationSourceChange).toHaveBeenCalledWith('browser');
   });
 
   it('offers location on the list, where it is the dense-map escape hatch', () => {

@@ -562,6 +562,31 @@ describe('MapView — loading, empty state and maximize', () => {
     expect(screen.queryByRole('button', { name: 'Filters slot' })).not.toBeInTheDocument();
   });
 
+  it('reveals the location slot only while maximized, like the filters slot', async () => {
+    // The map's location-source control lives in the page header, which
+    // fullscreen covers — so without this slot the map loses its one location
+    // control exactly when the map is the whole screen.
+    render(
+      <MapView
+        schema={NAME_SCHEMA}
+        items={[]}
+        filtersSlot={<button type="button">Filters slot</button>}
+        locationSlot={<button type="button">Location slot</button>}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Location slot' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Maximize map' }));
+
+    expect(screen.getByRole('button', { name: 'Location slot' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Filters slot' })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Exit maximized map' }));
+
+    expect(screen.queryByRole('button', { name: 'Location slot' })).not.toBeInTheDocument();
+  });
+
   it('exits maximized mode on Escape, and ignores other keys', async () => {
     render(<MapView schema={NAME_SCHEMA} items={[]} />);
 

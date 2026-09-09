@@ -36,6 +36,17 @@ export interface OptionSelectProps<T extends string> {
   options: SelectOption<T>[];
   value: T;
   onChange: (next: T) => void;
+  /**
+   * Optional caption above the list, for when `name` alone is too terse to
+   * say what picking an option DOES. The map's location-source select needs
+   * it: its trigger reads "Location — My profile", which on a map could be
+   * misread as a filter, so the list is headed "Centre the map on".
+   *
+   * When present it labels the listbox instead of `name`, since it is the
+   * more specific of the two — so it carries `aria-hidden`, or a reader would
+   * hear the same words twice.
+   */
+  heading?: string;
 }
 
 /**
@@ -57,6 +68,7 @@ export function OptionSelect<T extends string>({
   options,
   value,
   onChange,
+  heading,
 }: Readonly<OptionSelectProps<T>>) {
   const [open, setOpen] = React.useState(false);
 
@@ -84,7 +96,15 @@ export function OptionSelect<T extends string>({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 p-1">
-        <div role="listbox" aria-label={name}>
+        {heading && (
+          <p
+            aria-hidden="true"
+            className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            {heading}
+          </p>
+        )}
+        <div role="listbox" aria-label={heading ?? name}>
           {options.map((o) => {
             const unavailable = o.available === false;
             const reasonId = unavailable && o.reason ? `opt-why-${name}-${o.value}` : undefined;
