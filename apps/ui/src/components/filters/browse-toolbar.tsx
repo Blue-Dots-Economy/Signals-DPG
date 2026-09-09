@@ -4,6 +4,7 @@ import { SortSelect } from './sort-select';
 import * as React from 'react';
 import { DomainControl } from './domain-control';
 import { LocationSelect } from './location-select';
+import { LocationSourceSelect } from './location-source-select';
 import type { AppliedChip } from './applied-filter-chips';
 import type { DomainOption } from './domain-control';
 import type { BrowseArea, BrowseSort } from '@/lib/browse-discover';
@@ -55,8 +56,18 @@ export interface BrowseToolbarProps {
    * Which location source is in force, and whether each can supply one. Lives
    * with the distance in ONE control (#644 QA redesign) — the standalone
    * "Search near" toggle asked the same question in a second place.
+   *
+   * Used on BOTH views, unlike `area`: on the map it is the only half of the
+   * old Location control that still means something (it centres the map), so
+   * it renders there on its own as `LocationSourceSelect`.
    */
   locationSource: PreferredLocationSource;
+  /**
+   * The source actually in force, which is NOT always `locationSource` — see
+   * `LocationSourceSelect`'s `effectiveValue`. Map-only, since the list's
+   * control shows a radius rather than a source as its value.
+   */
+  effectiveLocationSource: PreferredLocationSource;
   onLocationSourceChange: (next: PreferredLocationSource) => void;
   profileLocationAvailable: boolean;
   browserLocationAvailable: boolean;
@@ -89,8 +100,9 @@ export interface BrowseToolbarProps {
  * and `area`. Nothing here becomes a second editor for something the app bar
  * already edits.
  *
- * ONE row: the domain control, then sort (list only), location, the facet-panel
- * trigger, the applied chips, clear-all, and the count. Actions that operate ON the
+ * ONE row: the domain control, then sort (list only), location (the full
+ * area+source control on the list, the source alone on the map), the
+ * facet-panel trigger, the applied chips, clear-all, and the count. Actions that operate ON the
  * results (bulk-select) deliberately live over the content instead.
  *
  * It always renders — showing "no filters applied" when nothing is set — so
@@ -168,7 +180,10 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
 
             Area exists to give the LIST a location constraint, because the
             list is the escape hatch from a map too dense to show every pin
-            (#644, "Why the list still needs an optional area filter"). */}
+            (#644, "Why the list still needs an optional area filter").
+
+            Only the RADIUS is absent. The source switch that used to live
+            inside this control renders below for the map. */}
         {!isMap && (
           <LocationSelect
             value={props.area}
@@ -179,6 +194,21 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
             browserAvailable={props.browserLocationAvailable}
             center={props.defaultCenter}
             onChange={props.onAreaChange}
+          />
+        )}
+        {/* The map keeps the SOURCE half of Location and drops the radius.
+            D26's reasoning covered the radius — inert on the map, and
+            contradictory with the viewport if wired up — but the source
+            decides where the map OPENS and where "You are here" sits, so
+            removing it left the map unable to answer "centre on where I am
+            now instead of my profile". Same icon, same slot, same words. */}
+        {isMap && (
+          <LocationSourceSelect
+            value={props.locationSource}
+            effectiveValue={props.effectiveLocationSource}
+            onChange={props.onLocationSourceChange}
+            profileAvailable={props.profileLocationAvailable}
+            browserAvailable={props.browserLocationAvailable}
           />
         )}
         {props.filtersSlot}

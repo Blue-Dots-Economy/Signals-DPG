@@ -36,6 +36,34 @@ export interface OptionSelectProps<T extends string> {
   options: SelectOption<T>[];
   value: T;
   onChange: (next: T) => void;
+  /**
+   * Lift the portalled list above the maximized map.
+   *
+   * `PopoverContent` portals to `document.body`, so it is a SIBLING of the
+   * maximized map wrapper (`fixed inset-0 z-[2000]`, `map-container.tsx`) and
+   * its base `z-50` paints underneath that opaque layer while Radix moves
+   * focus into it — invisible and unclickable, WCAG 2.4.11. Opt-in rather
+   * than a blanket bump so the list row's own selects are untouched; the
+   * same 2100 as every other occupant of that overlay
+   * (`browse-filters-panel.tsx`, `map-count-pill.tsx`).
+   */
+  aboveMaximizedMap?: boolean;
+  /**
+   * Optional caption above the list, for when `name` alone is too terse to
+   * say what picking an option DOES. The map's location-source select needs
+   * it: its trigger reads "Location — My profile", which on a map could be
+   * misread as a filter, so the list is headed "Centre the map on".
+   *
+   * When present it labels the listbox instead of `name`, since it is the
+   * more specific of the two.
+   *
+   * The caption carries `aria-hidden` because it is a VISUAL duplicate of a
+   * string already copied into `aria-label` — not because hiding it affects
+   * the accessible name, which it cannot: `aria-label` is a string, not a
+   * reference. (An `aria-labelledby` reference would have been safe too —
+   * accname includes a directly referenced node even when it is hidden.)
+   */
+  heading?: string;
 }
 
 /**
@@ -57,6 +85,8 @@ export function OptionSelect<T extends string>({
   options,
   value,
   onChange,
+  heading,
+  aboveMaximizedMap = false,
 }: Readonly<OptionSelectProps<T>>) {
   const [open, setOpen] = React.useState(false);
 
@@ -83,8 +113,20 @@ export function OptionSelect<T extends string>({
           <ChevronDown className="hidden h-3 w-3 shrink-0 opacity-60 sm:block" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-1">
-        <div role="listbox" aria-label={name}>
+      <PopoverContent
+        align="start"
+        className="w-64 p-1"
+        style={aboveMaximizedMap ? { zIndex: 2100 } : undefined}
+      >
+        {heading && (
+          <p
+            aria-hidden="true"
+            className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+          >
+            {heading}
+          </p>
+        )}
+        <div role="listbox" aria-label={heading ?? name}>
           {options.map((o) => {
             const unavailable = o.available === false;
             const reasonId = unavailable && o.reason ? `opt-why-${name}-${o.value}` : undefined;
