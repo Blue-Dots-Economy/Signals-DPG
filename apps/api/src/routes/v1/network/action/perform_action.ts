@@ -40,6 +40,7 @@ import {
 } from '@/utils/action_event_runtime';
 import { dispatchActionNotifications } from '@/notifications/notify_actions';
 import { public_rate_limit } from '@/middleware/public_rate_limit';
+import { peer_instance_guard_strict } from '@/middleware/peer_instance_guard';
 
 type PerformNetworkActionRequest = FastifyRequest<{
   Body: z.infer<typeof PerformNetworkActionBodySchema>;
@@ -103,10 +104,22 @@ export const perform_network_action: FastifyPluginAsyncZod = async function (
   fastify.route({
     url: '/action/perform',
     method: 'POST',
-    // Unauthenticated by design (the inter-instance action-mirroring entry
-    // point), so it is open to anyone who can reach the host. Cap it per IP —
-    // every action created here writes rows and can trigger notifications.
-    preHandler: public_rate_limit('network_action_perform', 100),
+    // Peer-only (AUTH-VULN-05). This body ASSERTS identity — `source_item_owner`
+    // and the `performed_by_*` audit fields decide who the action belongs to, and
+    // the handler has no independent way to check them. While the route was
+    // public, anyone who could reach the host could name any user (ids are
+    // discoverable) and have an action recorded against them; a pentest confirmed
+    // it, getting back a consent error specific to the impersonated user rather
+    // than an auth error. The HMAC guard binds the request to a peer that holds
+    // INSTANCE_SHARED_SECRET, so the identity fields are only as forgeable as
+    // that secret. The STRICT guard is deliberate: unlike the *_local reads, this
+    // route never had a legitimate unsigned caller to keep working during
+    // rollout, so it does not honour PEER_AUTH_MODE=permissive — otherwise the
+    // finding stays open in every deployment that has not flipped the flag.
+    preHandler: [
+      peer_instance_guard_strict,
+      public_rate_limit('network_action_perform', 100),
+    ],
     schema: {
       tags: ['network'],
       body: PerformNetworkActionBodySchema,

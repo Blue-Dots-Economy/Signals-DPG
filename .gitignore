@@ -50,3 +50,9 @@ coverage/
 
 # Captured emails from the local mail sink (local-mail-sink/sink.mjs)
 local-mail-sink/mail/
+
+# Local-only network schemas. `examples/schemas/<network>/` is loaded by explicit
+# path (NETWORK_CONFIG_LOCAL_FILE), never by scanning the directory, so a private
+# scratch copy can live here — but it must not be committed. The `_` prefix is
+# the convention; this makes it stick against a stray `git add -A`.
+examples/schemas/_*/

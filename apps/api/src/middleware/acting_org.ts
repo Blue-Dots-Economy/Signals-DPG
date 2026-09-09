@@ -16,6 +16,43 @@ const get_header_value = (raw: string | string[] | undefined): string | undefine
 };
 
 /**
+ * ACTING-ORG SCOPE MODEL — how `x-acting-org-id` is authorised, and where.
+ *
+ * An on-behalf-of request carries three things: a service credential (who the
+ * caller is), `x-acting-org-id` (the org it is acting as), and the target user.
+ * Authorisation of that combination is split across two layers, in two places.
+ *
+ *   1. caller -> acting org. This middleware. It validates that the org exists,
+ *      that its type may be asserted as an acting org, and that the caller is a
+ *      registered service principal. It does NOT bind the org to the caller:
+ *      any service credential may name any org of an allowed type.
+ *
+ *   2. acting org -> target user. Enforced downstream, per route:
+ *      `routes/v1/action/_resolve_acting_actor.ts` (step 5) and the admin read
+ *      paths (e.g. `admin/participant_decrypt.ts`, scoping on
+ *      `user.onboardedByOrgId`). An `aggregator` acting org reaches only users
+ *      it onboarded. `network_service` and `voice` are network-wide by design —
+ *      see the rationale comment in `_resolve_acting_actor.ts`.
+ *
+ * So the reach of a request is determined by the TYPE of the org asserted, and
+ * that reach is checked; the choice of which org to assert is not.
+ *
+ * What that means in practice depends entirely on the set of service principals
+ * that exist. Today `SERVICES` in `scripts/seed_service_users.ts` holds a single
+ * entry, seeded with org `type: 'network_service'` — network-wide scope. Raya /
+ * voice is network-wide by the same design. Every principal able to reach this
+ * middleware therefore already carries the broadest scope the model defines.
+ *
+ * If a service principal is ever provisioned that should reach only PART of the
+ * network — a regional aggregator, a partner integration — layer 1 has to carry
+ * the restriction, because layer 2 cannot express it. The mechanism exists and
+ * is deployed but inert: set `ACTING_ORG_SOURCE=claim_preferred` (see
+ * `@/config`) and populate the `signals_acting_orgs` claim for that principal.
+ * The grant check below already reads it; `["*"]` means "any org"; the Keycloak
+ * mappers are live. Enable it in the same change that adds the principal.
+ */
+
+/**
  * Fastify preHandler that resolves the acting org for a request.
  *
  * Reads the `x-acting-org-id` header and the apikey-bound user (set upstream
@@ -133,6 +170,11 @@ export const acting_org_preHandler = async (
     return;
   }
 
+  // Org-agnostic by design: this gate separates privilege TIERS (service
+  // principal vs end user), not tenants. No production path writes `member`
+  // rows except `scripts/seed_service_users.ts`, so a participant session has
+  // none and is refused here before it can assert any acting org. Tenant reach
+  // is decided downstream by the acting org's type — see the scope model above.
   const member_rows = await db
     .select({ id: member.id })
     .from(member)

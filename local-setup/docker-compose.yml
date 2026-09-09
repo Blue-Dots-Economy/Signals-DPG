@@ -287,9 +287,13 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       SIGNALS_PII_KEY: ${SIGNALS_PII_KEY:?SIGNALS_PII_KEY must be a base64-encoded 32-byte key}
       # D6 inter-instance peer auth (HMAC). Required by NetworkRuntimeSecretsSchema
-      # (min 32 chars). Single local instance in permissive mode → a static dev
-      # default is fine; must be IDENTICAL across peers in a multi-instance setup.
-      INSTANCE_SHARED_SECRET: ${INSTANCE_SHARED_SECRET:-local-dev-instance-shared-secret-change-me}
+      # (min 32 chars). Must be IDENTICAL across peers in a multi-instance setup.
+      # No default: since network/action/perform became peer-authenticated, this
+      # secret is the only thing standing between an anonymous caller and
+      # asserting another user's identity, so a shipped value would be a shipped
+      # credential on any dev-exposed instance. Generate with:
+      #   openssl rand -hex 32
+      INSTANCE_SHARED_SECRET: ${INSTANCE_SHARED_SECRET:?INSTANCE_SHARED_SECRET must be set (min 32 chars; openssl rand -hex 32)}
       PEER_AUTH_MODE: ${PEER_AUTH_MODE:-permissive}
       # Keycloak migration flag. 'betterauth' (the default) keeps every
       # Keycloak path dormant; the KEYCLOAK_* values below are inert until it
