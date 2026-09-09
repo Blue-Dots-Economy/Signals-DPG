@@ -12,6 +12,39 @@ loadEnv({
   override: true,
 });
 
+describe('buildApp wiring', () => {
+  // The raw-body parser is what peer_instance_guard hashes. Every other test of
+  // it registers the plugin on its own Fastify instance, so nothing caught a
+  // deletion of the single `registerRawBodyCapture(app)` line in app.ts — and
+  // the guard silently falls back to re-serializing `request.body`, which is
+  // the bug this whole mechanism exists to avoid.
+  it('registers the raw-body capture, so peer requests hash the bytes as sent', async () => {
+    process.env.API_REFERENCE_ENABLED = 'true';
+    vi.resetModules();
+    const { buildApp } = await import('../app.js');
+    const app = await buildApp();
+
+    // A body with whitespace JSON.stringify would never emit: if `rawBody` is
+    // the wire string this survives verbatim; if it were re-serialized it would
+    // come back normalised.
+    const payload = '{"a":1,   "b":2}';
+    app.post('/__rawbody_probe', async (request) => ({
+      raw: (request as { rawBody?: string }).rawBody ?? null,
+    }));
+    await app.ready();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/__rawbody_probe',
+      headers: { 'content-type': 'application/json' },
+      payload,
+    });
+
+    expect(res.json().raw).toBe(payload);
+    await app.close();
+  });
+});
+
 describe('OpenAPI spec generation', () => {
   it('builds a spec with real metadata and a non-empty path surface', async () => {
     // Explicit + resetModules so this test's outcome doesn't depend on

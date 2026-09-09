@@ -35,6 +35,7 @@ import {
 } from '@/services/guardian_action_gate';
 import { guardianActionConsentRow } from '@/services/guardian_consent_rows';
 import { resolveConsentVersion } from '@/services/consent_version';
+import { buildPeerHeaders } from '@/utils/instance_token';
 
 const BulkPerformActionBodySchema = z.array(z.unknown());
 
@@ -303,23 +304,35 @@ async function runPerformActions(
       let responseOk: boolean;
       let responseBody: Record<string, unknown>;
       try {
-        const response = await fetch(
-          new URL('/api/v1/network/action/perform', targetItem.item_instance_url),
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              action_type: body.action_type,
-              source_item: sourceItem,
-              target_item: targetItem,
-              source_item_owner: actor.effective_user_id,
-              requirements_snapshot: requirementsSnapshot,
-              performed_by_org_id: actor.audit.performed_by_org_id,
-              performed_by_service_user_id: actor.audit.performed_by_service_user_id,
-              consent: body.consent,
-            }),
-          },
+        // Identity is asserted in this body — `source_item_owner` and the
+        // `performed_by_*` audit fields say who the action belongs to, and the
+        // receiver has no other way to know. Sign it (AUTH-VULN-05): the peer
+        // guard on the receiving side rejects an unsigned or tampered request,
+        // so those fields can no longer be forged by anyone who can reach the
+        // host. The signature covers path + these exact bytes, so the body must
+        // be built once and both hashed and sent — never re-stringified.
+        const target = new URL(
+          '/api/v1/network/action/perform',
+          targetItem.item_instance_url
         );
+        const requestBody = JSON.stringify({
+          action_type: body.action_type,
+          source_item: sourceItem,
+          target_item: targetItem,
+          source_item_owner: actor.effective_user_id,
+          requirements_snapshot: requirementsSnapshot,
+          performed_by_org_id: actor.audit.performed_by_org_id,
+          performed_by_service_user_id: actor.audit.performed_by_service_user_id,
+          consent: body.consent,
+        });
+        const response = await fetch(target, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...buildPeerHeaders(target.pathname, requestBody),
+          },
+          body: requestBody,
+        });
         responseOk = response.ok;
         responseBody = (await response.json()) as Record<string, unknown>;
       } catch (err) {
