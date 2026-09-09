@@ -509,34 +509,20 @@ describe('action-api — performAction', () => {
     expect('guardian_otp' in PERFORM_PAYLOAD).toBe(false);
   });
 
-  it('builds a cookie-authenticated per-source-instance client when sourceInstanceUrl is given', async () => {
-    const { mod, post, instancePost, created, interceptors, setCsrf } = await loadActionApi();
-    instancePost.mockResolvedValue(envelope({ action_id: 'a1' }));
-    setCsrf('csrf-abc');
+  it('sends the action to the SAME ORIGIN even when a source instance URL is given', async () => {
+    const { mod, post, instancePost, created } = await loadActionApi();
+    post.mockResolvedValue(envelope({ action_id: 'a1' }));
 
     await mod.performAction(PERFORM_PAYLOAD, 'https://source.example');
 
-    expect(created[0]?.baseURL).toBe('https://source.example');
-    // The session rides on the cookie, so the per-instance client has to opt in
-    // to sending credentials cross-origin.
-    expect(created[0]?.withCredentials).toBe(true);
-    expect(instancePost.mock.calls[0][0]).toBe('/api/v1/action/perform');
-    expect(post).not.toHaveBeenCalled();
-
-    // No Authorization header on any request: there is no token in the browser
-    // to put in one. State-changing methods carry the CSRF token instead.
-    const posted = interceptors[0]({ method: 'post', headers: {} });
-    expect(posted.headers.Authorization).toBeUndefined();
-    expect(posted.headers['x-csrf-token']).toBe('csrf-abc');
-
-    // Safe methods are exempt — they cannot change state, so the double-submit
-    // check does not apply to them.
-    expect(interceptors[0]({ method: 'get', headers: {} }).headers['x-csrf-token']).toBeUndefined();
-
-    // No session, no token to echo — the request still goes out and the server
-    // rejects it, rather than the client sending an empty header.
-    setCsrf(null);
-    expect(interceptors[0]({ method: 'post', headers: {} }).headers['x-csrf-token']).toBeUndefined();
+    // The session is a cookie, so it is scoped to the origin that set it — a
+    // request to any other host carries no session and 401s. The API also
+    // requires the source item to be LOCAL, and one instance serves every
+    // domain of its network, so same-origin is the correct target anyway.
+    expect(created).toHaveLength(0);
+    expect(instancePost).not.toHaveBeenCalled();
+    expect(post.mock.calls[0][0]).toBe('/api/v1/action/perform');
+    expect(post.mock.calls[0][1]).toEqual(PERFORM_PAYLOAD);
   });
 
   it('throws a BulkSingleError carrying the per-item code when the single item fails (422)', async () => {
@@ -627,12 +613,13 @@ describe('action-api — updateActionStatus and the bulk variants', () => {
   });
 
   it('performActionsBulk stamps ONE guardian OTP onto every payload in the batch (#393)', async () => {
-    const { mod, instancePost } = await loadActionApi();
-    instancePost.mockResolvedValue({ status: 200, data: { results: [], summary: { total: 0, succeeded: 0, failed: 0 } } });
+    // Same-origin client even with a source instance URL — see performAction above.
+    const { mod, post } = await loadActionApi();
+    post.mockResolvedValue({ status: 200, data: { results: [], summary: { total: 0, succeeded: 0, failed: 0 } } });
 
     await mod.performActionsBulk([PERFORM_PAYLOAD, PERFORM_PAYLOAD], 'https://source.example', '424242');
 
-    expect(instancePost.mock.calls[0][1]).toEqual([
+    expect(post.mock.calls[0][1]).toEqual([
       { ...PERFORM_PAYLOAD, guardian_otp: '424242' },
       { ...PERFORM_PAYLOAD, guardian_otp: '424242' },
     ]);

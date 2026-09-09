@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { createApiClient } from './api-client';
 import { unwrapBulkSingle, postBulkEnvelope, type BulkEnvelope } from './bulk';
-import { getCsrfToken } from './bff-session';
 
 // ─── Contact-details types ────────────────────────────────────────
 
@@ -54,31 +53,31 @@ export interface ContactDetailsError extends Error {
 const apiClient = createApiClient();
 
 /**
- * Create an API client for a specific instance URL
+ * Which client an action goes out on — always the same-origin one.
+ *
+ * `sourceInstanceUrl` used to build a client pointed at the source item's
+ * recorded `item_instance_url`. That worked while the session was a bearer
+ * token, which could be attached to any host. The session is a cookie now
+ * (AUTH-VULN-03/04), and a cookie is scoped to the origin that set it — so a
+ * request to any other host simply carries no session and comes back
+ * `401 UNAUTHORIZED`. That is not a thing a header can fix: it is what
+ * same-origin means.
+ *
+ * It is also the correct target regardless. `POST /action/perform` requires the
+ * SOURCE item to be local — it runs `isServedDomainBinding` on the source and
+ * then `fetchLocalItemSnapshot` — and an instance serves every domain of its
+ * network (per-domain deploys split only the UI, so the seeker and provider
+ * portals are two hostnames in front of one API). The recorded
+ * `item_instance_url` is that same API under its canonical hostname, which is
+ * precisely the host the browser has no cookie for.
+ *
+ * Cross-instance is still handled, just not from here: the local API forwards
+ * to the TARGET's instance over the HMAC-signed peer route
+ * (`network/action/perform`). The browser was never the right place for that
+ * hop, because it holds no peer credential.
  */
-function createInstanceApiClient(instanceUrl: string) {
-  const client = axios.create({
-    baseURL: instanceUrl,
-    withCredentials: true,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  // Cookie-based session; see api-client.ts for why there is no Authorization
-  // header. Note this client targets a per-instance baseURL, so the cookie only
-  // rides along for the instance that issued it — which is correct: a session
-  // is scoped to the instance the user signed in to.
-  client.interceptors.request.use((config) => {
-    const method = (config.method ?? 'get').toUpperCase();
-    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-      const csrf = getCsrfToken();
-      if (csrf) config.headers['x-csrf-token'] = csrf;
-    }
-    return config;
-  });
-
-  return client;
+function actionClient() {
+  return apiClient;
 }
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -347,21 +346,22 @@ export function guardianOtpErrorFromThrown(err: unknown): GuardianOtpErrorCode |
  * The source instance validates the source item exists, then forwards to target.
  * 
  * @param payload - The action payload
- * @param sourceInstanceUrl - Optional: URL of the source instance.
- *   If not provided, uses default API. Should be the instance where source item exists.
+ * @param _sourceInstanceUrl - Accepted for call-site compatibility and ignored:
+ *   the action always goes to this origin, because that is the only place the
+ *   browser holds a session. See `actionClient`.
  * @param guardianOtp - Optional: guardian OTP code to resubmit this same action with,
  *   after a prior call returned a `GUARDIAN_OTP_REQUIRED` per-item error. Sent as
  *   `guardian_otp` on the payload.
  */
 export async function performAction(
   payload: PerformActionPayload,
-  sourceInstanceUrl?: string,
+  _sourceInstanceUrl?: string,
   guardianOtp?: string,
 ): Promise<PerformActionResponse> {
-  // Use source instance URL if provided, otherwise fall back to default API client
-  const client = sourceInstanceUrl
-    ? createInstanceApiClient(sourceInstanceUrl)
-    : apiClient;
+  // `sourceInstanceUrl` is retained on the signature (callers resolve and pass
+  // it, and it is meaningful to them) but no longer selects a host — see
+  // `actionClient`.
+  const client = actionClient();
 
   const body = guardianOtp ? { ...payload, guardian_otp: guardianOtp } : payload;
 
@@ -398,12 +398,10 @@ export async function updateActionStatus(
  */
 export async function performActionsBulk(
   payloads: PerformActionPayload[],
-  sourceInstanceUrl?: string,
+  _sourceInstanceUrl?: string,
   guardianOtp?: string,
 ): Promise<BulkEnvelope<PerformActionResponse>> {
-  const client = sourceInstanceUrl
-    ? createInstanceApiClient(sourceInstanceUrl)
-    : apiClient;
+  const client = actionClient();
   const body = guardianOtp
     ? payloads.map((payload) => ({ ...payload, guardian_otp: guardianOtp }))
     : payloads;
