@@ -69,7 +69,13 @@ export async function fetchBffSession(): Promise<BffSession> {
  * `Set-Cookie` on the way back, neither of which survives an XHR.
  */
 export function startBffLogin(returnTo: string, consentAttempt?: string): void {
-  const target = new URL(url('/api/v1/auth/session/login'));
+  // `window.location.origin` is the BASE, not the value: `apiConfig.getUrl()`
+  // returns '' in every deployment that serves the API under the UI's own
+  // origin (the chart writes `VITE_API_URL: ""`), which makes `url()` a
+  // relative path — and single-argument `new URL('/path')` throws `Invalid
+  // URL`. Passing a base resolves the relative case and is ignored when the
+  // configured value is already absolute, as it is in local dev.
+  const target = new URL(url('/api/v1/auth/session/login'), window.location.origin);
   target.searchParams.set('returnTo', returnTo);
   // The API may not be on this origin (locally it is :2742 to our :3000), so it
   // cannot work out on its own where to send the browser back to. It checks

@@ -9,7 +9,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * and only in memory.
  */
 
-vi.mock('../api-config', () => ({ apiConfig: { getUrl: () => 'http://api.test' } }));
+// `getUrl()` returns '' wherever the API is served under the UI's own origin —
+// which is what the chart writes (`VITE_API_URL: ""`). Local dev is the only
+// place it is absolute, so a fixture that is always absolute tests the case
+// that does NOT ship.
+const api = vi.hoisted(() => ({ base: 'http://api.test' }));
+vi.mock('../api-config', () => ({ apiConfig: { getUrl: () => api.base } }));
 
 const {
   clearCsrfToken,
@@ -32,6 +37,7 @@ const setLocation = (href: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.base = 'http://api.test';
   vi.stubGlobal('fetch', fetchMock);
   clearCsrfToken();
   localStorage.clear();
@@ -120,6 +126,20 @@ describe('startBffLogin', () => {
     setLocation('http://localhost:3000/home');
     startBffLogin('/');
     expect(new URL(window.location.href).searchParams.has('consentAttempt')).toBe(false);
+  });
+
+  it('works when the API is same-origin, where getUrl() is the empty string', () => {
+    // The deployed configuration. `new URL('/path')` with no base throws
+    // `Invalid URL`, so this is the difference between login working and the
+    // sign-in button dying before it ever reaches the API.
+    api.base = '';
+
+    expect(() => startBffLogin('/')).not.toThrow();
+
+    const target = new URL(window.location.href);
+    expect(target.origin).toBe('http://localhost:3000');
+    expect(target.pathname).toBe('/api/v1/auth/session/login');
+    expect(target.searchParams.get('appOrigin')).toBe('http://localhost:3000');
   });
 
   it('is a full navigation, not a fetch', () => {
