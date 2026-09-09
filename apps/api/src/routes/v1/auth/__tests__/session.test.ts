@@ -81,7 +81,11 @@ const TOKENS = {
 
 async function build(): Promise<FastifyInstance> {
   const { auth_session } = await import('../session');
-  const app = Fastify();
+  // `trustProxy` mirrors app.ts. Without it `request.host` is the injected
+  // host rather than the edge's `X-Forwarded-Host`, so the harness would be a
+  // different server from the one that runs — and the multi-host case below
+  // would silently pass for the wrong reason.
+  const app = Fastify({ trustProxy: true });
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   await app.register(cookie);
@@ -95,6 +99,15 @@ const inject = async (opts: InjectOptions): Promise<LightMyRequestResponse> => {
   const res = await app.inject(opts);
   await app.close();
   return res;
+};
+
+/**
+ * What the edge forwards for a browser on a participant hostname. `trustProxy`
+ * turns these into `request.protocol` / `request.host`.
+ */
+const asPortalHost = {
+  'x-forwarded-proto': 'https',
+  'x-forwarded-host': 'app.example.org',
 };
 
 /** Everything the browser is told, flattened — headers and body together. */
@@ -137,6 +150,43 @@ describe('GET /auth/session/login', () => {
   it('names the API — not the UI — as the OIDC redirect target', async () => {
     // Keycloak has to send the code back to the server that holds the verifier.
     await inject({ method: 'GET', url: '/api/v1/auth/session/login' });
+
+    expect(buildAuthorizeUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: 'https://api.example.org/api/v1/auth/session/callback',
+      }),
+    );
+  });
+
+  it('sends the callback back to the HOST THE BROWSER USED, not the canonical API_DOMAIN', async () => {
+    // One instance is served under several participant hostnames. Sending the
+    // callback to API_DOMAIN sets the session cookie on that origin, which is
+    // then never sent to the portal the user is actually on — they complete a
+    // valid login and land back signed out.
+    await inject({
+      method: 'GET',
+      url: '/api/v1/auth/session/login',
+      headers: asPortalHost,
+    });
+
+    expect(buildAuthorizeUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        redirectUri: 'https://app.example.org/api/v1/auth/session/callback',
+      }),
+    );
+    expect(saveFlowState.mock.calls[0][1]).toMatchObject({
+      appOrigin: 'https://app.example.org',
+    });
+  });
+
+  it('ignores a Host that is not on the CORS allowlist', async () => {
+    // `X-Forwarded-Host` is client-influenced, so an unrecognised value must
+    // never become a redirect target.
+    await inject({
+      method: 'GET',
+      url: '/api/v1/auth/session/login',
+      headers: { 'x-forwarded-proto': 'https', 'x-forwarded-host': 'evil.test' },
+    });
 
     expect(buildAuthorizeUrl).toHaveBeenCalledWith(
       expect.objectContaining({

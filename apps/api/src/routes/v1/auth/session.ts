@@ -1,4 +1,5 @@
 import z from '@dpg/schemas';
+import type { FastifyRequest } from 'fastify';
 import { type FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { randomBytes } from 'node:crypto';
 import { authConfig, getCurrentApiBaseUrl, instance } from '@/config';
@@ -61,6 +62,30 @@ const LogoutResponse = z.object({
   endSessionUrl: z.string(),
 });
 
+/**
+ * The origin the browser actually reached this API on.
+ *
+ * `API_DOMAIN` names ONE canonical host, but a single instance is served under
+ * several participant hostnames (the per-domain portals), and the whole flow
+ * has to stay on the one the browser started from. Sending the callback to the
+ * canonical host instead sets the `sid` cookie on THAT origin, and a cookie set
+ * on `dev-signals.example` is simply never sent to `portal.example` — the user
+ * completes a perfectly good login and lands back unauthenticated.
+ *
+ * `trustProxy` is enabled (`app.ts`), so `protocol`/`host` reflect the
+ * `X-Forwarded-*` headers the edge sets. Those are influenced by the client, so
+ * the result is run through the same CORS allowlist `appOrigin` uses and falls
+ * back to `API_DOMAIN` when it does not match — an unrecognised Host can
+ * therefore never become a redirect target. Keycloak's own registered-redirect
+ * check is the second gate.
+ */
+function requestOrigin(request: FastifyRequest): string {
+  return safeAppOrigin(
+    `${request.protocol}://${request.host}`,
+    getCurrentApiBaseUrl()
+  );
+}
+
 function cookieOptions() {
   return {
     httpOnly: true,
@@ -105,7 +130,11 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       const state = newStateValue();
       const nonce = randomBytes(16).toString('base64url');
       const { verifier, challenge } = newPkcePair();
-      const redirectUri = `${getCurrentApiBaseUrl()}/api/v1/auth/session/callback`;
+      // Same host the browser is already talking to: it reached this route
+      // there, so it serves the callback there too, and the cookie the callback
+      // sets will be same-origin with the app.
+      const self = requestOrigin(request);
+      const redirectUri = `${self}/api/v1/auth/session/callback`;
 
       await saveFlowState(state, {
         verifier,
@@ -113,7 +142,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
         returnTo: safeReturnTo(request.query.returnTo),
         consentAttempt: request.query.consentAttempt,
         redirectUri,
-        appOrigin: safeAppOrigin(request.query.appOrigin, getCurrentApiBaseUrl()),
+        appOrigin: safeAppOrigin(request.query.appOrigin, self),
       });
 
       return reply.redirect(
@@ -155,7 +184,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       // this is the normal "user cancelled" path, not an exception.
       if (error || !code || !state) {
         request.log.warn({ oidcError: error ?? 'missing code/state' }, 'OIDC callback rejected');
-        return authError(getCurrentApiBaseUrl());
+        return authError(requestOrigin(request));
       }
 
       const flow = await consumeFlowState(state);
@@ -163,7 +192,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
         // Unknown or already-used state: an expired flow, or a replayed
         // callback trying to mint a second session from one authorization.
         request.log.warn('OIDC callback with unknown or replayed state');
-        return authError(getCurrentApiBaseUrl());
+        return authError(requestOrigin(request));
       }
 
       let tokens;
@@ -260,7 +289,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
           // `/auth/login`, not `/`: it is the app's signed-out landing page and
           // one of the post-logout URLs the realm registers for `signals-ui`.
           // Keycloak matches these exactly and silently refuses anything else.
-          postLogoutRedirectUri: `${session?.appOrigin ?? getCurrentApiBaseUrl()}/auth/login`,
+          postLogoutRedirectUri: `${session?.appOrigin ?? requestOrigin(request)}/auth/login`,
         }),
       });
     },
