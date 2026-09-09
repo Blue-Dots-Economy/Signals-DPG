@@ -333,8 +333,6 @@ describeIf(`GET /aggregator/dashboard by_domain (integration)${
         payload: {
           phone_number: seeker_phone(i),
           name: `B12 Seeker ${i}`,
-          terms_accepted: true,
-          privacy_accepted: true,
           channel: seeker_channels[i],
           network: primary.network,
           domain: primary.domain,
@@ -372,8 +370,6 @@ describeIf(`GET /aggregator/dashboard by_domain (integration)${
           payload: {
             phone_number: provider_phone(i),
             name: `B12 Provider ${i}`,
-            terms_accepted: true,
-            privacy_accepted: true,
             channel: 'bulk',
             network: secondary.network,
             domain: secondary.domain,

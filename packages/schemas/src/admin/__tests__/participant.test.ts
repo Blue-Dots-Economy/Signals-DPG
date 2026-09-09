@@ -149,7 +149,10 @@ describe('UpsertParticipantRequest — consent, channel and attribution', () => 
     );
   });
 
-  it('still accepts the deprecated terms/privacy flags', () => {
+  it('strips the removed terms/privacy flags instead of rejecting them (#692)', () => {
+    // Removal must stay non-breaking: the object is not `.strict()`, so a
+    // legacy caller still sending the flags gets a 200 exactly as before —
+    // they are simply dropped rather than surfacing as a 400.
     const result = UpsertParticipantRequest.safeParse({
       ...withEmail,
       terms_accepted: true,
@@ -158,8 +161,8 @@ describe('UpsertParticipantRequest — consent, channel and attribution', () => 
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.terms_accepted).toBe(true);
-      expect(result.data.privacy_accepted).toBe(false);
+      expect(result.data).not.toHaveProperty('terms_accepted');
+      expect(result.data).not.toHaveProperty('privacy_accepted');
     }
   });
 
@@ -463,33 +466,63 @@ describe('UpsertParticipantResponse', () => {
 });
 
 describe('GetParticipantResponse', () => {
-  it('accepts a null user_id with an empty consent snapshot', () => {
+  const emptyCompliance = [
+    { key: 'user_terms', value: false },
+    { key: 'user_privacy', value: false },
+    { key: 'has_age', value: false },
+  ];
+
+  it('accepts a null user_id with an all-false compliance array', () => {
     const result = GetParticipantResponse.safeParse({
       user_id: null,
-      user_consent: { terms_accepted: false, privacy_accepted: false, has_age: false },
+      compliance: emptyCompliance,
       items: [],
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.user_id).toBeNull();
+      expect(result.data.compliance).toHaveLength(3);
     }
   });
 
-  it('rejects a user_consent block missing has_age', () => {
+  it('uses the same {key,value} shape the POST body accepts (#692)', () => {
     const result = GetParticipantResponse.safeParse({
       user_id: 'usr_1',
-      user_consent: { terms_accepted: true, privacy_accepted: true },
+      compliance: [
+        { key: 'user_terms', value: true },
+        { key: 'user_privacy', value: false },
+        { key: 'has_age', value: true },
+      ],
+      items: [],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an unknown compliance key', () => {
+    // The reported set is closed: `profile_creation` is item-level and is
+    // reported per item, not here.
+    const result = GetParticipantResponse.safeParse({
+      user_id: 'usr_1',
+      compliance: [{ key: 'profile_creation', value: true }],
       items: [],
     });
 
     expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0].path).toEqual(['user_consent', 'has_age']);
-    }
   });
 
-  it('rejects a missing user_consent block entirely', () => {
+  it('rejects the old user_consent object shape', () => {
+    const result = GetParticipantResponse.safeParse({
+      user_id: 'usr_1',
+      user_consent: { terms_accepted: true, privacy_accepted: true, has_age: true },
+      items: [],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a missing compliance array entirely', () => {
     expect(GetParticipantResponse.safeParse({ user_id: 'usr_1', items: [] }).success).toBe(false);
   });
 });

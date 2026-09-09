@@ -80,20 +80,29 @@ describe('GET /api/v1/admin/participant (unit)', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('accepts email parameter', async () => {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/participant?email=test@example.com',
-    });
+  // Accepted query shapes. 500 means the request passed Zod and reached the
+  // handler (the db is a stub in this file), so these pin "the schema admits
+  // this", which is what the handler-level tests cannot check — they pass
+  // `query` objects straight past Zod, so a renamed param would leave every one
+  // of them green while the real request silently dropped it (#692).
+  it.each([
+    ['email', '/participant?email=test@example.com'],
+    ['phone_number', '/participant?phone_number=%2B911234567890'],
+    ['network alongside email', '/participant?email=test@example.com&network=blue_dot'],
+  ])('accepts %s', async (_name, url) => {
+    const res = await app.inject({ method: 'GET', url });
     expect(res.statusCode).toBe(500);
   });
 
-  it('accepts phone_number parameter', async () => {
+  it('rejects an empty network parameter, proving it is schema-validated (#692)', async () => {
+    // `z.string().min(1)`. This is the assertion that dies on a rename: an
+    // undeclared key would be stripped by Zod and fall through to the handler
+    // (500) instead of being rejected here.
     const res = await app.inject({
       method: 'GET',
-      url: '/participant?phone_number=%2B911234567890',
+      url: '/participant?email=test@example.com&network=',
     });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(400);
   });
 
   it('rejects missing acting_org with 403', async () => {

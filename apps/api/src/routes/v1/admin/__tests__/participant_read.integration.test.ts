@@ -46,6 +46,7 @@ describeIf(`GET /api/v1/admin/participant (integration)${
   let db: typeof import('@api/db/postgres/drizzle_config').db;
   let authSchema: typeof import('../../../../../db/postgres/schema/auth.js');
   let itemsTable: typeof import('@dpg/database').items;
+  let consentTable: typeof import('@api/db/postgres/schema').consent_record;
 
   const listen_port = Number(process.env.API_PORT ?? 2742);
   const ts = Date.now();
@@ -87,6 +88,7 @@ describeIf(`GET /api/v1/admin/participant (integration)${
     db = drizzle_mod.db;
     authSchema = auth_mod;
     itemsTable = database_pkg.items;
+    consentTable = (await import('@api/db/postgres/schema')).consent_record;
 
     const resolved = await resolveBindings();
     primary = resolved.primary;
@@ -376,7 +378,7 @@ describeIf(`GET /api/v1/admin/participant (integration)${
     expect(body.error).toBe('MISSING_IDENTIFIER');
   });
 
-  it('GET returns user_consent + per-item profile_consent_accepted', async () => {
+  it('GET returns compliance + per-item profile_consent_accepted', async () => {
     const email = `int_read_${randomUUID().slice(0, 6)}@a.test`;
     // create a live profile with full consent + adult age on a gated domain
     const createRes = await app.inject({
@@ -404,13 +406,110 @@ describeIf(`GET /api/v1/admin/participant (integration)${
     });
     expect(getRes.statusCode).toBe(200);
     const body = getRes.json();
-    expect(body.user_consent).toMatchObject({
-      terms_accepted: true,
-      privacy_accepted: true,
-      has_age: true,
-    });
+    // #692: `[{key,value}]`, mirroring the POST's `compliance` shape, and true
+    // only because the consent was just recorded at the CURRENT version.
+    expect(body.compliance).toEqual(
+      expect.arrayContaining([
+        { key: 'user_terms', value: true },
+        { key: 'user_privacy', value: true },
+        { key: 'has_age', value: true },
+      ]),
+    );
+    expect(body).not.toHaveProperty('user_consent');
     expect(body.items[0].profile_consent_accepted).toBe(true);
     expect(body.items[0].lifecycle_status).toBe('live');
+  });
+
+  it('GET reports false once the accepted version is superseded (#692)', async () => {
+    // The prod migration case: the ledger row stays, the live document moves on.
+    // Bumping the row's version DOWN is equivalent to the document moving up and
+    // avoids mutating the instance's consent config mid-suite.
+    const email = `int_stale_${randomUUID().slice(0, 6)}@a.test`;
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/participant',
+      headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id, 'content-type': 'application/json' },
+      payload: {
+        email, name: 'Stale Consent', channel: 'voice', age: 25,
+        network: primary.network, domain: primary.domain, item_type: primary.item_type,
+        item_state: generateMinimalItemState(primary.schema),
+        compliance: [
+          { key: 'user_terms', value: true },
+          { key: 'user_privacy', value: true },
+          { key: 'profile_creation', value: true },
+        ],
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const userId = createRes.json().user_id;
+    onboarded_user_ids.push(userId);
+
+    const beforeRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/participant?email=${encodeURIComponent(email)}`,
+      headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id },
+    });
+    expect(beforeRes.json().compliance).toEqual(
+      expect.arrayContaining([{ key: 'user_terms', value: true }]),
+    );
+
+    // Rewrite this user's rows to a version the config cannot be serving.
+    await db
+      .update(consentTable)
+      .set({ documentVersion: -1 })
+      .where(eq(consentTable.userId, userId));
+
+    const afterRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/participant?email=${encodeURIComponent(email)}`,
+      headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id },
+    });
+    const after = afterRes.json();
+    expect(after.compliance).toEqual(
+      expect.arrayContaining([
+        { key: 'user_terms', value: false },
+        { key: 'user_privacy', value: false },
+        // Age is unrelated to document versions and must stay true.
+        { key: 'has_age', value: true },
+      ]),
+    );
+    expect(after.items[0].profile_consent_accepted).toBe(false);
+  });
+
+  it('GET rejects a minor for a service caller with U18_NOT_ALLOWED (#692)', async () => {
+    // Minors are onboarded through the portal, so create the user via POST as an
+    // adult and then age them down — the POST refuses a minor outright.
+    const email = `int_minor_${randomUUID().slice(0, 6)}@a.test`;
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/participant',
+      headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id, 'content-type': 'application/json' },
+      payload: {
+        email, name: 'Minor Read', channel: 'voice', age: 25,
+        network: primary.network, domain: primary.domain, item_type: primary.item_type,
+        item_state: generateMinimalItemState(primary.schema),
+        compliance: [
+          { key: 'user_terms', value: true },
+          { key: 'user_privacy', value: true },
+        ],
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const userId = createRes.json().user_id;
+    onboarded_user_ids.push(userId);
+
+    await db
+      .update(authSchema.user)
+      .set({ age: 15 })
+      .where(eq(authSchema.user.id, userId));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/admin/participant?email=${encodeURIComponent(email)}`,
+      headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe('U18_NOT_ALLOWED');
   });
 
   it('missing x-acting-org-id returns 403', async () => {

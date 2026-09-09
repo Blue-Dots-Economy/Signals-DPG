@@ -386,12 +386,40 @@ or every entry was `false`/unrecognised).
 - **Activation:** target an existing profile with `item_id` (no `item_state`
   needed) to add `profile_creation` and/or `age` and promote it. A user-level
   call with `age` and no item promotes all the user's eligible drafts.
-- The legacy `terms_accepted` / `privacy_accepted` booleans are accepted but
-  ignored (deprecated, #309).
-- `GET /admin/participant` returns `user_consent { terms_accepted,
-  privacy_accepted, has_age }` and per-item `profile_consent_accepted`
-  + `lifecycle_status` so callers can see what's outstanding and which profile
-  is usable.
+- The legacy `terms_accepted` / `privacy_accepted` booleans have been **removed**
+  (#692). They were ignored from #309 onward, but the docs still presented them
+  as a way to record consent, so a caller sending them got `200` with
+  `consent_recorded: 0` and no ledger row. Removal is non-breaking: the request
+  body is not strict, so they are stripped rather than rejected — but they do
+  nothing, and `compliance` is the only mechanism.
+- `GET /admin/participant` returns `compliance: [{key, value}]` — the same shape
+  the POST accepts, with keys `user_terms`, `user_privacy` and `has_age` — plus
+  per-item `profile_consent_accepted` + `lifecycle_status`, so callers can see
+  what's outstanding and which profile is usable. It replaced
+  `user_consent { terms_accepted, … }` in #692.
+- **Every consent flag is version-scoped** (#692). `value` is `true` only when
+  the consent was accepted at the document version this instance currently
+  serves — resolved with the **same three discriminators the write side uses**:
+  network, the participant's document set (`u18_documents` for a minor,
+  `documents` otherwise), and the **brand stored on each row**, so a brand whose
+  counter has diverged from the network default is answered against its own
+  document rather than the default's. A participant who accepted an earlier version reports `false` and must
+  be re-prompted — previously any accepted version counted, so a participant on
+  a superseded document read as consented forever while the portal correctly
+  re-prompted them, and the channel had no way to tell. `has_age` is unrelated to
+  document versions.
+- **Minors are rejected on the read too** (#692): `400 U18_NOT_ALLOWED` for
+  `voice` / `network_service` callers, matching the POST. `aggregator` callers
+  are unaffected, because their use of this endpoint is a read-only identity
+  probe that never reads consent. Minors onboard through the portal.
+- `?network=` selects which network's consent documents define "current". It is
+  optional and defaults to the served network; it is required only on an
+  instance whose `SERVED_DOMAINS` spans more than one network, where there is no
+  single current version to compare against (`400 NETWORK_REQUIRED`). A value
+  the instance does not serve is **refused** (`400 NETWORK_NOT_SERVED`) rather
+  than answered: an unknown network has no consent config, so every flag would
+  come back `false` — indistinguishable from "not consented", which would make a
+  channel re-collect consent the participant already gave.
 
 ### Error matrix (additions)
 
@@ -402,6 +430,9 @@ or every entry was `false`/unrecognised).
 | network_service + invalid `item_id` (doesn't belong to user) | 403 | `ITEM_NOT_OWNED_BY_USER` | item ownership check failed |
 | email + phone race | 409 | `USER_ALREADY_EXISTS` | another caller created the same identity between SELECT and signUp |
 | aggregator + participant already locked to another domain | 403 | `DOMAIN_LOCKED` | **not additive.** An account holds profiles in exactly ONE domain (`assertSingleDomain`). A previously-succeeding call now fails if `domain` (or its `'seeker'` default) differs from the domain the participant already holds. Body carries `locked_domain` / `requested_domain`. Per-row, so a batch is unaffected — the row does not land. |
+| `GET /admin/participant` + minor, caller is `voice`/`network_service` | 400 | `U18_NOT_ALLOWED` | **not additive (#692).** The read now matches the POST: minors onboard through the portal. `aggregator` callers are exempt — their probe never reads consent. Reported only after the disclosure check, so it cannot reveal minor status to a caller not entitled to the user. |
+| `GET /admin/participant` on a multi-network instance with no `?network=` | 400 | `NETWORK_REQUIRED` | **not additive (#692).** Consent documents are per-network, so version comparison needs one named. Single-network instances (all of them today) are unaffected — the served network is used. |
+| `GET /admin/participant` + `?network=` naming an unserved network | 400 | `NETWORK_NOT_SERVED` | **not additive (#692).** A typo (`blue-dot`) previously returned 200 with every flag `false`. Callers that omit `?network=` are unaffected. |
 
 ### `POST /api/v1/admin/participant/decrypt` — error matrix (additions)
 

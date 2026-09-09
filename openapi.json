@@ -5753,12 +5753,6 @@
                     "minimum": 0,
                     "maximum": 120
                   },
-                  "terms_accepted": {
-                    "type": "boolean"
-                  },
-                  "privacy_accepted": {
-                    "type": "boolean"
-                  },
                   "compliance": {
                     "type": "array",
                     "items": {
@@ -5992,6 +5986,15 @@
           },
           {
             "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": "query",
+            "name": "network",
+            "required": false
+          },
+          {
+            "schema": {
               "type": "string"
             },
             "in": "header",
@@ -6012,25 +6015,29 @@
                       "nullable": true,
                       "type": "string"
                     },
-                    "user_consent": {
-                      "type": "object",
-                      "properties": {
-                        "terms_accepted": {
-                          "type": "boolean"
+                    "compliance": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "enum": [
+                              "user_terms",
+                              "user_privacy",
+                              "has_age"
+                            ]
+                          },
+                          "value": {
+                            "type": "boolean"
+                          }
                         },
-                        "privacy_accepted": {
-                          "type": "boolean"
-                        },
-                        "has_age": {
-                          "type": "boolean"
-                        }
-                      },
-                      "required": [
-                        "terms_accepted",
-                        "privacy_accepted",
-                        "has_age"
-                      ],
-                      "additionalProperties": false
+                        "required": [
+                          "key",
+                          "value"
+                        ],
+                        "additionalProperties": false
+                      }
                     },
                     "items": {
                       "type": "array",
@@ -6114,7 +6121,7 @@
                   },
                   "required": [
                     "user_id",
-                    "user_consent",
+                    "compliance",
                     "items"
                   ],
                   "additionalProperties": false
