@@ -64,8 +64,9 @@ describe('fetchBffSession', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://api.test/api/v1/auth/session');
     expect(getCsrfToken()).toBe('csrf-1');
     // The finding, as an assertion: nothing this module handles is persisted.
-    expect(localStorage.length).toBe(0);
-    expect(sessionStorage.length).toBe(0);
+    // Keyed rather than counted, so a failure names what leaked.
+    expect(Object.keys(localStorage)).toEqual([]);
+    expect(Object.keys(sessionStorage)).toEqual([]);
   });
 
   it('sends credentials, which is what carries the cookie cross-origin', async () => {
