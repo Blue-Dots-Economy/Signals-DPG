@@ -406,6 +406,57 @@ function consentVariantForAge(age: number | null): 'adult' | 'u18' {
 }
 
 /**
+ * Cache key for one resolved document version: a category plus the brand the
+ * row was written under. NUL-joined so no brand string can collide with a
+ * category name.
+ *
+ * @param category - Consent category.
+ * @param brand - The row's stored brand, or null for the network default.
+ * @returns The map key.
+ */
+function versionKey(category: string, brand: string | null): string {
+  return `${category}\u0000${brand ?? ''}`;
+}
+
+/**
+ * Resolves the current version for each distinct (category, brand) pair.
+ *
+ * Deduped up front rather than while iterating rows: claiming a map slot before
+ * awaiting left a window where a key was present with a placeholder value, and
+ * the placeholder write was dead the moment the await returned.
+ *
+ * @param pairs - The (category, brand) pairs present on the rows.
+ * @param network - Network whose documents define "current".
+ * @param variant - Adult or u18 document set.
+ * @returns Key from `versionKey` to the current version, or null when unconfigured.
+ */
+async function resolveVersionsFor(
+  pairs: Array<{ category: string; brand: string | null }>,
+  network: string,
+  variant: 'adult' | 'u18',
+): Promise<Map<string, number | null>> {
+  const wanted = new Map<string, { category: string; brand: string | null }>();
+  for (const p of pairs) wanted.set(versionKey(p.category, p.brand), p);
+  const resolved = await Promise.all(
+    [...wanted].map(
+      async ([key, p]) =>
+        [
+          key,
+          await resolveConsentVersion({
+            network,
+            brand: p.brand,
+            category: p.category as Parameters<
+              typeof resolveConsentVersion
+            >[0]['category'],
+            variant,
+          }),
+        ] as const,
+    ),
+  );
+  return new Map(resolved);
+}
+
+/**
  * Whether a consent row exists at the version this instance currently serves.
  *
  * The whole point of #692. These reads used to test only "a row of this
@@ -459,24 +510,12 @@ async function readCompliance(
       ),
     );
 
-  // One resolve per (category, brand) actually present on a row. Config lookups
+  // One resolve per distinct (category, brand) present on a row. Config lookups
   // are cached, and a participant holds a handful of rows at most.
-  const currentFor = new Map<string, number | null>();
-  await Promise.all(
-    rows.map(async (r) => {
-      const key = `${r.category}\u0000${r.brand ?? ''}`;
-      if (currentFor.has(key)) return;
-      currentFor.set(key, null); // claim the slot before awaiting
-      currentFor.set(
-        key,
-        await resolveConsentVersion({
-          network,
-          brand: r.brand ?? null,
-          category: r.category as 'terms' | 'privacy',
-          variant,
-        }),
-      );
-    }),
+  const currentFor = await resolveVersionsFor(
+    rows.map((r) => ({ category: r.category, brand: r.brand ?? null })),
+    network,
+    variant,
   );
 
   // An unconfigured category resolves to `null`. Reported as `false`, and this
@@ -486,7 +525,7 @@ async function readCompliance(
   const acceptedAt = (category: 'terms' | 'privacy'): boolean =>
     rows.some((r) => {
       if (r.category !== category) return false;
-      const current = currentFor.get(`${r.category}\u0000${r.brand ?? ''}`);
+      const current = currentFor.get(versionKey(r.category, r.brand ?? null));
       return current != null && r.version === current;
     });
 
@@ -534,20 +573,19 @@ async function readProfileConsentedItemIds(
       ),
     );
 
-  const consented = new Set<string>();
-  await Promise.all(
-    rows.map(async (r) => {
-      const current = await resolveConsentVersion({
-        network,
-        brand: r.brand ?? null,
-        category: 'profile_creation',
-        variant,
-      });
-      if (current != null && r.version === current && r.itemId) {
-        consented.add(r.itemId);
-      }
-    }),
+  const currentFor = await resolveVersionsFor(
+    rows.map((r) => ({ category: 'profile_creation', brand: r.brand ?? null })),
+    network,
+    variant,
   );
+
+  const consented = new Set<string>();
+  for (const r of rows) {
+    const current = currentFor.get(versionKey('profile_creation', r.brand ?? null));
+    if (current != null && r.version === current && r.itemId) {
+      consented.add(r.itemId);
+    }
+  }
   return consented;
 }
 
