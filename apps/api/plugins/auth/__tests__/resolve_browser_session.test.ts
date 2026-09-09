@@ -35,7 +35,13 @@ vi.mock('@/services/auth/browser_session', async () => {
 const refreshTokens = vi.fn();
 vi.mock('@/services/auth/oidc_exchange', () => ({
   refreshTokens: (...a: unknown[]) => refreshTokens(...a),
-  OidcExchangeError: class OidcExchangeError extends Error {},
+  // Mirrors the real class: the caller branches on `isGrantRejected`, so a
+  // stub without it would make every failure look transient.
+  OidcExchangeError: class OidcExchangeError extends Error {
+    status?: number;
+    constructor(message: string, status?: number) { super(message); this.status = status; }
+    get isGrantRejected() { return this.status === 400 || this.status === 401; }
+  },
 }));
 
 const verifyKeycloakToken = vi.fn();
@@ -46,6 +52,15 @@ vi.mock('@/utils/keycloak_token', () => ({
 const resolveHumanSession = vi.fn();
 vi.mock('../resolve_session', () => ({
   resolveHumanSession: (...a: unknown[]) => resolveHumanSession(...a),
+  // Real shape: the cookie path maps outage codes exactly as the bearer path
+  // does, so a stub with different statuses would hide a divergence.
+  TOKEN_FAILURES: {
+    TOKEN_EXPIRED: { status: 401, code: 'TOKEN_EXPIRED', error: 'Unauthorized', message: '' },
+    TOKEN_INVALID: { status: 401, code: 'UNAUTHORIZED', error: 'Unauthorized', message: '' },
+    TOKEN_CLIENT_REJECTED: { status: 403, code: 'TOKEN_CLIENT_REJECTED', error: 'Forbidden', message: '' },
+    KEYCLOAK_UNAVAILABLE: { status: 503, code: 'IDENTITY_PROVIDER_UNAVAILABLE', error: 'Service Unavailable', message: '' },
+    KEYCLOAK_NOT_CONFIGURED: { status: 500, code: 'IDENTITY_PROVIDER_NOT_CONFIGURED', error: 'Internal Server Error', message: '' },
+  },
 }));
 
 const { resolveBrowserSession, SESSION_COOKIE, clearSessionCookie } = await import(
@@ -222,9 +237,10 @@ describe('access-token refresh', () => {
     );
   });
 
-  it('ends the session when the refresh is refused', async () => {
+  it('ends the session when the GRANT is rejected', async () => {
+    const { OidcExchangeError } = await import('@/services/auth/oidc_exchange');
     readSession.mockResolvedValue(storedSession({ accessTokenExp: Date.now() - 1 }));
-    refreshTokens.mockRejectedValue(new Error('invalid_grant'));
+    refreshTokens.mockRejectedValue(new OidcExchangeError('invalid_grant', 400));
     const reply = makeReply();
 
     const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), reply);
@@ -232,6 +248,41 @@ describe('access-token refresh', () => {
     expect(result).toMatchObject({ ok: false, failure: { status: 401 } });
     expect(destroySession).toHaveBeenCalledWith('sid-1');
     expect(reply.clearCookie).toHaveBeenCalled();
+  });
+
+  it('KEEPS the session when Keycloak is merely unwell', async () => {
+    // A 5xx or a 10s timeout is not a verdict about the grant. Ending the
+    // session here turns a brief outage into a forced re-login for everyone
+    // mid-session; the request fails, the session lives.
+    const { OidcExchangeError } = await import('@/services/auth/oidc_exchange');
+    for (const err of [new OidcExchangeError('token endpoint returned 502', 502), new Error('timeout')]) {
+      vi.clearAllMocks();
+      readSession.mockResolvedValue(storedSession({ accessTokenExp: Date.now() - 1 }));
+      refreshTokens.mockRejectedValue(err);
+      const reply = makeReply();
+
+      const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), reply);
+
+      expect(result).toMatchObject({ ok: false, failure: { status: 503 } });
+      expect(destroySession).not.toHaveBeenCalled();
+      expect(reply.clearCookie).not.toHaveBeenCalled();
+    }
+  });
+
+  it('recovers when another worker rotated the token first', async () => {
+    // Two pods refreshing the same session look identical to a spent grant
+    // from here. Re-reading before destroying turns that race into a success.
+    const { OidcExchangeError } = await import('@/services/auth/oidc_exchange');
+    readSession
+      .mockResolvedValueOnce(storedSession({ accessTokenExp: Date.now() - 1 }))
+      .mockResolvedValueOnce(storedSession({ accessToken: 'rotated-by-someone-else' }));
+    refreshTokens.mockRejectedValue(new OidcExchangeError('invalid_grant', 400));
+
+    const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), makeReply());
+
+    expect(result).toEqual({ ok: true });
+    expect(destroySession).not.toHaveBeenCalled();
+    expect(verifyKeycloakToken).toHaveBeenCalledWith('rotated-by-someone-else');
   });
 
   it('refuses when the session vanished mid-refresh', async () => {
@@ -263,6 +314,20 @@ describe('token verification', () => {
     expect(result).toMatchObject({ ok: false, failure: { status: 401 } });
     expect(destroySession).toHaveBeenCalledWith('sid-1');
     expect(reply.clearCookie).toHaveBeenCalled();
+  });
+
+  it('does NOT destroy the session when the JWKS is unreachable', async () => {
+    // The bearer path maps this to 503 precisely so an outage does not tell
+    // every user their session died. A 30-second Keycloak restart must not
+    // delete every browser's session row.
+    verifyKeycloakToken.mockResolvedValue({ ok: false, code: 'KEYCLOAK_UNAVAILABLE' });
+    const reply = makeReply();
+
+    const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), reply);
+
+    expect(result).toMatchObject({ ok: false, failure: { status: 503 } });
+    expect(destroySession).not.toHaveBeenCalled();
+    expect(reply.clearCookie).not.toHaveBeenCalled();
   });
 
   it('hands the verified claims to the same human path a bearer token used to take', async () => {

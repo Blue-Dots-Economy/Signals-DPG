@@ -170,6 +170,21 @@ describe('endBffSession', () => {
     expect(window.location.href).toBe('https://kc.test/logout?x=1');
   });
 
+  it('reports whether the server actually ended the session', async () => {
+    // The caller has already cleared the local UI by this point. A swallowed
+    // failure leaves signed-out chrome over a live cookie, Redis session and
+    // SSO session — on a shared machine the next reload restores the previous
+    // user.
+    fetchMock.mockResolvedValueOnce(jsonResponse({ endSessionUrl: 'https://kc.test/logout' }));
+    await expect(endBffSession()).resolves.toBe(true);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, false));
+    await expect(endBffSession()).resolves.toBe(false);
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    await expect(endBffSession()).resolves.toBe(false);
+  });
+
   it('forgets the CSRF token even when the logout call fails', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ authenticated: true, csrfToken: 'csrf-1' }));
     await fetchBffSession();

@@ -96,7 +96,10 @@ async function postToken(body: URLSearchParams): Promise<OidcTokens> {
     // The body can carry the user's code/refresh token, so it is never logged
     // or surfaced — only the status, which is enough to tell a bad code from a
     // Keycloak outage.
-    throw new OidcExchangeError(`token endpoint returned ${response.status}`);
+    throw new OidcExchangeError(
+      `token endpoint returned ${response.status}`,
+      response.status
+    );
   }
 
   const json = (await response.json()) as {
@@ -117,11 +120,58 @@ async function postToken(body: URLSearchParams): Promise<OidcTokens> {
     refreshToken: json.refresh_token,
     idToken: json.id_token,
     accessTokenExp: now + (json.expires_in ?? 300) * 1000,
-    refreshTokenExp: now + (json.refresh_expires_in ?? 1800) * 1000,
+    // `||`, not `??`: Keycloak sends `refresh_expires_in: 0` when the refresh
+    // token does not expire. `??` keeps the 0, which makes `refreshTokenExp`
+    // equal to now, which floors the session's Redis TTL at one second — it
+    // presents as "login does nothing". Treat 0 as "unspecified".
+    refreshTokenExp: now + (json.refresh_expires_in || 1800) * 1000,
   };
 }
 
-export class OidcExchangeError extends Error {}
+/**
+ * A token-endpoint call that did not succeed.
+ *
+ * `status` is carried because the CALLER's response differs by kind: a 400
+ * (`invalid_grant` — the refresh token is spent or revoked) means the session
+ * is genuinely over, while a 5xx or a timeout means Keycloak is unwell and the
+ * session must survive. Collapsing the two logs users out for an outage.
+ * `status` is undefined for a transport failure (DNS, connect, timeout), which
+ * is likewise transient.
+ */
+/**
+ * The `nonce` claim carried by an id token, or null when there is none.
+ *
+ * The token comes straight from Keycloak's token endpoint over TLS, so the
+ * transport already authenticates it — this reads the claim rather than
+ * re-verifying a signature the channel has established.
+ */
+export function idTokenNonce(idToken: string | undefined): string | null {
+  if (!idToken) return null;
+  const payload = idToken.split('.')[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(
+      Buffer.from(payload, 'base64url').toString('utf8')
+    ) as { nonce?: unknown };
+    return typeof claims.nonce === 'string' ? claims.nonce : null;
+  } catch {
+    return null;
+  }
+}
+
+export class OidcExchangeError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+
+  /** A verdict about the grant itself, rather than about Keycloak's health. */
+  get isGrantRejected(): boolean {
+    return this.status === 400 || this.status === 401;
+  }
+}
 
 export async function exchangeCode(input: {
   code: string;

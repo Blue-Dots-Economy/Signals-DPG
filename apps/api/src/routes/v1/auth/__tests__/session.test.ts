@@ -34,6 +34,9 @@ vi.mock('@/config', () => ({
 }));
 
 const exchangeCode = vi.fn();
+// Default: the id token carries no nonce claim, so the check is skipped — the
+// shape most of these cases are about. The mismatch case sets it explicitly.
+const idTokenNonce = vi.fn<(t?: string) => string | null>(() => null);
 const buildAuthorizeUrl = vi.fn(() => 'https://kc.example.org/authorize?state=st');
 const buildEndSessionUrl = vi.fn(
   (input: { idToken?: string; postLogoutRedirectUri: string }) =>
@@ -45,6 +48,7 @@ vi.mock('@/services/auth/oidc_exchange', () => ({
   buildEndSessionUrl: (...a: unknown[]) => buildEndSessionUrl(...(a as [never])),
   newPkcePair: () => ({ verifier: 'the-verifier', challenge: 'the-challenge' }),
   newStateValue: () => 'the-state',
+  idTokenNonce: (...a: unknown[]) => idTokenNonce(...(a as [string])),
   OidcExchangeError: class OidcExchangeError extends Error {},
 }));
 
@@ -127,6 +131,7 @@ beforeEach(() => {
     appOrigin: 'https://app.example.org',
   });
   exchangeCode.mockResolvedValue(TOKENS);
+  idTokenNonce.mockReturnValue(null);
   createSession.mockResolvedValue(undefined);
   readSession.mockResolvedValue(null);
   destroySession.mockResolvedValue(undefined);
@@ -299,6 +304,28 @@ describe('GET /auth/session/callback', () => {
     expect(location.searchParams.get('consentAttempt')).toBe('attempt-1');
   });
 
+  it('refuses an id token whose nonce does not match the flow', async () => {
+    // The nonce binds the id token to the authorize request we made. It is
+    // minted and sent, so it is checked — a stored field nothing compares
+    // reads as a control that exists.
+    idTokenNonce.mockReturnValue('a-different-nonce');
+
+    const res = await inject({ method: 'GET', url: CALLBACK });
+
+    expect(res.headers.location).toContain('auth_error=1');
+    expect(createSession).not.toHaveBeenCalled();
+    expect(res.cookies).toHaveLength(0);
+  });
+
+  it('accepts a matching nonce', async () => {
+    idTokenNonce.mockReturnValue('nonce');
+
+    const res = await inject({ method: 'GET', url: CALLBACK });
+
+    expect(createSession).toHaveBeenCalled();
+    expect(res.cookies[0]).toMatchObject({ name: 'sid' });
+  });
+
   it('refuses a replayed callback rather than minting a second session', async () => {
     // consumeFlowState deletes as it reads, so the second callback for one
     // authorization finds nothing.
@@ -327,9 +354,25 @@ describe('GET /auth/session/callback', () => {
 
     const res = await inject({ method: 'GET', url: CALLBACK });
 
-    expect(res.headers.location).toBe('https://app.example.org/?auth_error=1');
+    expect(res.headers.location).toBe('https://app.example.org/auth/login?auth_error=1');
     expect(createSession).not.toHaveBeenCalled();
     expect(res.cookies).toHaveLength(0);
+  });
+});
+
+describe('betterauth instances', () => {
+  it('404s the callback and the logout rather than throwing on an unset Keycloak URL', async () => {
+    // `keycloakConfig.base_url` is '' under betterauth, so buildEndSessionUrl
+    // would construct a URL from nothing and throw — an unhandled 500 on a
+    // public route.
+    mockAuthConfig.keycloak_enabled = false;
+
+    const cb = await inject({ method: 'GET', url: '/api/v1/auth/session/callback?code=c&state=s' });
+    const out = await inject({ method: 'POST', url: '/api/v1/auth/session/logout' });
+
+    expect(cb.statusCode).toBe(404);
+    expect(out.statusCode).toBe(404);
+    expect(buildEndSessionUrl).not.toHaveBeenCalled();
   });
 });
 

@@ -40,7 +40,7 @@ import { resolveServiceAccount } from '../../src/services/auth/service_account';
 import type { ServiceAccountErrorCode } from '../../src/services/auth/service_account';
 
 /** Shape every auth failure shares, matching the existing middleware replies. */
-interface AuthFailure {
+export interface AuthFailure {
   status: number;
   code: string;
   error: string;
@@ -54,7 +54,7 @@ interface AuthFailure {
  * unreachable we do not know whether the token is good, and answering 401
  * would tell every user their session died during someone else's outage.
  */
-const TOKEN_FAILURES: Record<KeycloakTokenErrorCode, AuthFailure> = {
+export const TOKEN_FAILURES: Record<KeycloakTokenErrorCode, AuthFailure> = {
   TOKEN_EXPIRED: {
     status: 401,
     code: 'TOKEN_EXPIRED',

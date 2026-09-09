@@ -3,6 +3,22 @@ import { allowed_origins } from '@dpg/config';
 import { redis } from '@api/db/secondary/redis';
 
 /**
+ * The origins a browser may legitimately reach this API from.
+ *
+ * Seeded with the env allowlist and REPLACED at boot with the same merged list
+ * CORS enforces (`app.ts` adds the per-domain instance URLs from network
+ * config). Checking only the env list would reject a portal whose origin comes
+ * from network config: the login would succeed, the callback would fall back to
+ * `API_DOMAIN`, and the browser would be sent to a host that serves no UI — a
+ * blank page holding a valid session.
+ */
+let browserOrigins: readonly string[] = allowed_origins;
+
+export function setBrowserAllowedOrigins(origins: readonly string[]): void {
+  browserOrigins = origins;
+}
+
+/**
  * The in-flight half of a login: what the callback needs to finish a flow the
  * `/login` redirect started.
  *
@@ -90,11 +106,11 @@ export function safeReturnTo(raw: unknown, fallback = '/'): string {
  * the request is an open redirect: `?appOrigin=https://evil.test` would send a
  * freshly authenticated user there.
  *
- * `allowed_origins` is the right list to check against rather than a new one:
- * it is already the CORS allowlist, so any origin the UI can actually call this
- * API from is in it by necessity, and nothing else can be.
+ * Checked against the CORS allowlist rather than a list of its own, so the set
+ * of origins the browser may be sent to is exactly the set it may call from —
+ * one list, no drift. See `setBrowserAllowedOrigins`.
  */
 export function safeAppOrigin(raw: unknown, fallback: string): string {
   if (typeof raw !== 'string' || raw.length === 0) return fallback;
-  return allowed_origins.includes(raw) ? raw : fallback;
+  return browserOrigins.includes(raw) ? raw : fallback;
 }

@@ -92,9 +92,14 @@ export function startBffLogin(returnTo: string, consentAttempt?: string): void {
  *
  * Both halves matter: dropping only the local session leaves the SSO session
  * alive, so the next login silently signs the same user straight back in.
+ *
+ * Returns whether the server actually ended the session, so the caller can tell
+ * the user their sign-out did not take rather than showing signed-out chrome
+ * over a live session.
  */
-export async function endBffSession(): Promise<void> {
+export async function endBffSession(): Promise<boolean> {
   let endSessionUrl: string | null = null;
+  let ended = false;
   try {
     const response = await fetch(url('/api/v1/auth/session/logout'), {
       method: 'POST',
@@ -105,12 +110,16 @@ export async function endBffSession(): Promise<void> {
       },
     });
     if (response.ok) {
+      ended = true;
       ({ endSessionUrl } = (await response.json()) as { endSessionUrl: string });
     }
   } catch {
-    // Fall through: the cookie is cleared server-side on any successful call,
-    // and if the call itself failed there is nothing useful to redirect to.
+    // Reported, not swallowed. The caller has already cleared the local UI, so
+    // a failure here means the cookie, the Redis session and the SSO session
+    // are all still alive while the screen says "signed out" — on a shared
+    // machine the next reload silently restores the previous user.
   }
   csrfToken = null;
   if (endSessionUrl) window.location.href = endSessionUrl;
+  return ended;
 }

@@ -1,5 +1,5 @@
 import z from '@dpg/schemas';
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { type FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { randomBytes } from 'node:crypto';
 import { authConfig, getCurrentApiBaseUrl, instance } from '@/config';
@@ -7,6 +7,7 @@ import {
   buildAuthorizeUrl,
   buildEndSessionUrl,
   exchangeCode,
+  idTokenNonce,
   newPkcePair,
   newStateValue,
   OidcExchangeError,
@@ -29,6 +30,7 @@ import {
   clearSessionCookie,
   SESSION_COOKIE,
 } from '@api/plugins/auth/resolve_browser_session';
+import { public_rate_limit } from '@/middleware/public_rate_limit';
 
 /**
  * Browser login, run server-side (AUTH-VULN-03/04).
@@ -86,6 +88,14 @@ function requestOrigin(request: FastifyRequest): string {
   );
 }
 
+/** Every BFF route is Keycloak-only; nothing here is meaningful otherwise. */
+function notEnabled(reply: FastifyReply) {
+  return reply.code(404).send({
+    error: 'NOT_ENABLED',
+    message: 'Browser sessions require AUTH_PROVIDER=keycloak',
+  });
+}
+
 function cookieOptions() {
   return {
     httpOnly: true,
@@ -110,6 +120,10 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
   fastify.route({
     url: '/session/login',
     method: 'GET',
+    // Unauthenticated by nature, and each call writes a flow-state key with a
+    // 5-minute TTL into the shared Redis that also holds sessions and schema
+    // caches. Generous enough that a human retrying a login never notices.
+    preHandler: public_rate_limit('auth_session_login', 60),
     schema: {
       tags: ['auth'],
       querystring: z.object({
@@ -120,12 +134,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       }),
     },
     handler: async (request, reply) => {
-      if (!authConfig.keycloak_enabled) {
-        return reply.code(404).send({
-          error: 'NOT_ENABLED',
-          message: 'Browser session login requires AUTH_PROVIDER=keycloak',
-        });
-      }
+      if (!authConfig.keycloak_enabled) return notEnabled(reply);
 
       const state = newStateValue();
       const nonce = randomBytes(16).toString('base64url');
@@ -167,6 +176,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       }),
     },
     handler: async (request, reply) => {
+      if (!authConfig.keycloak_enabled) return notEnabled(reply);
       const { code, state, error } = request.query;
       /**
        * Where to send a failed login.
@@ -178,7 +188,12 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
        * derived from the request: this is a redirect target on a URL an
        * attacker can craft.
        */
-      const authError = (origin: string) => reply.redirect(`${origin}/?auth_error=1`);
+      // `/auth/login`, not `/`: a failed or cancelled sign-in belongs on the
+      // sign-in screen, which surfaces `auth_error`. Landing on the logged-out
+      // home page said nothing at all, so a user who cancelled at Keycloak — or
+      // whose 5-minute flow expired — got no explanation.
+      const authError = (origin: string) =>
+        reply.redirect(`${origin}/auth/login?auth_error=1`);
 
       // Keycloak reports failures on the redirect rather than as a status, so
       // this is the normal "user cancelled" path, not an exception.
@@ -207,6 +222,19 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
           { err: err instanceof OidcExchangeError ? err.message : 'exchange failed' },
           'OIDC code exchange failed'
         );
+        return authError(flow.appOrigin);
+      }
+
+      /**
+       * The nonce binds this id token to the authorize request we made. PKCE
+       * plus a single-use `state` already carry most of the weight, but the
+       * nonce is minted and sent, so it is checked — a stored field that
+       * nothing compares is worse than no field at all, because it reads as a
+       * control that exists.
+       */
+      const returnedNonce = idTokenNonce(tokens.idToken);
+      if (returnedNonce !== null && returnedNonce !== flow.nonce) {
+        request.log.error('OIDC callback: id token nonce did not match the flow');
         return authError(flow.appOrigin);
       }
 
@@ -274,6 +302,10 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       response: { 200: LogoutResponse },
     },
     handler: async (request, reply) => {
+      // Guarded like the other three: under `betterauth` `keycloakConfig` has
+      // no base URL, so `buildEndSessionUrl` would construct a URL from an
+      // empty string and throw — an unhandled 500 on a public route.
+      if (!authConfig.keycloak_enabled) return notEnabled(reply);
       const sessionId = request.cookies?.[SESSION_COOKIE];
       // Read before destroying: the session records which app origin opened it,
       // and that is where Keycloak has to send the user afterwards.

@@ -8,7 +8,11 @@ import {
   type BrowserSession,
 } from '@/services/auth/browser_session';
 import { refreshTokens, OidcExchangeError } from '@/services/auth/oidc_exchange';
-import { resolveHumanSession, type SessionResolution } from './resolve_session';
+import {
+  resolveHumanSession,
+  TOKEN_FAILURES,
+  type SessionResolution,
+} from './resolve_session';
 
 export const SESSION_COOKIE = 'sid';
 export const CSRF_HEADER = 'x-csrf-token';
@@ -60,19 +64,41 @@ export async function resolveBrowserSession(
     return { ok: false, failure: CSRF_FAILED };
   }
 
-  const accessToken = await currentAccessToken(request, sessionId, session);
-  if (!accessToken) {
+  const refreshed = await currentAccessToken(request, sessionId, session);
+  if (!refreshed.ok) {
+    if (!refreshed.sessionOver) {
+      // Keycloak is unwell. Keep the cookie and the session; fail this one
+      // request with the same 503 the bearer path uses for an outage.
+      return { ok: false, failure: TOKEN_FAILURES.KEYCLOAK_UNAVAILABLE };
+    }
     clearSessionCookie(reply);
     return { ok: false, failure: UNAUTHENTICATED };
   }
+  const accessToken = refreshed.accessToken;
 
   const verified = await verifyKeycloakToken(accessToken);
   if (!verified.ok) {
-    // The session held a token this API will not accept — treat as logged out
-    // rather than leaving the browser in a loop with a cookie it cannot use.
-    await destroySession(sessionId);
-    clearSessionCookie(reply);
-    return { ok: false, failure: UNAUTHENTICATED };
+    /**
+     * Only a verdict ABOUT THE TOKEN ends the session.
+     *
+     * `KEYCLOAK_UNAVAILABLE` (JWKS unreachable) and `KEYCLOAK_NOT_CONFIGURED`
+     * mean we do not know whether the token is good. Destroying the session on
+     * those turns a 30-second Keycloak restart into a permanent, fleet-wide
+     * logout: every active browser's Redis row is deleted and its cookie
+     * cleared, so nobody is signed back in when Keycloak recovers. The bearer
+     * path already maps them to 503 for exactly this reason
+     * (`TOKEN_FAILURES` in resolve_session.ts) — this path must not disagree.
+     */
+    if (verified.code === 'TOKEN_INVALID' || verified.code === 'TOKEN_EXPIRED') {
+      await destroySession(sessionId);
+      clearSessionCookie(reply);
+      return { ok: false, failure: UNAUTHENTICATED };
+    }
+    request.log.error(
+      { code: verified.code },
+      'Could not verify a browser session token; leaving the session intact'
+    );
+    return { ok: false, failure: TOKEN_FAILURES[verified.code] };
   }
 
   return resolveHumanSession(verified.claims, request);
@@ -94,21 +120,60 @@ function csrfOk(request: FastifyRequest, session: BrowserSession): boolean {
 }
 
 /**
+ * In-flight refreshes, keyed by session.
+ *
+ * A page load fires several requests at once and they all see the same
+ * near-expiry token. Without this each one calls the token endpoint with the
+ * SAME refresh token, and with Keycloak's "Revoke Refresh Token" enabled only
+ * the first is honoured — the rest get `invalid_grant` and would end a session
+ * that is in perfectly good health. Sharing one promise per session makes the
+ * common case a single call.
+ *
+ * Per-process only. Two pods can still race, which is what the `invalid_grant`
+ * re-read in `refreshAccessToken` recovers from.
+ */
+const refreshesInFlight = new Map<string, Promise<RefreshOutcome>>();
+
+type RefreshOutcome =
+  | { ok: true; accessToken: string }
+  /** The grant is spent or revoked: this session is genuinely over. */
+  | { ok: false; sessionOver: true }
+  /** Keycloak is unwell: the session survives, this one request fails. */
+  | { ok: false; sessionOver: false };
+
+/**
  * The session's access token, refreshed if it is at or near expiry.
  *
- * Returns null when the refresh fails, which means the refresh token is spent
- * or rejected — the session is destroyed rather than left holding credentials
- * Keycloak will not honour.
+ * The distinction that matters is WHY a refresh failed. A rejected grant means
+ * the session is over. A 5xx or a timeout means Keycloak is unwell — ending the
+ * session there would turn a brief outage into a forced re-login for everyone
+ * mid-session, which is the same mistake as destroying on `KEYCLOAK_UNAVAILABLE`
+ * above.
  */
 async function currentAccessToken(
   request: FastifyRequest,
   sessionId: string,
   session: BrowserSession
-): Promise<string | null> {
+): Promise<RefreshOutcome> {
   if (session.accessTokenExp - Date.now() > REFRESH_BEFORE_EXPIRY_MS) {
-    return session.accessToken;
+    return { ok: true, accessToken: session.accessToken };
   }
 
+  const existing = refreshesInFlight.get(sessionId);
+  if (existing) return existing;
+
+  const attempt = refreshAccessToken(request, sessionId, session).finally(() => {
+    refreshesInFlight.delete(sessionId);
+  });
+  refreshesInFlight.set(sessionId, attempt);
+  return attempt;
+}
+
+async function refreshAccessToken(
+  request: FastifyRequest,
+  sessionId: string,
+  session: BrowserSession
+): Promise<RefreshOutcome> {
   try {
     const refreshed = await refreshTokens(session.refreshToken);
     const updated = await updateSession(sessionId, {
@@ -117,14 +182,38 @@ async function currentAccessToken(
       accessTokenExp: refreshed.accessTokenExp,
       refreshTokenExp: refreshed.refreshTokenExp,
     });
-    return updated ? refreshed.accessToken : null;
+    // `updateSession` returns null only when the row vanished mid-refresh —
+    // a concurrent logout. The freshly minted tokens have nowhere to live.
+    return updated
+      ? { ok: true, accessToken: refreshed.accessToken }
+      : { ok: false, sessionOver: true };
   } catch (err) {
+    const rejected = err instanceof OidcExchangeError && err.isGrantRejected;
+
+    if (!rejected) {
+      request.log.error(
+        { err: err instanceof Error ? err.message : 'refresh failed' },
+        'Browser session refresh could not complete; leaving the session intact'
+      );
+      return { ok: false, sessionOver: false };
+    }
+
+    /**
+     * The grant was rejected — but another worker rotating the same token would
+     * look identical from here. Re-read before destroying: if the stored token
+     * has moved on, that race is what happened and the session is fine.
+     */
+    const current = await readSession(sessionId);
+    if (current && current.accessToken !== session.accessToken) {
+      return { ok: true, accessToken: current.accessToken };
+    }
+
     request.log.warn(
-      { err: err instanceof OidcExchangeError ? err.message : 'refresh failed' },
-      'Browser session refresh failed; ending session'
+      { err: err instanceof Error ? err.message : 'refresh rejected' },
+      'Browser session refresh token was rejected; ending session'
     );
     await destroySession(sessionId);
-    return null;
+    return { ok: false, sessionOver: true };
   }
 }
 

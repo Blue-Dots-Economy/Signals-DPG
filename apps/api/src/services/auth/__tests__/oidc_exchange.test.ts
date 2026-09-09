@@ -27,6 +27,7 @@ const {
   newPkcePair,
   newStateValue,
   refreshTokens,
+  idTokenNonce,
   OidcExchangeError,
 } = await import('../oidc_exchange.js');
 
@@ -197,6 +198,39 @@ describe('token requests', () => {
     // or an attached cause cannot smuggle the token through either.
     expect(JSON.stringify({ ...(err as Error), message: (err as Error).message, stack: (err as Error).stack }))
       .not.toContain('super-secret');
+  });
+
+  it('treats refresh_expires_in: 0 as unspecified, not as already-expired', async () => {
+    // Keycloak sends 0 when the refresh token does not expire. `??` keeps the
+    // 0, which makes refreshTokenExp === now, which floors the session's Redis
+    // TTL at one second — it presents as "login does nothing".
+    fetchMock.mockResolvedValue(
+      tokenResponse({ access_token: 'at', refresh_token: 'rt', refresh_expires_in: 0 }),
+    );
+    const before = Date.now();
+
+    const tokens = await exchangeCode({ code: 'c', redirectUri: 'r', verifier: 'v' });
+
+    expect(tokens.refreshTokenExp - before).toBeGreaterThan(60_000);
+  });
+
+  it('carries the HTTP status, so a spent grant is distinguishable from an outage', async () => {
+    for (const [status, rejected] of [[400, true], [401, true], [500, false], [502, false]] as const) {
+      fetchMock.mockResolvedValue({ ok: false, status, json: async () => ({}) });
+      const err = await refreshTokens('rt').catch((e: unknown) => e);
+      expect((err as { status?: number }).status).toBe(status);
+      expect((err as { isGrantRejected: boolean }).isGrantRejected).toBe(rejected);
+    }
+  });
+
+  it('reads the nonce out of an id token, and tolerates a malformed one', async () => {
+    const claims = Buffer.from(JSON.stringify({ nonce: 'n-1' })).toString('base64url');
+    expect(idTokenNonce(`h.${claims}.sig`)).toBe('n-1');
+    expect(idTokenNonce(undefined)).toBeNull();
+    expect(idTokenNonce('not-a-jwt')).toBeNull();
+    expect(idTokenNonce('h.%%%.sig')).toBeNull();
+    const noNonce = Buffer.from(JSON.stringify({ sub: 'x' })).toString('base64url');
+    expect(idTokenNonce(`h.${noNonce}.sig`)).toBeNull();
   });
 
   it('rejects a 200 that carries no usable tokens', async () => {

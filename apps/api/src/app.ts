@@ -57,6 +57,12 @@ const PUBLIC_OPERATION_URLS = new Set([
   '/api/v1/network/schemas',
   '/api/v1/network/item/fetch',
   '/api/v1/network/action/perform',
+  // The BFF login flow. Unauthenticated by definition — they are how a browser
+  // GETS a session — so the generated spec must not claim otherwise.
+  '/api/v1/auth/session',
+  '/api/v1/auth/session/login',
+  '/api/v1/auth/session/callback',
+  '/api/v1/auth/session/logout',
 ]);
 
 // Operations guarded by peer_instance_guard (inter-instance HMAC) instead of
@@ -73,9 +79,16 @@ const PEER_OPERATION_URLS = new Set([
 // request ever reaching us; `auth/config` describes the instance's auth wiring.
 // Both are public by design — it is the *caching* that is the finding, not the
 // access. Every other public route keeps its own caching semantics.
+import { setBrowserAllowedOrigins } from '@/services/auth/oidc_flow_state';
+
 const NO_STORE_PUBLIC_URLS = new Set([
   '/api/v1/auth/config',
   '/api/v1/consent/status-by-identifier',
+  // Carries `authenticated` and the per-session CSRF token, and resolves no
+  // `request.user` (it reads the cookie itself), so the authenticated-response
+  // branch of the no-store hook never fires for it. Without this a shared proxy
+  // could hand one user's CSRF token to the next — the AUTH-VULN-07 class.
+  '/api/v1/auth/session',
 ]);
 
 /**
@@ -188,6 +201,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     allowed_origins,
     networkAllowedOrigins
   );
+
+  // The BFF login validates `appOrigin` and the request Host against the same
+  // list, so anywhere the browser may CALL from is somewhere it may be SENT to,
+  // and the two cannot drift apart.
+  setBrowserAllowedOrigins(corsAllowedOrigins);
 
   // Add schema validator and serializer
   app.setValidatorCompiler(validatorCompiler);

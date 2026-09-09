@@ -8123,6 +8123,7 @@
             "required": false
           }
         ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -8161,6 +8162,7 @@
             "required": false
           }
         ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response"
@@ -8173,6 +8175,7 @@
         "tags": [
           "auth"
         ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -8204,6 +8207,7 @@
         "tags": [
           "auth"
         ],
+        "security": [],
         "responses": {
           "200": {
             "description": "Default Response",

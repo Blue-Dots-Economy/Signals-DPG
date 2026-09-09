@@ -23,6 +23,9 @@ import {
   fetchBffSession,
   startBffLogin,
 } from '@/lib/bff-session';
+import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import type { QueryClient } from '@tanstack/react-query';
 import { clearSchemaCache } from '@/engine';
 import { useAuthConfig } from '@/hooks/use-auth-config';
 
@@ -74,12 +77,35 @@ function meToUser(me: MeResponse): User {
   };
 }
 
+/**
+ * Drop the signed-out user's cached data so it does not linger until gcTime and
+ * bleed into the next session (an SPA sign-out does not reload the page).
+ *
+ * All five hold per-user data: my-items + edit-item are the user's own items;
+ * profile-consent is their accepted profiles; actions covers their
+ * applications/connections — including pendingCount, whose key is NOT
+ * network/user-scoped, so a stale count would otherwise show to the next user
+ * on re-login. consent-status (`['consent-status', themeId]`, see
+ * `use-consent-gate.ts`) is keyed only by network, not by user, and its
+ * endpoint reflects whichever session resolved it — without this, signing out
+ * and straight back in as someone else on the same device would let the U18
+ * guardian consent gate serve the FIRST user's "already consented" status to
+ * the second, skipping the documents until the background refetch corrected it.
+ * browse-items/markers/*-config are public network-scoped data and can stay.
+ */
+function evictPerUserQueries(queryClient: QueryClient): void {
+  for (const key of ['my-items', 'profile-consent', 'edit-item', 'actions', 'consent-status']) {
+    queryClient.removeQueries({ queryKey: [key] });
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
   // Which provider this instance runs is served by the API, not compiled in.
   const { isKeycloakLogin, isLoading: isConfigLoading } = useAuthConfig();
+  const { t } = useTranslation();
 
   /**
    * Restore an existing session on mount. Both providers now ask the SERVER
@@ -203,7 +229,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Destroys the server-side session, then hands off to Keycloak so the SSO
       // session goes too. Signed out locally first, so a failure to reach
       // Keycloak still logs the user out of this app.
-      await endBffSession();
+      const ended = await endBffSession();
+      // The same eviction the better-auth branch does. Skipping it left the
+      // previous user's cached data alive behind signed-out chrome — and if the
+      // logout call itself failed, the cookie and SSO session are alive too, so
+      // the next reload signs them straight back in. Clearing here means a
+      // failed sign-out at least leaves nothing of theirs on the device.
+      clearSchemaCache();
+      evictPerUserQueries(queryClient);
+      if (!ended) {
+        toast.error(t('auth.toast_signout_incomplete_title', 'Sign-out may not be complete'), {
+          description: t(
+            'auth.toast_signout_incomplete_desc',
+            'We could not reach the server. Close this browser to be sure you are signed out.',
+          ),
+        });
+      }
       return;
     }
 
@@ -213,28 +254,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearCsrfToken();
       setUser(null);
       clearSchemaCache();
-      // Drop the signed-out user's cached data so it doesn't linger until
-      // gcTime and bleed into the next session (SPA sign-out does not reload
-      // the page). All five hold per-user data: my-items + edit-item are the
-      // user's own items; profile-consent is their accepted profiles; actions
-      // covers their applications/connections — including pendingCount, whose
-      // key is NOT network/user-scoped, so a stale count would otherwise show
-      // to the next user on re-login. consent-status
-      // (`['consent-status', themeId]`, see `use-consent-gate.ts`) is keyed
-      // only by network, not by user, and its endpoint reflects whichever
-      // session's token is attached when it resolves — without this, signing
-      // out and straight back in as someone else on the same device/tab would
-      // let the U18 guardian consent gate serve the FIRST user's cached
-      // "already consented" status to the second, skipping the documents
-      // until the background refetch corrects it. browse-items/markers/
-      // *-config are public network-scoped data and can stay.
-      queryClient.removeQueries({ queryKey: ['my-items'] });
-      queryClient.removeQueries({ queryKey: ['profile-consent'] });
-      queryClient.removeQueries({ queryKey: ['edit-item'] });
-      queryClient.removeQueries({ queryKey: ['actions'] });
-      queryClient.removeQueries({ queryKey: ['consent-status'] });
+      evictPerUserQueries(queryClient);
     }
-  }, [isKeycloakLogin, queryClient]);
+  }, [isKeycloakLogin, queryClient, t]);
 
   // Memoised so consumers only re-render when the session actually changes —
   // every callback above is a stable useCallback reference.

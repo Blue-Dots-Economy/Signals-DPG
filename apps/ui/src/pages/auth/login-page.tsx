@@ -101,6 +101,23 @@ function OtpLoginPage() {
     }
   }, [location.state, t]);
 
+  // A sign-in that failed before a session existed — the user cancelled at
+  // Keycloak, or the 5-minute flow expired, or the code exchange was refused.
+  // The API can only signal it on the redirect, so this is where it is said.
+  useEffect(() => {
+    if (searchParams.get('auth_error') !== '1') return;
+    toast.error(t('auth.oidc_error_title', 'Sign-in could not be completed'), {
+      id: 'oidc-auth-error',
+      description: t(
+        'auth.oidc_error_cancelled',
+        'The sign-in was cancelled or timed out. Please try again.',
+      ),
+    });
+    const url = new URL(window.location.href);
+    url.searchParams.delete('auth_error');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }, [searchParams, t]);
+
   const [mode, setMode] = useState<AuthMode>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');

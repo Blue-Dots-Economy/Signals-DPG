@@ -131,6 +131,21 @@ describe('safeAppOrigin', () => {
     expect(safeAppOrigin('http://localhost:30001', FALLBACK)).toBe(FALLBACK);
   });
 
+  it('honours an origin published from the merged CORS list', async () => {
+    // CORS enforces mergeAllowedOrigins(env, network-config instance URLs). A
+    // portal whose origin comes from network config would otherwise fail this
+    // check, fall back to API_DOMAIN, and land the browser on a host that
+    // serves no UI — a blank page holding a valid session.
+    const { setBrowserAllowedOrigins } = await import('../oidc_flow_state.js');
+    setBrowserAllowedOrigins([...['http://localhost:3000'], 'https://portal.from-network-config.test']);
+
+    expect(safeAppOrigin('https://portal.from-network-config.test', FALLBACK))
+      .toBe('https://portal.from-network-config.test');
+    expect(safeAppOrigin('https://evil.test', FALLBACK)).toBe(FALLBACK);
+
+    setBrowserAllowedOrigins(['http://localhost:3000', 'https://app.example.org']);
+  });
+
   it('falls back when nothing usable was supplied', () => {
     expect(safeAppOrigin(undefined, FALLBACK)).toBe(FALLBACK);
     expect(safeAppOrigin('', FALLBACK)).toBe(FALLBACK);
