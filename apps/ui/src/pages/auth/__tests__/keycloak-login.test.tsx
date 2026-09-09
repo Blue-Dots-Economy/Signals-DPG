@@ -35,6 +35,12 @@ vi.mock('@/hooks/use-auth-config', () => ({
   }),
 }));
 
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('sonner', async (orig) => ({
+  ...(await orig<typeof import('sonner')>()),
+  toast: { error: toastError, success: vi.fn(), message: vi.fn() },
+}));
+
 const startKeycloakLogin = vi.fn(async () => {});
 const completeKeycloakLogin = vi.fn(async () => {});
 
@@ -295,6 +301,38 @@ describe('KeycloakLoginPanel', () => {
     expect(await screen.findByText('Keycloak is not configured')).toBeTruthy();
     // Re-enabled, so the user can retry.
     expect(screen.getByRole('button', { name: /continue/i })).toBeTruthy();
+  });
+});
+
+describe('LoginPage — a sign-in that failed before a session existed', () => {
+  beforeEach(() => {
+    keycloakEnabled = true;
+    toastError.mockClear();
+  });
+
+  it('explains ?auth_error=1 on the KEYCLOAK screen', async () => {
+    // The notice must live on the wrapper: under Keycloak the OTP page never
+    // mounts, so an effect placed there never runs — the user cancels at
+    // Keycloak and lands on a silent sign-in screen.
+    renderAt(<LoginPage />, '/auth/login?auth_error=1');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(toastError.mock.calls[0][1]).toMatchObject({ id: 'oidc-auth-error' });
+  });
+
+  it('explains it on the betterauth screen too', async () => {
+    keycloakEnabled = false;
+
+    renderAt(<LoginPage />, '/auth/login?auth_error=1');
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+  });
+
+  it('says nothing on a normal visit', async () => {
+    renderAt(<LoginPage />, '/auth/login');
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
 
