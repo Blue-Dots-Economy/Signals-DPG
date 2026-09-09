@@ -20,6 +20,7 @@ const base: BrowseToolbarProps = {
   onDomainsChange: vi.fn(),
   area: { mode: 'anywhere' },
   locationSource: 'profile' as const,
+  effectiveLocationSource: 'profile' as const,
   onLocationSourceChange: vi.fn(),
   profileLocationAvailable: true,
   browserLocationAvailable: true,

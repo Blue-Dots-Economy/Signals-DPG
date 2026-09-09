@@ -5,8 +5,24 @@ import type { SelectOption } from './option-select';
 import type { PreferredLocationSource } from '@/hooks/use-user-location';
 
 export interface LocationSourceSelectProps {
-  /** Which of the two sources is in force. */
+  /** The source the viewer ASKED for. Ticks the list; may not be honoured. */
   value: PreferredLocationSource;
+  /**
+   * The source actually in force — what the map is centred on right now.
+   *
+   * Required, and separate from `value`, because the two diverge in a state
+   * that is the DEFAULT for a whole class of viewer: `preferredSource`
+   * initialises to `profile` and stays there even when the profile has no
+   * location, and `useUserLocation` then resolves the effective source to
+   * `browser`. Labelling the trigger from `value` there made it read
+   * "My profile" while the list greyed that very option out with "Your
+   * profile has no location" — the control contradicting itself, for exactly
+   * the viewer the switch exists for.
+   *
+   * Same split as `SortSelect`'s requested-vs-applied: the list shows what
+   * you asked for, the trigger shows what you are getting.
+   */
+  effectiveValue: PreferredLocationSource;
   onChange: (next: PreferredLocationSource) => void;
   /** Whether each source can supply a coordinate at all. */
   profileAvailable: boolean;
@@ -39,6 +55,7 @@ export interface LocationSourceSelectProps {
  */
 export function LocationSourceSelect({
   value,
+  effectiveValue,
   onChange,
   profileAvailable,
   browserAvailable,
@@ -73,12 +90,16 @@ export function LocationSourceSelect({
       // does, because "Location — My profile" on a map otherwise reads as a
       // constraint on which pins are shown. It is not one: the viewport is.
       heading={t('browse.location_map_centre')}
+      // From the EFFECTIVE source, never the preference — see `effectiveValue`.
       displayLabel={
-        value === 'browser'
+        effectiveValue === 'browser'
           ? t('browse.location_from_browser')
           : t('browse.location_from_profile')
       }
       icon={MapPin}
+      // Both mount points are on the map, and one of them IS the maximized
+      // overlay, so the list has to clear `z-[2000]` in either.
+      aboveMaximizedMap
       options={options}
       value={value}
       onChange={onChange}

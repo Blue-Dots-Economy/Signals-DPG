@@ -2104,6 +2104,10 @@ export function HomePage() {
   const mapLocationControl = (
     <LocationSourceSelect
       value={preferredSource}
+      // What the map is ACTUALLY centred on. Same trap the list note documents
+      // above: `preferredSource` stays 'profile' even with no profile
+      // location, while `useUserLocation` resolves to the browser coordinate.
+      effectiveValue={noteLocationSource(resolvedLocationSource)}
       onChange={handleLocationSourceChange}
       profileAvailable={profileLocation !== null}
       browserAvailable={browserLocation.isSupported}
@@ -2144,6 +2148,7 @@ export function HomePage() {
         // (#644 QA redesign) — the standalone "Search near" toggle asked
         // the same question a second time, in a second place.
         locationSource={preferredSource}
+        effectiveLocationSource={noteLocationSource(resolvedLocationSource)}
         onLocationSourceChange={handleLocationSourceChange}
         profileLocationAvailable={profileLocation !== null}
         browserLocationAvailable={browserLocation.isSupported}

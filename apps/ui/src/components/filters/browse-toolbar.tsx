@@ -62,6 +62,12 @@ export interface BrowseToolbarProps {
    * it renders there on its own as `LocationSourceSelect`.
    */
   locationSource: PreferredLocationSource;
+  /**
+   * The source actually in force, which is NOT always `locationSource` — see
+   * `LocationSourceSelect`'s `effectiveValue`. Map-only, since the list's
+   * control shows a radius rather than a source as its value.
+   */
+  effectiveLocationSource: PreferredLocationSource;
   onLocationSourceChange: (next: PreferredLocationSource) => void;
   profileLocationAvailable: boolean;
   browserLocationAvailable: boolean;
@@ -199,6 +205,7 @@ export function BrowseToolbar(props: Readonly<BrowseToolbarProps>) {
         {isMap && (
           <LocationSourceSelect
             value={props.locationSource}
+            effectiveValue={props.effectiveLocationSource}
             onChange={props.onLocationSourceChange}
             profileAvailable={props.profileLocationAvailable}
             browserAvailable={props.browserLocationAvailable}

@@ -5,6 +5,7 @@ import { LocationSourceSelect } from '../location-source-select';
 
 const base = {
   value: 'profile' as const,
+  effectiveValue: 'profile' as const,
   onChange: vi.fn(),
   profileAvailable: true,
   browserAvailable: true,
@@ -15,8 +16,46 @@ describe('LocationSourceSelect', () => {
     const { rerender } = render(<LocationSourceSelect {...base} />);
     expect(screen.getByRole('button', { name: 'Location: My profile' })).toBeInTheDocument();
 
-    rerender(<LocationSourceSelect {...base} value="browser" />);
+    rerender(<LocationSourceSelect {...base} value="browser" effectiveValue="browser" />);
     expect(screen.getByRole('button', { name: 'Location: Current location' })).toBeInTheDocument();
+  });
+
+  it('names what is IN FORCE on the trigger, not what was asked for', async () => {
+    // The default state for a viewer whose profile has no location:
+    // `preferredSource` stays 'profile', `useUserLocation` resolves 'browser'.
+    // Labelling from the preference made the trigger read "My profile" while
+    // the list greyed that very option out — the control contradicting itself.
+    render(
+      <LocationSourceSelect
+        {...base}
+        value="profile"
+        effectiveValue="browser"
+        profileAvailable={false}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Location: Current location' }),
+    ).toBeInTheDocument();
+
+    // The preference still ticks, so the viewer's own choice stays visible —
+    // the same requested-vs-applied split `SortSelect` makes.
+    await userEvent.click(screen.getByRole('button', { name: /location/i }));
+    expect(screen.getByRole('option', { name: /my profile/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  });
+
+  it('clears the maximized map, whose overlay is the reason this slot exists', async () => {
+    // PopoverContent portals to <body>, so it is a SIBLING of the maximized
+    // wrapper's `fixed inset-0 z-[2000]`; its base z-50 would paint under an
+    // opaque layer while Radix moved focus into it (WCAG 2.4.11).
+    render(<LocationSourceSelect {...base} />);
+    await userEvent.click(screen.getByRole('button', { name: /location/i }));
+
+    const content = screen.getByRole('listbox', { name: 'Centre the map on' })
+      .parentElement as HTMLElement;
+    expect(content.style.zIndex).toBe('2100');
   });
 
   it('heads the list with what choosing does, not with the field name', async () => {
