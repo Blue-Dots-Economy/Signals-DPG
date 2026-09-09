@@ -55,11 +55,15 @@ export const UpsertParticipantRequest = z
           : undefined,
       z.coerce.number().int().min(0).max(120).optional(),
     ),
-    // Deprecated (#309): accepted for backward compatibility with existing
-    // callers (aggregator-dpg / bulk) but IGNORED. Consent is recorded via
-    // `compliance`. Remove in a later cleanup ticket.
-    terms_accepted: z.boolean().optional(),
-    privacy_accepted: z.boolean().optional(),
+    // `terms_accepted` / `privacy_accepted` used to sit here. Removed in #692:
+    // they had been ignored since #309, but the deprecation was only a TS
+    // comment — never Zod metadata — so `z.toJSONSchema` emitted them as plain
+    // booleans and the rendered docs presented them as the live way to record
+    // consent. A caller sending `terms_accepted: true` with no `compliance` got
+    // 200 with `consent_recorded: 0` and no ledger row: a silent no-op the docs
+    // invited. Removal is non-breaking — this object is not `.strict()`, so a
+    // legacy caller still sending them is stripped and still gets a 200.
+    //
     // Consent captured by an external channel (voice/aggregator/bulk). Each
     // entry names a consent the user accepted/declined on the channel; only
     // `value: true` is recorded (append-only ledger). Recognised keys:
@@ -156,19 +160,64 @@ export const GetParticipantRequest = z
   .object({
     email: z.email().optional(),
     phone_number: PhoneLookup.optional(),
+    /**
+     * Which network's consent documents to compare accepted versions against
+     * (#692). Optional: an instance that serves exactly one network defaults to
+     * it, which is every deployment today. Required only on a multi-network
+     * instance, where there is no single `current_version` to compare against —
+     * `SERVED_DOMAINS` may carry bindings for more than one network (see
+     * `docs/operations/secrets.md`).
+     */
+    network: z.string().min(1).optional(),
   })
   .refine((q) => Boolean(q.email) || Boolean(q.phone_number), {
     message: 'either email or phone_number is required',
     path: ['email'],
   });
 
+/**
+ * Keys reported in the GET response's `compliance` array (#692).
+ *
+ * `user_terms` / `user_privacy` mirror the keys `POST /admin/participant`
+ * accepts, so the same vocabulary describes a consent on the way in and on the
+ * way out. `has_age` is reported alongside them because it is part of the same
+ * compliance picture — it decides whether the adult or minor document set
+ * applies — even though it is not an accepted consent and is not a key the POST
+ * recognises.
+ *
+ * `profile_creation` is deliberately absent: it is item-level, and is reported
+ * per item as `ParticipantItemSnapshot.profile_consent_accepted`.
+ */
+export const ParticipantComplianceKeySchema = z.enum([
+  'user_terms',
+  'user_privacy',
+  'has_age',
+]);
+
+/**
+ * One reported compliance point. Same `{key, value}` shape the POST body's
+ * `compliance` array uses (#692) — the GET previously answered with a
+ * differently-named object (`user_consent: {terms_accepted, …}`), so one
+ * concept had two spellings and two shapes.
+ *
+ * `value` is version-scoped: `true` only when a consent row exists at the
+ * document version this instance currently serves. See `readCompliance` in
+ * `participant_read.ts`.
+ */
+export const ParticipantComplianceEntry = z.object({
+  key: ParticipantComplianceKeySchema,
+  value: z.boolean(),
+});
+
 export const GetParticipantResponse = z.object({
   user_id: z.string().nullable(),
-  user_consent: z.object({
-    terms_accepted: z.boolean(),
-    privacy_accepted: z.boolean(),
-    has_age: z.boolean(),
-  }),
+  /**
+   * Always present and always carries an entry for every key, so a caller never
+   * has to distinguish "false" from "key absent" — including the
+   * user-not-found and aggregator-not-entitled branches, which report all
+   * `false`.
+   */
+  compliance: z.array(ParticipantComplianceEntry),
   items: z.array(ParticipantItemSnapshot),
 });
 
@@ -177,3 +226,5 @@ export type UpsertParticipantResponse = z.infer<typeof UpsertParticipantResponse
 export type ParticipantItemSnapshot = z.infer<typeof ParticipantItemSnapshot>;
 export type GetParticipantRequest = z.infer<typeof GetParticipantRequest>;
 export type GetParticipantResponse = z.infer<typeof GetParticipantResponse>;
+export type ParticipantComplianceKey = z.infer<typeof ParticipantComplianceKeySchema>;
+export type ParticipantComplianceEntry = z.infer<typeof ParticipantComplianceEntry>;

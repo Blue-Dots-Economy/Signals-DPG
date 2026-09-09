@@ -465,8 +465,6 @@ const VALID_PHONE = '+919876543210';
 const baseBody = (over: Record<string, unknown> = {}) => ({
   email: VALID_EMAIL,
   name: 'Demo',
-  terms_accepted: true,
-  privacy_accepted: true,
   channel: 'bulk',
   // SS-3 (#640): a non-aggregator caller must send `domain` — it selects which
   // default aggregator owns the participant, and the schema's `?? 'seeker'`
@@ -647,7 +645,7 @@ describe('POST /admin/participant', () => {
     expect(dbState.updates[0].set).not.toHaveProperty('domains');
   });
 
-  it('accepts a request with terms_accepted/privacy_accepted omitted (now optional) → 200', async () => {
+  it('accepts a request with no consent flags at all → 200', async () => {
     dbState.signUpUserId = 'usr_new_optional';
     lastQueriedUserId = 'usr_new_optional';
     const app = await buildApp({ org_id: 'org_agg_1', org_type: 'aggregator' });
@@ -658,6 +656,28 @@ describe('POST /admin/participant', () => {
         email: 'optional@example.com',
         name: 'Opt',
         channel: 'bulk',
+        item_state: { whoIAm: { education: 'XII' } },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('a legacy caller still sending terms_accepted/privacy_accepted gets 200, not 400 (#692)', async () => {
+    // The fields were removed from the schema, but the body object is not
+    // `.strict()`, so Zod strips them. Removal had to stay non-breaking for
+    // any integrator still sending the pre-#309 shape.
+    dbState.signUpUserId = 'usr_legacy_flags';
+    lastQueriedUserId = 'usr_legacy_flags';
+    const app = await buildApp({ org_id: 'org_agg_1', org_type: 'aggregator' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/participant',
+      payload: {
+        email: 'legacy@example.com',
+        name: 'Legacy',
+        channel: 'bulk',
+        terms_accepted: true,
+        privacy_accepted: true,
         item_state: { whoIAm: { education: 'XII' } },
       },
     });

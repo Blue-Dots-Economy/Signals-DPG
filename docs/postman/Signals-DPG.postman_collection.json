@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "signals-dpg-collection",
     "name": "Signals-DPG",
-    "description": "End-to-end API surface for the Signals-DPG instance. Covers OTP auth, aggregator registration, participant onboarding (bulk / link / voice), seeker self-fetch, provider discovery by location, 1:1 connect/apply actions, provider accept/reject, and the aggregator metrics dashboard. Two environments (Blue Dots, Purple Dots) carry network-specific item_type + sample payloads.\n\nWorkflow:\n1. Pick an environment (Blue Dots or Purple Dots).\n2. Run '02 Network Service > Register Aggregator' to mint/lookup the aggregator org. Its returned org_id is captured into `aggregator_org_id` by a test script and reused as `x-acting-org-id` for subsequent admin calls.\n3. Onboard a participant via '03 Aggregator Onboarding' (bulk / link / voice). Capture the seeker's user_id + items[0].item_id (the test script does this).\n4. As the seeker (after OTP login -> session cookie), fetch self profile, browse providers by location, and POST a 1:1 apply action.\n5. As the provider, accept the seeker's action via /action/update-status.\n6. Hit the aggregator dashboard for the rollup + CSV export.\n\nAuth model:\n- Admin endpoints (`/api/v1/admin/*`, `/api/v1/aggregator/*`) require BOTH `x-api-key` AND `x-acting-org-id` headers (the two-header service auth model).\n- Seeker/UI endpoints use a session cookie set by `POST /api/auth/unified-otp/verify`. Postman's cookie jar must be enabled for `{{base_url}}`.\n- `auth_middleware.ts` rejects requests with an invalid `x-api-key` outright (no fallback to session). When you want to act as a session user, do NOT send `x-api-key`.\n\nSchema notes (grounded from the codebase, not guessed):\n- OTP request body: `{phoneNumber}` (or `email`); verify body: `{phoneNumber, otp, rememberMe, name?}`.\n- Aggregator upsert: `{external_id, name, slug, logo_url?, metadata?}` -> `{org_id, created}`.\n- Onboard participant: `POST /api/v1/admin/participant` `{email?|phone_number?, name, terms_accepted:true, privacy_accepted:true, channel:'bulk'|'link'|'voice'|'self', source_id?, item_state, network?, domain?, item_type?}` -> `{user_id, user_existed, items:[{item_id, ...}], onboarded_at}`. The acting org must be of type `aggregator` or `voice`.\n- Network item discovery accepts `item_latitude` + `item_longitude` + `radius_meters` together for geo-filtering.\n- Perform action body: `{action_type, source_item:{item_network,item_domain,item_type,item_id}, target_item:{...,item_instance_url}, requirements_snapshot}` -> 201 with `{action_id, action_type, action_status, update_count, source_item_id, target_item_id}`.\n- Action status update: POST `/api/v1/action/update-status` with `{action_id, action_status, remarks?}`.",
+    "description": "End-to-end API surface for the Signals-DPG instance. Covers OTP auth, aggregator registration, participant onboarding (bulk / link / voice), seeker self-fetch, provider discovery by location, 1:1 connect/apply actions, provider accept/reject, and the aggregator metrics dashboard. Two environments (Blue Dots, Purple Dots) carry network-specific item_type + sample payloads.\n\nWorkflow:\n1. Pick an environment (Blue Dots or Purple Dots).\n2. Run '02 Network Service > Register Aggregator' to mint/lookup the aggregator org. Its returned org_id is captured into `aggregator_org_id` by a test script and reused as `x-acting-org-id` for subsequent admin calls.\n3. Onboard a participant via '03 Aggregator Onboarding' (bulk / link / voice). Capture the seeker's user_id + items[0].item_id (the test script does this).\n4. As the seeker (after OTP login -> session cookie), fetch self profile, browse providers by location, and POST a 1:1 apply action.\n5. As the provider, accept the seeker's action via /action/update-status.\n6. Hit the aggregator dashboard for the rollup + CSV export.\n\nAuth model:\n- Admin endpoints (`/api/v1/admin/*`, `/api/v1/aggregator/*`) require BOTH `x-api-key` AND `x-acting-org-id` headers (the two-header service auth model).\n- Seeker/UI endpoints use a session cookie set by `POST /api/auth/unified-otp/verify`. Postman's cookie jar must be enabled for `{{base_url}}`.\n- `auth_middleware.ts` rejects requests with an invalid `x-api-key` outright (no fallback to session). When you want to act as a session user, do NOT send `x-api-key`.\n\nSchema notes (grounded from the codebase, not guessed):\n- OTP request body: `{phoneNumber}` (or `email`); verify body: `{phoneNumber, otp, rememberMe, name?}`.\n- Aggregator upsert: `{external_id, name, slug, logo_url?, metadata?}` -> `{org_id, created}`.\n- Onboard participant: `POST /api/v1/admin/participant` `{email?|phone_number?, name, channel:'bulk'|'link'|'voice'|'self', source_id?, compliance?, age?, item_state, network?, domain?, item_type?}` -> `{user_id, user_existed, items:[{item_id, ...}], onboarded_at, consent_recorded}`. The acting org must be of type `aggregator` or `voice`. Consent is recorded ONLY via `compliance: [{key,value}]` (keys `user_terms`, `user_privacy`, `profile_creation`); the old top-level `terms_accepted`/`privacy_accepted` booleans were removed in #692 (they had been ignored since #309 \u2014 sending them is stripped, not an error).\n- Read participant: `GET /api/v1/admin/participant?email=|phone_number=[&network=]` -> `{user_id, compliance:[{key,value}], items:[...]}`. `compliance` replaced `user_consent` in #692 and uses the same `{key,value}` shape as the POST; every `value` is TRUE ONLY when the consent was accepted at the document version the instance currently serves, so a participant on a superseded document reports false and must be re-prompted. `has_age` is reported as a compliance key. Per-item `profile_consent_accepted` is version-scoped the same way. A minor returns 400 `U18_NOT_ALLOWED` for voice/network_service callers (aggregators are unaffected). `network` is optional and defaults to the served network.\n- Network item discovery accepts `item_latitude` + `item_longitude` + `radius_meters` together for geo-filtering.\n- Perform action body: `{action_type, source_item:{item_network,item_domain,item_type,item_id}, target_item:{...,item_instance_url}, requirements_snapshot}` -> 201 with `{action_id, action_type, action_status, update_count, source_item_id, target_item_id}`.\n- Action status update: POST `/api/v1/action/update-status` with `{action_id, action_status, remarks?}`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -142,7 +142,7 @@
                 "verify"
               ]
             },
-            "description": "Verifies the OTP and creates a session. Postman's cookie jar will capture the session cookie set on `{{base_url}}` — make sure cookies are enabled for that domain. The returned `token` is also captured into `session_token` if you prefer header-based session use."
+            "description": "Verifies the OTP and creates a session. Postman's cookie jar will capture the session cookie set on `{{base_url}}` \u2014 make sure cookies are enabled for that domain. The returned `token` is also captured into `session_token` if you prefer header-based session use."
           },
           "response": []
         }
@@ -204,7 +204,7 @@
                 "upsert"
               ]
             },
-            "description": "Must be called by the **network_service** org (its `x-api-key` + `x-acting-org-id`). Idempotent on `slug`. Response `{ org_id, created }`. The test script captures `org_id` into `aggregator_org_id` so subsequent admin calls can supply it as `x-acting-org-id`.\n\n`domains` is required (non-empty array) for the aggregator to receive a dashboard response — it is persisted to `organization.metadata.domains` and gates `/api/v1/aggregator/dashboard`. Pilot value is `[\"seeker\",\"provider\"]` (override per env via `aggregator_domains_json`). An empty array → 400 `NO_DOMAINS_CONFIGURED` on dashboard reads."
+            "description": "Must be called by the **network_service** org (its `x-api-key` + `x-acting-org-id`). Idempotent on `slug`. Response `{ org_id, created }`. The test script captures `org_id` into `aggregator_org_id` so subsequent admin calls can supply it as `x-acting-org-id`.\n\n`domains` is required (non-empty array) for the aggregator to receive a dashboard response \u2014 it is persisted to `organization.metadata.domains` and gates `/api/v1/aggregator/dashboard`. Pilot value is `[\"seeker\",\"provider\"]` (override per env via `aggregator_domains_json`). An empty array \u2192 400 `NO_DOMAINS_CONFIGURED` on dashboard reads."
           },
           "response": []
         }
@@ -250,7 +250,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{seeker_name}}\",\n  \"phone_number\": \"{{seeker_phone}}\",\n  \"email\": \"{{seeker_email}}\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"source_id\": \"bulk_upload_2026_05_01\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{seeker_domain}}\",\n  \"item_type\": \"{{seeker_item_type}}\",\n  \"item_state\": {{seeker_profile_payload_json}}\n}"
+              "raw": "{\n  \"name\": \"{{seeker_name}}\",\n  \"phone_number\": \"{{seeker_phone}}\",\n  \"email\": \"{{seeker_email}}\",\n  \"channel\": \"bulk\",\n  \"source_id\": \"bulk_upload_2026_05_01\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{seeker_domain}}\",\n  \"item_type\": \"{{seeker_item_type}}\",\n  \"item_state\": {{seeker_profile_payload_json}}\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -304,7 +304,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{provider_name}}\",\n  \"phone_number\": \"{{provider_phone}}\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"link\",\n  \"source_id\": \"magic_link_provider_xyz\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{provider_domain}}\",\n  \"item_type\": \"{{provider_item_type}}\",\n  \"item_state\": {{provider_profile_payload_json}}\n}"
+              "raw": "{\n  \"name\": \"{{provider_name}}\",\n  \"phone_number\": \"{{provider_phone}}\",\n  \"channel\": \"link\",\n  \"source_id\": \"magic_link_provider_xyz\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{provider_domain}}\",\n  \"item_type\": \"{{provider_item_type}}\",\n  \"item_state\": {{provider_profile_payload_json}}\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -318,7 +318,7 @@
                 "participant"
               ]
             },
-            "description": "Onboard a PROVIDER (e.g. employer, training centre) via the QR / magic-link channel. Same endpoint as the seeker flows, but targets the provider domain + provider item_type. `channel=link` with `source_id` carrying the upstream magic-link id. Test script captures the resulting user_id + items[0].item_id into `provider_user_id` / `provider_item_id` so the Seeker > Apply to Provider request can reference them.\n\nNote: the `profile` payload must match the provider domain's item-type schema (`{{provider_item_type}}`). Each env file ships a `provider_profile_payload_json` template — adjust it to match the running instance's schema (fetch via `GET /api/v1/network/schema/{{network_id}}/{{provider_domain}}/{{provider_item_type}}` to see the live shape)."
+            "description": "Onboard a PROVIDER (e.g. employer, training centre) via the QR / magic-link channel. Same endpoint as the seeker flows, but targets the provider domain + provider item_type. `channel=link` with `source_id` carrying the upstream magic-link id. Test script captures the resulting user_id + items[0].item_id into `provider_user_id` / `provider_item_id` so the Seeker > Apply to Provider request can reference them.\n\nNote: the `profile` payload must match the provider domain's item-type schema (`{{provider_item_type}}`). Each env file ships a `provider_profile_payload_json` template \u2014 adjust it to match the running instance's schema (fetch via `GET /api/v1/network/schema/{{network_id}}/{{provider_domain}}/{{provider_item_type}}` to see the live shape)."
           },
           "response": []
         },
@@ -358,7 +358,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"{{seeker_name}}\",\n  \"phone_number\": \"{{seeker_phone}}\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"voice\",\n  \"source_id\": \"voice_session_xyz789\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{seeker_domain}}\",\n  \"item_type\": \"{{seeker_item_type}}\",\n  \"item_state\": {{seeker_profile_payload_json}}\n}"
+              "raw": "{\n  \"name\": \"{{seeker_name}}\",\n  \"phone_number\": \"{{seeker_phone}}\",\n  \"channel\": \"voice\",\n  \"source_id\": \"voice_session_xyz789\",\n  \"network\": \"{{network_id}}\",\n  \"domain\": \"{{seeker_domain}}\",\n  \"item_type\": \"{{seeker_item_type}}\",\n  \"item_state\": {{seeker_profile_payload_json}}\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -372,7 +372,7 @@
                 "participant"
               ]
             },
-            "description": "`channel=voice` — onboarding originated from a voice-DPG session; `source_id` is the voice_session_id. The acting org may be the voice DPG (org_type=voice) instead of aggregator; the endpoint accepts both."
+            "description": "`channel=voice` \u2014 onboarding originated from a voice-DPG session; `source_id` is the voice_session_id. The acting org may be the voice DPG (org_type=voice) instead of aggregator; the endpoint accepts both."
           },
           "response": []
         }
@@ -420,7 +420,7 @@
                 }
               ]
             },
-            "description": "Instance-local item fetch (short Redis cache). When called with the seeker's session cookie this returns the seeker's own profile_1.0 items. Do NOT send `x-api-key` for this call — that path is for service-to-service callers. Make sure Postman's cookie jar still has the session cookie from `Verify OTP`."
+            "description": "Instance-local item fetch (short Redis cache). When called with the seeker's session cookie this returns the seeker's own profile_1.0 items. Do NOT send `x-api-key` for this call \u2014 that path is for service-to-service callers. Make sure Postman's cookie jar still has the session cookie from `Verify OTP`."
           },
           "response": []
         },
@@ -499,7 +499,7 @@
               ],
               "query": []
             },
-            "description": "1:1 connect/apply action from seeker -> provider. The source instance validates the source item locally, then forwards to the target instance's `/api/v1/network/action/perform`. Response 201 with `{action_id, action_type, action_status, update_count, source_item_id, target_item_id}` — captured into `action_id` by the test script.\n\nRun as the seeker session (cookie jar), NOT as the aggregator service apikey."
+            "description": "1:1 connect/apply action from seeker -> provider. The source instance validates the source item locally, then forwards to the target instance's `/api/v1/network/action/perform`. Response 201 with `{action_id, action_type, action_status, update_count, source_item_id, target_item_id}` \u2014 captured into `action_id` by the test script.\n\nRun as the seeker session (cookie jar), NOT as the aggregator service apikey."
           },
           "response": []
         }
@@ -535,7 +535,7 @@
               ],
               "query": []
             },
-            "description": "Provider transitions the action to `accepted`. Called by the provider's session (the provider must own the target item on this instance). The same endpoint is used to reject — flip `action_status` to `rejected` and supply a `remarks` string."
+            "description": "Provider transitions the action to `accepted`. Called by the provider's session (the provider must own the target item on this instance). The same endpoint is used to reject \u2014 flip `action_status` to `rejected` and supply a `remarks` string."
           },
           "response": []
         },
@@ -649,11 +649,11 @@
                 }
               ]
             },
-            "description": "Reads the `item_metrics` cache scoped to the acting aggregator org. Response shape is `{ by_domain: { <domain>: { rollup, items, total_matching, next_cursor } }, metadata }` where each configured domain on `organization.metadata.domains` gets its own block. Per-domain `rollup` carries `total_items`, `complete_profiles`, `has_applications`, `by_status` (4 canonical statuses), `by_action_status` (4 canonical buckets: create/accept/reject/cancel), `avg_items_per_user`, `avg_actions_per_user`, and `mode_wise_counts`. Top-level `metadata` has `last_computed_at`, `ttl_seconds`, and `refreshed` (true when this request forced a recompute on at least one domain).\n\nQuery params: `?domain=<name>` narrows to a single configured domain (otherwise returns all). `?status=<new|active|at_risk|inactive>` scopes the items list (rollup always reflects the full population). `?page=1&limit=50` paginates within each returned domain block. `?refresh=true` bypasses the TTL gate and forces a recompute using a blocking advisory lock — the caller waits for any in-flight recompute to finish.\n\nError modes: 400 `NO_DOMAINS_CONFIGURED` if `organization.metadata.domains` is empty; 400 `DOMAIN_NOT_CONFIGURED` if `?domain=` is not in the configured set; 400 `INVALID_REFRESH` if `?refresh=` cannot be parsed as boolean."
+            "description": "Reads the `item_metrics` cache scoped to the acting aggregator org. Response shape is `{ by_domain: { <domain>: { rollup, items, total_matching, next_cursor } }, metadata }` where each configured domain on `organization.metadata.domains` gets its own block. Per-domain `rollup` carries `total_items`, `complete_profiles`, `has_applications`, `by_status` (4 canonical statuses), `by_action_status` (4 canonical buckets: create/accept/reject/cancel), `avg_items_per_user`, `avg_actions_per_user`, and `mode_wise_counts`. Top-level `metadata` has `last_computed_at`, `ttl_seconds`, and `refreshed` (true when this request forced a recompute on at least one domain).\n\nQuery params: `?domain=<name>` narrows to a single configured domain (otherwise returns all). `?status=<new|active|at_risk|inactive>` scopes the items list (rollup always reflects the full population). `?page=1&limit=50` paginates within each returned domain block. `?refresh=true` bypasses the TTL gate and forces a recompute using a blocking advisory lock \u2014 the caller waits for any in-flight recompute to finish.\n\nError modes: 400 `NO_DOMAINS_CONFIGURED` if `organization.metadata.domains` is empty; 400 `DOMAIN_NOT_CONFIGURED` if `?domain=` is not in the configured set; 400 `INVALID_REFRESH` if `?refresh=` cannot be parsed as boolean."
           },
           "response": [
             {
-              "name": "200 OK — seeker domain example",
+              "name": "200 OK \u2014 seeker domain example",
               "originalRequest": {
                 "method": "GET",
                 "header": [
@@ -668,11 +668,24 @@
                 ],
                 "url": {
                   "raw": "{{base_url}}/api/v1/aggregator/dashboard?page=1&limit=50",
-                  "host": ["{{base_url}}"],
-                  "path": ["api","v1","aggregator","dashboard"],
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "aggregator",
+                    "dashboard"
+                  ],
                   "query": [
-                    { "key": "page", "value": "1" },
-                    { "key": "limit", "value": "50" }
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50"
+                    }
                   ]
                 }
               },
@@ -680,7 +693,10 @@
               "code": 200,
               "_postman_previewlanguage": "json",
               "header": [
-                { "key": "Content-Type", "value": "application/json" }
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
               ],
               "body": "{\n  \"by_domain\": {\n    \"seeker\": {\n      \"rollup\": {\n        \"total_items\": 5,\n        \"complete_profiles\": 2,\n        \"has_applications\": 3,\n        \"by_status\": { \"new\": 2, \"active\": 1, \"at_risk\": 1, \"inactive\": 1 },\n        \"by_action_status\": { \"create\": 4, \"accept\": 1, \"reject\": 1, \"cancel\": 0 },\n        \"avg_items_per_user\": 1.0,\n        \"avg_actions_per_user\": 2.0,\n        \"mode_wise_counts\": { \"bulk\": 5 }\n      },\n      \"items\": [\n        {\n          \"item_network\": \"purple_dot\",\n          \"item_domain\": \"seeker\",\n          \"item_type\": \"profile_1.0\",\n          \"name\": \"itm_01HX...\",\n          \"onboarded_via\": \"bulk\",\n          \"profile_status\": \"new\",\n          \"profile_completion_pct\": 80,\n          \"profile_created_at\": \"2026-05-26T07:00:00.000Z\",\n          \"profile_last_updated_at\": \"2026-05-26T07:00:00.000Z\",\n          \"age_days\": 3,\n          \"count_create\": 1,\n          \"count_accept\": 0,\n          \"count_reject\": 0,\n          \"count_cancel\": 0,\n          \"last_create_at\": \"2026-05-26T07:00:00.000Z\",\n          \"last_accept_at\": null,\n          \"last_reject_at\": null,\n          \"last_cancel_at\": null,\n          \"actionable_tags\": []\n        }\n      ],\n      \"total_matching\": 5,\n      \"next_cursor\": null\n    }\n  },\n  \"metadata\": {\n    \"last_computed_at\": \"2026-05-26T07:00:00.000Z\",\n    \"ttl_seconds\": 3600,\n    \"refreshed\": false\n  }\n}"
             }
@@ -771,30 +787,53 @@
                 }
               ]
             },
-            "description": "Streams a CSV of every row matching the filter (no pagination). Same `?status=` + `?domain=` + `?refresh=` params as the dashboard — omit `?domain=` to get all configured domains in one CSV (the `item_domain` column tells you which row belongs to which domain).\n\n19-column layout: `item_network, item_domain, item_type, name, onboarded_via, profile_status, profile_completion_pct, profile_created_at, profile_last_updated_at, age_days, count_create, count_accept, count_reject, count_cancel, last_create_at, last_accept_at, last_reject_at, last_cancel_at, actionable_tags`. `name` is the resolved display name (from `display_name_field` on the item schema, falling back to `item_id`). `actionable_tags` is pipe-separated. Nullable timestamp cells are empty. Filename: `items_<org_id>_<YYYY-MM-DD>.csv`.\n\nSave the response to disk via Postman's 'Save response to file'."
+            "description": "Streams a CSV of every row matching the filter (no pagination). Same `?status=` + `?domain=` + `?refresh=` params as the dashboard \u2014 omit `?domain=` to get all configured domains in one CSV (the `item_domain` column tells you which row belongs to which domain).\n\n19-column layout: `item_network, item_domain, item_type, name, onboarded_via, profile_status, profile_completion_pct, profile_created_at, profile_last_updated_at, age_days, count_create, count_accept, count_reject, count_cancel, last_create_at, last_accept_at, last_reject_at, last_cancel_at, actionable_tags`. `name` is the resolved display name (from `display_name_field` on the item schema, falling back to `item_id`). `actionable_tags` is pipe-separated. Nullable timestamp cells are empty. Filename: `items_<org_id>_<YYYY-MM-DD>.csv`.\n\nSave the response to disk via Postman's 'Save response to file'."
           },
           "response": [
             {
-              "name": "200 OK — CSV sample",
+              "name": "200 OK \u2014 CSV sample",
               "originalRequest": {
                 "method": "GET",
                 "header": [
-                  { "key": "x-api-key", "value": "{{aggregator_api_key}}" },
-                  { "key": "x-acting-org-id", "value": "{{aggregator_org_id}}" },
-                  { "key": "accept", "value": "text/csv" }
+                  {
+                    "key": "x-api-key",
+                    "value": "{{aggregator_api_key}}"
+                  },
+                  {
+                    "key": "x-acting-org-id",
+                    "value": "{{aggregator_org_id}}"
+                  },
+                  {
+                    "key": "accept",
+                    "value": "text/csv"
+                  }
                 ],
                 "url": {
                   "raw": "{{base_url}}/api/v1/aggregator/dashboard/export",
-                  "host": ["{{base_url}}"],
-                  "path": ["api","v1","aggregator","dashboard","export"]
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "aggregator",
+                    "dashboard",
+                    "export"
+                  ]
                 }
               },
               "status": "OK",
               "code": 200,
               "_postman_previewlanguage": "text",
               "header": [
-                { "key": "Content-Type", "value": "text/csv" },
-                { "key": "Content-Disposition", "value": "attachment; filename=\"items_org_abc_2026-05-26.csv\"" }
+                {
+                  "key": "Content-Type",
+                  "value": "text/csv"
+                },
+                {
+                  "key": "Content-Disposition",
+                  "value": "attachment; filename=\"items_org_abc_2026-05-26.csv\""
+                }
               ],
               "body": "item_network,item_domain,item_type,name,onboarded_via,profile_status,profile_completion_pct,profile_created_at,profile_last_updated_at,age_days,count_create,count_accept,count_reject,count_cancel,last_create_at,last_accept_at,last_reject_at,last_cancel_at,actionable_tags\npurple_dot,seeker,profile_1.0,itm_01HX...,bulk,new,80,2026-05-26T07:00:00.000Z,2026-05-26T07:00:00.000Z,3,1,0,0,0,2026-05-26T07:00:00.000Z,,,,\npurple_dot,provider,profile_1.0,Acme Corp,link,active,100,2026-05-20T07:00:00.000Z,2026-05-25T07:00:00.000Z,9,2,1,0,0,2026-05-24T07:00:00.000Z,2026-05-25T07:00:00.000Z,,,missing_phone_number"
             }
@@ -936,7 +975,7 @@
               ],
               "query": []
             },
-            "description": "Status update is self-acted only. The session-cookie or apikey-as-self caller must be the action's target item owner. The on-behalf-of path was removed by the network_service-tier change — audit columns on `item_actions` are populated only at create-time (by `/action/perform`)."
+            "description": "Status update is self-acted only. The session-cookie or apikey-as-self caller must be the action's target item owner. The on-behalf-of path was removed by the network_service-tier change \u2014 audit columns on `item_actions` are populated only at create-time (by `/action/perform`)."
           },
           "response": []
         }
@@ -946,7 +985,7 @@
       "name": "08 Admin Participant",
       "item": [
         {
-          "name": "Aggregator A — create new user",
+          "name": "Aggregator A \u2014 create new user",
           "request": {
             "method": "POST",
             "header": [
@@ -965,7 +1004,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"Aggregator A User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\",\n    \"phone\": \"9999000001\",\n    \"gender\": \"female\",\n    \"location\": \"Bangalore\",\n    \"age\": 25\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"Aggregator A User\",\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\",\n    \"phone\": \"9999000001\",\n    \"gender\": \"female\",\n    \"location\": \"Bangalore\",\n    \"age\": 25\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1000,7 +1039,7 @@
           ]
         },
         {
-          "name": "Aggregator A — existing own user",
+          "name": "Aggregator A \u2014 existing own user",
           "request": {
             "method": "POST",
             "header": [
@@ -1019,7 +1058,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000002\",\n  \"name\": \"Aggregator A User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\",\n    \"phone\": \"9999000001\"\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000002\",\n  \"name\": \"Aggregator A User\",\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\",\n    \"phone\": \"9999000001\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1039,7 +1078,7 @@
           "response": []
         },
         {
-          "name": "Aggregator B — existing other-aggregator user",
+          "name": "Aggregator B \u2014 existing other-aggregator user",
           "request": {
             "method": "POST",
             "header": [
@@ -1058,7 +1097,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000003\",\n  \"name\": \"Aggregator A User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\"\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000003\",\n  \"name\": \"Aggregator A User\",\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1078,7 +1117,7 @@
           "response": []
         },
         {
-          "name": "Network_service — create new user",
+          "name": "Network_service \u2014 create new user",
           "request": {
             "method": "POST",
             "header": [
@@ -1097,7 +1136,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"ns-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"NS User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"NS User\",\n    \"phone\": \"9999000004\",\n    \"gender\": \"male\",\n    \"location\": \"Hyderabad\",\n    \"age\": 30\n  }\n}"
+              "raw": "{\n  \"email\": \"ns-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"NS User\",\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"NS User\",\n    \"phone\": \"9999000004\",\n    \"gender\": \"male\",\n    \"location\": \"Hyderabad\",\n    \"age\": 30\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1112,7 +1151,7 @@
               ],
               "query": []
             },
-            "description": "Network_service-typed org creates a fresh user. Tier: network_service. Captures `ns_user_id` and `other_user_item_id` (the item created here, which Request 7 will try to address from a different user — should fail). Expected: 200, `user_existed:false`."
+            "description": "Network_service-typed org creates a fresh user. Tier: network_service. Captures `ns_user_id` and `other_user_item_id` (the item created here, which Request 7 will try to address from a different user \u2014 should fail). Expected: 200, `user_existed:false`."
           },
           "response": [],
           "event": [
@@ -1132,7 +1171,7 @@
           ]
         },
         {
-          "name": "Network_service — update existing item",
+          "name": "Network_service \u2014 update existing item",
           "request": {
             "method": "POST",
             "header": [
@@ -1151,7 +1190,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000005\",\n  \"name\": \"Aggregator A User (updated)\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_id\": \"{{participant_item_id}}\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User (updated)\",\n    \"phone\": \"9999000001\",\n    \"gender\": \"female\",\n    \"location\": \"Bangalore\",\n    \"age\": 26\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000005\",\n  \"name\": \"Aggregator A User (updated)\",\n  \"channel\": \"bulk\",\n  \"item_id\": \"{{participant_item_id}}\",\n  \"item_state\": {\n    \"name\": \"Aggregator A User (updated)\",\n    \"phone\": \"9999000001\",\n    \"gender\": \"female\",\n    \"location\": \"Bangalore\",\n    \"age\": 26\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1171,7 +1210,7 @@
           "response": []
         },
         {
-          "name": "Network_service — insert additional item",
+          "name": "Network_service \u2014 insert additional item",
           "request": {
             "method": "POST",
             "header": [
@@ -1190,7 +1229,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000006\",\n  \"name\": \"Aggregator A User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"domain\": \"provider\",\n  \"item_type\": \"job_posting_1.0\",\n  \"item_state\": {\n    \"jobProviderName\": \"Acme Corp\",\n    \"role\": \"Software Engineer\",\n    \"location\": \"Bangalore\",\n    \"salary\": \"12 LPA\",\n    \"experienceRequired\": \"2-4 years\"\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000006\",\n  \"name\": \"Aggregator A User\",\n  \"channel\": \"bulk\",\n  \"domain\": \"provider\",\n  \"item_type\": \"job_posting_1.0\",\n  \"item_state\": {\n    \"jobProviderName\": \"Acme Corp\",\n    \"role\": \"Software Engineer\",\n    \"location\": \"Bangalore\",\n    \"salary\": \"12 LPA\",\n    \"experienceRequired\": \"2-4 years\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1210,7 +1249,7 @@
           "response": []
         },
         {
-          "name": "Network_service — invalid item_id (other user)",
+          "name": "Network_service \u2014 invalid item_id (other user)",
           "request": {
             "method": "POST",
             "header": [
@@ -1229,7 +1268,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000007\",\n  \"name\": \"Aggregator A User\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_id\": \"{{other_user_item_id}}\",\n  \"item_state\": {\n    \"name\": \"should not apply\"\n  }\n}"
+              "raw": "{\n  \"email\": \"agg-user-existing@test.local\",\n  \"phone_number\": \"+919000000007\",\n  \"name\": \"Aggregator A User\",\n  \"channel\": \"bulk\",\n  \"item_id\": \"{{other_user_item_id}}\",\n  \"item_state\": {\n    \"name\": \"should not apply\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",
@@ -1268,7 +1307,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"voice-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"Voice Rejected\",\n  \"terms_accepted\": true,\n  \"privacy_accepted\": true,\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Voice Rejected\"\n  }\n}"
+              "raw": "{\n  \"email\": \"voice-user-{{$timestamp}}@test.local\",\n  \"phone_number\": \"+919000{{$randomInt}}\",\n  \"name\": \"Voice Rejected\",\n  \"channel\": \"bulk\",\n  \"item_state\": {\n    \"name\": \"Voice Rejected\"\n  }\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/v1/admin/participant",

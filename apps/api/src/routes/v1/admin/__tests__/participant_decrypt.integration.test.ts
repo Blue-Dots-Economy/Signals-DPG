@@ -105,8 +105,6 @@ describeIf('POST /api/v1/admin/participant/decrypt (integration)', () => {
       payload: {
         email: `participant-${ts}@a.test`,
         name: 'Velu Murugan',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,

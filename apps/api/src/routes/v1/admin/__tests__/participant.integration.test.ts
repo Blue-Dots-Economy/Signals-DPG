@@ -317,8 +317,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'Int C A',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -377,8 +375,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'doesnt matter',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -418,8 +414,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
           email: capEmail,
           phone_number: capPhone,
           name: `Cap User ${n}`,
-          terms_accepted: true,
-          privacy_accepted: true,
           channel: 'bulk',
           network: primary.network,
           domain: primary.domain,
@@ -463,8 +457,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
           email: ccEmail,
           phone_number: ccPhone,
           name: 'Cap CC User',
-          terms_accepted: true,
-          privacy_accepted: true,
           channel: 'bulk',
           network: primary.network,
           domain: primary.domain,
@@ -524,8 +516,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'NS Update',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -576,8 +566,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'NS Insert',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: secondary.network,
         domain: secondary.domain,
@@ -607,8 +595,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'agg_b probe',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -693,8 +679,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: other_email,
         name: 'Other Int C',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -740,8 +724,6 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       payload: {
         email: canonical_user_email,
         name: 'NS bad update',
-        terms_accepted: true,
-        privacy_accepted: true,
         channel: 'bulk',
         network: primary.network,
         domain: primary.domain,
@@ -826,7 +808,7 @@ describeIf(`POST /api/v1/admin/participant (integration)${
     });
   });
 
-  it('ignores deprecated terms_accepted/privacy_accepted and records no consent', async () => {
+  it('strips the removed terms_accepted/privacy_accepted and records no consent (#692)', async () => {
     const email = `int_c_legacy_${randomUUID().slice(0, 6)}@a.test`;
     const fixture = generateMinimalItemState(primary.schema);
     const res = await app.inject({
@@ -841,6 +823,8 @@ describeIf(`POST /api/v1/admin/participant (integration)${
         email,
         name: 'Legacy Booleans',
         channel: 'bulk',
+        // Removed from the schema in #692; still sent here on purpose — a
+        // legacy integrator must keep getting a 200, with no ledger row.
         terms_accepted: true,
         privacy_accepted: true,
         network: primary.network,
@@ -1158,7 +1142,9 @@ describeIf(`POST /api/v1/admin/participant (integration)${
       headers: { 'x-api-key': ns.raw_key, 'x-acting-org-id': ns.org_id },
     });
     expect(g.statusCode).toBe(200);
-    expect(g.json().user_consent.has_age).toBe(true);
+    expect(g.json().compliance).toEqual(
+      expect.arrayContaining([{ key: 'has_age', value: true }]),
+    );
   });
 
   it('gated domain: minor + full consent + complete item_state → 400 U18_NOT_ALLOWED, no consent recorded, no item created', async () => {

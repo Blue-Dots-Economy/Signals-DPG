@@ -21,8 +21,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // --- mocks (hoisted) -------------------------------------------------------
 
-const { rowQueue, queries, dbState, configState, decryptImpl, networkCfgState } =
-  vi.hoisted(() => ({
+const {
+  rowQueue,
+  queries,
+  dbState,
+  configState,
+  decryptImpl,
+  networkCfgState,
+  consentVersionState,
+} = vi.hoisted(() => ({
     // One shared FIFO of result sets; each drizzle chain shifts the next entry.
     rowQueue: [] as unknown[][],
     // Every `.where(...)` call, in order, so tests can assert the predicate.
@@ -40,6 +47,11 @@ const { rowQueue, queries, dbState, configState, decryptImpl, networkCfgState } 
     // when a test's body carries `contact` — every other test in this file
     // leaves it null and never triggers the lookup.
     networkCfgState: { cfg: null as Record<string, unknown> | null },
+    // #692: the live version per consent category, as the instance's config
+    // would report it. `null` models an unconfigured category.
+    consentVersionState: {
+      current: {} as Record<string, number | null>,
+    },
   }));
 
 function nextRows() {
@@ -143,6 +155,9 @@ vi.mock('@api/db/postgres/schema', () => ({
     level: 'cr.level',
     consentCategory: 'cr.consentCategory',
     itemId: 'cr.itemId',
+    // #692: the reads now filter on the accepted version and the network.
+    documentVersion: 'cr.documentVersion',
+    network: 'cr.network',
   },
 }));
 
@@ -159,6 +174,18 @@ vi.mock('@dpg/schemas', () => ({
 }));
 
 vi.mock('@/config', () => ({ apiConfig: configState }));
+
+// #692: the reads resolve the live document version per category. Mocked so
+// these stay unit tests — `consentVersionState` drives what "current" is, which
+// is exactly the axis the version-scoping tests need to vary.
+vi.mock('@/services/consent_version', () => ({
+  resolveConsentVersion: async ({ category }: { category: string }) =>
+    consentVersionState.current[category] ?? null,
+}));
+
+vi.mock('@/services/minor', () => ({
+  isMinor: (age: number) => age < 18,
+}));
 
 vi.mock('@/utils/item_decrypt', () => ({
   decryptItemPrivate: (row: { item_state: Record<string, unknown> }) =>
@@ -259,11 +286,21 @@ const NETSVC = {
   service_user_id: 'svc',
 };
 
-const EMPTY_CONSENT = {
-  terms_accepted: false,
-  privacy_accepted: false,
-  has_age: false,
-};
+// #692: the GET answers with the same `[{key,value}]` shape the POST accepts.
+const EMPTY_COMPLIANCE = [
+  { key: 'user_terms', value: false },
+  { key: 'user_privacy', value: false },
+  { key: 'has_age', value: false },
+];
+
+/** Compliance array with the given values, in the order the handler emits. */
+function compliance(terms: boolean, privacy: boolean, hasAge: boolean) {
+  return [
+    { key: 'user_terms', value: terms },
+    { key: 'user_privacy', value: privacy },
+    { key: 'has_age', value: hasAge },
+  ];
+}
 
 function itemRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -390,7 +427,7 @@ describe('participant_read_handler — ownership disclosure', () => {
     expect(reply.statusCode).toBe(200);
     expect(reply.body).toEqual({
       user_id: null,
-      user_consent: EMPTY_CONSENT,
+      compliance: EMPTY_COMPLIANCE,
       items: [],
     });
     expect(queries).toHaveLength(1); // no items / consent reads at all
@@ -414,7 +451,7 @@ describe('participant_read_handler — ownership disclosure', () => {
     expect(reply.statusCode).toBe(200);
     expect(reply.body).toEqual({
       user_id: 'u1',
-      user_consent: EMPTY_CONSENT,
+      compliance: EMPTY_COMPLIANCE,
       items: [],
     });
     // Existence is acknowledged, but nothing beyond the user lookup is read.
@@ -439,10 +476,14 @@ describe('participant_read_handler — ownership disclosure', () => {
     rowQueue.push([
       { id: 'u1', email: 'a@b.com', phoneNumber: null, onboardedByOrgId: 'org_other' },
     ]);
+    rowQueue.push([{ age: 20 }]);
     rowQueue.push([itemRow()]);
     rowQueue.push([{ itemId: 'i1' }]);
-    rowQueue.push([{ category: 'terms' }, { category: 'privacy' }]);
-    rowQueue.push([{ age: 20 }]);
+    rowQueue.push([
+      { category: 'terms', version: 2 },
+      { category: 'privacy', version: 2 },
+    ]);
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
 
     const reply = await call(participant_read_handler, {
       acting_org: NETSVC,
@@ -451,16 +492,12 @@ describe('participant_read_handler — ownership disclosure', () => {
 
     const body = reply.body as {
       user_id: string;
-      user_consent: Record<string, boolean>;
+      compliance: { key: string; value: boolean }[];
       items: { item_id: string; profile_consent_accepted: boolean }[];
     };
     expect(body.user_id).toBe('u1');
     expect(body.items.map((i) => i.item_id)).toEqual(['i1']);
-    expect(body.user_consent).toEqual({
-      terms_accepted: true,
-      privacy_accepted: true,
-      has_age: true,
-    });
+    expect(body.compliance).toEqual(compliance(true, true, true));
   });
 });
 
@@ -471,10 +508,11 @@ describe('participant_read_handler — item + consent projection', () => {
 
   it('merges decrypted private state, drops the raw blob and ISO-formats dates', async () => {
     rowQueue.push(onboarded);
+    rowQueue.push([{ age: null }]);
     rowQueue.push([itemRow()]);
     rowQueue.push([{ itemId: 'i1' }]);
     rowQueue.push([]);
-    rowQueue.push([{ age: null }]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
     const reply = await call(participant_read_handler, {
       acting_org: AGG,
@@ -504,6 +542,7 @@ describe('participant_read_handler — item + consent projection', () => {
 
   it('flags profile_consent_accepted per item from the item-level ledger', async () => {
     rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
     rowQueue.push([
       itemRow({ item_id: 'i1' }),
       itemRow({ item_id: 'i2' }),
@@ -511,7 +550,7 @@ describe('participant_read_handler — item + consent projection', () => {
     ]);
     rowQueue.push([{ itemId: 'i1' }, { itemId: 'i3' }]);
     rowQueue.push([]);
-    rowQueue.push([{ age: 30 }]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
     const reply = await call(participant_read_handler, {
       acting_org: AGG,
@@ -528,11 +567,17 @@ describe('participant_read_handler — item + consent projection', () => {
     ]);
     // The consent lookup is scoped to item-level profile_creation rows for
     // exactly the ids just read.
-    const consentWhere = queries[2].where;
+    const consentWhere = queries[3].where;
     expect(leafFor(consentWhere, 'cr.level')).toEqual({
       op: 'eq',
       a: 'cr.level',
       b: 'item',
+    });
+    // #692: scoped to the CURRENT document version, not any version.
+    expect(leafFor(consentWhere, 'cr.documentVersion')).toEqual({
+      op: 'eq',
+      a: 'cr.documentVersion',
+      b: 1,
     });
     expect(leafFor(consentWhere, 'cr.consentCategory')).toEqual({
       op: 'eq',
@@ -548,9 +593,12 @@ describe('participant_read_handler — item + consent projection', () => {
 
   it('skips the item-consent query entirely when the user has no items', async () => {
     rowQueue.push(onboarded);
-    rowQueue.push([]); // no items
-    rowQueue.push([{ category: 'terms' }]);
+    // age 17 would be a minor, but this caller is an aggregator — the U18 gate
+    // is scoped to voice/network_service, so the read proceeds.
     rowQueue.push([{ age: 17 }]);
+    rowQueue.push([]); // no items
+    rowQueue.push([{ category: 'terms', version: 1 }]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
     const reply = await call(participant_read_handler, {
       acting_org: AGG,
@@ -558,54 +606,55 @@ describe('participant_read_handler — item + consent projection', () => {
     });
 
     expect((reply.body as { items: unknown[] }).items).toEqual([]);
-    expect((reply.body as { user_consent: unknown }).user_consent).toEqual({
-      terms_accepted: true,
-      privacy_accepted: false,
-      has_age: true,
-    });
-    // user lookup + items + user-consent + age — the item-consent read is
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, false, true),
+    );
+    // user lookup + age + items + user-consent — the item-consent read is
     // short-circuited for an empty id list.
     expect(queries.map((q) => q.table)).toEqual([
       'user',
+      'user',
       'items',
       'consent_record',
-      'user',
     ]);
   });
 
   it('reports has_age false when the user row is missing entirely', async () => {
     rowQueue.push(onboarded);
-    rowQueue.push([]);
-    rowQueue.push([]);
     rowQueue.push([]); // age lookup returns nothing
+    rowQueue.push([]);
+    rowQueue.push([]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
     const reply = await call(participant_read_handler, {
       acting_org: AGG,
       query: { email: 'a@b.com' },
     });
 
-    expect((reply.body as { user_consent: unknown }).user_consent).toEqual(
-      EMPTY_CONSENT,
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      EMPTY_COMPLIANCE,
     );
   });
 
-  it('ignores non terms/privacy categories and keeps the user-consent read network-agnostic', async () => {
+  it('ignores non terms/privacy categories and scopes the user-consent read to the network', async () => {
     rowQueue.push(onboarded);
-    rowQueue.push([]);
-    rowQueue.push([{ category: 'profile_creation' }, { category: 'privacy' }]);
     rowQueue.push([{ age: 25 }]);
+    rowQueue.push([]);
+    rowQueue.push([
+      { category: 'profile_creation', version: 1 },
+      { category: 'privacy', version: 1 },
+    ]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
     const reply = await call(participant_read_handler, {
       acting_org: AGG,
       query: { email: 'a@b.com' },
     });
 
-    expect((reply.body as { user_consent: unknown }).user_consent).toEqual({
-      terms_accepted: false,
-      privacy_accepted: true,
-      has_age: true,
-    });
-    const userConsentWhere = queries[2].where;
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(false, true, true),
+    );
+    const userConsentWhere = queries[3].where;
     expect(leafFor(userConsentWhere, 'cr.level')).toEqual({
       op: 'eq',
       a: 'cr.level',
@@ -616,7 +665,14 @@ describe('participant_read_handler — item + consent projection', () => {
       a: 'cr.userId',
       b: 'u1',
     });
-    expect(leaves(userConsentWhere).map((c) => c.a)).not.toContain('cr.network');
+    // #692 deliberately REVERSES the old network-agnostic behaviour: the
+    // comparison is against this network's document, so a row accepted on
+    // another network must not satisfy it.
+    expect(leafFor(userConsentWhere, 'cr.network')).toEqual({
+      op: 'eq',
+      a: 'cr.network',
+      b: 'blue_dot',
+    });
   });
 
   it('scopes the item read to the creator and the served networks', async () => {
@@ -626,16 +682,19 @@ describe('participant_read_handler — item + consent projection', () => {
       { network: 'yellow_dot', domain: 'student' },
     ];
     rowQueue.push(onboarded);
-    rowQueue.push([]);
-    rowQueue.push([]);
     rowQueue.push([{ age: 25 }]);
+    rowQueue.push([]);
+    rowQueue.push([]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
+    // Two networks are served, so the compliance comparison needs to be told
+    // which one; the item scope itself still spans both.
     await call(participant_read_handler, {
       acting_org: AGG,
-      query: { email: 'a@b.com' },
+      query: { email: 'a@b.com', network: 'blue_dot' },
     });
 
-    const itemsWhere = queries[1].where;
+    const itemsWhere = queries[2].where;
     expect(leafFor(itemsWhere, 'items.created_by')).toEqual({
       op: 'eq',
       a: 'items.created_by',
@@ -652,19 +711,245 @@ describe('participant_read_handler — item + consent projection', () => {
   it('drops the network filter when no domains are served', async () => {
     configState.served_domains = [];
     rowQueue.push(onboarded);
-    rowQueue.push([]);
-    rowQueue.push([]);
     rowQueue.push([{ age: 25 }]);
+    rowQueue.push([]);
+    rowQueue.push([]);
+    consentVersionState.current = { terms: 1, privacy: 1, profile_creation: 1 };
 
+    // No served bindings means no network can be inferred for the version
+    // comparison, so the caller has to name one.
     await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com', network: 'blue_dot' },
+    });
+
+    expect(queries[2].where).toEqual({
+      op: 'eq',
+      a: 'items.created_by',
+      b: 'u1',
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // #692 — the flags are version-scoped, and the U18 gate
+  // ---------------------------------------------------------------------------
+
+  /** Queue a disclose-path read: user, age, items, item-consent, user-consent. */
+  function queueRead(opts: {
+    age?: number | null;
+    userConsentRows?: { category: string; version: number }[];
+  }) {
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: opts.age ?? 30 }]);
+    rowQueue.push([]); // no items — item-consent read is short-circuited
+    rowQueue.push(opts.userConsentRows ?? []);
+  }
+
+  it('reports false when the only accepted version is superseded', async () => {
+    // The prod case this whole change exists for: users migrated from the old
+    // portal carry version 1 while the live document is version 2. They used to
+    // read as consented forever, so the voice channel never re-prompted them.
+    queueRead({
+      userConsentRows: [
+        { category: 'terms', version: 1 },
+        { category: 'privacy', version: 1 },
+      ],
+    });
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
       acting_org: AGG,
       query: { email: 'a@b.com' },
     });
 
-    expect(queries[1].where).toEqual({
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(false, false, true),
+    );
+  });
+
+  it('reports true once the current version is accepted, with the old row still present', async () => {
+    // The ledger is append-only, so re-accepting adds a row rather than
+    // replacing one — both versions are present and the current one decides.
+    queueRead({
+      userConsentRows: [
+        { category: 'terms', version: 1 },
+        { category: 'terms', version: 2 },
+        { category: 'privacy', version: 1 },
+        { category: 'privacy', version: 2 },
+      ],
+    });
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, true, true),
+    );
+  });
+
+  it('scopes each category independently', async () => {
+    queueRead({
+      userConsentRows: [
+        { category: 'terms', version: 2 },
+        { category: 'privacy', version: 1 },
+      ],
+    });
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, false, true),
+    );
+  });
+
+  it('reports false for an unconfigured category', async () => {
+    // `resolveConsentVersion` answers null when the category has no document.
+    // Nothing can have been accepted against a document that does not exist, so
+    // the caller is sent to a consent flow rather than proceeding on a claim
+    // that cannot be checked. A stated decision, not a fallthrough.
+    queueRead({ userConsentRows: [{ category: 'terms', version: 1 }] });
+    consentVersionState.current = { terms: null, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(false, false, true),
+    );
+  });
+
+  it('an item consented at a superseded version drops out of the item flag', async () => {
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+    rowQueue.push([itemRow({ item_id: 'i1' })]);
+    rowQueue.push([]); // no row AT the current version
+    rowQueue.push([]);
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    const items = (reply.body as {
+      items: { profile_consent_accepted: boolean }[];
+    }).items;
+    expect(items[0].profile_consent_accepted).toBe(false);
+  });
+
+  it('rejects a minor for a voice caller with U18_NOT_ALLOWED', async () => {
+    rowQueue.push([
+      { id: 'u1', email: 'a@b.com', phoneNumber: null, onboardedByOrgId: 'org_x' },
+    ]);
+    rowQueue.push([{ age: 15 }]);
+
+    const reply = await call(participant_read_handler, {
+      acting_org: { org_id: 'org_voice', org_type: 'voice', service_user_id: 's' },
+      query: { email: 'a@b.com' },
+    });
+
+    expect(reply.statusCode).toBe(400);
+    expect((reply.body as { error: string }).error).toBe('U18_NOT_ALLOWED');
+    // Nothing beyond the user + age lookups is read.
+    expect(queries.map((q) => q.table)).toEqual(['user', 'user']);
+  });
+
+  it('rejects a minor for network_service too', async () => {
+    rowQueue.push([
+      { id: 'u1', email: 'a@b.com', phoneNumber: null, onboardedByOrgId: 'org_x' },
+    ]);
+    rowQueue.push([{ age: 15 }]);
+
+    const reply = await call(participant_read_handler, {
+      acting_org: NETSVC,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(reply.statusCode).toBe(400);
+    expect((reply.body as { error: string }).error).toBe('U18_NOT_ALLOWED');
+  });
+
+  it('does NOT reject a minor for an aggregator caller', async () => {
+    // aggregator-dpg's probeUser is a read-only "resume or start fresh" check
+    // that reads only user_id/items and treats any 400 as a hard failure.
+    // Rejecting it would break registration for an already-onboarded minor.
+    queueRead({ age: 15, userConsentRows: [{ category: 'terms', version: 2 }] });
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(reply.statusCode).toBe(200);
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      compliance(true, false, true),
+    );
+  });
+
+  it('does not reveal minor status to an aggregator that is not entitled to the user', async () => {
+    // The gate sits after the disclose verdict, mirroring the POST's reasoning:
+    // U18_NOT_ALLOWED leaks minor status, so it must never answer a caller who
+    // cannot see this user at all.
+    rowQueue.push([
+      { id: 'u1', email: 'a@b.com', phoneNumber: null, onboardedByOrgId: 'org_other' },
+    ]);
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(reply.statusCode).toBe(200);
+    expect((reply.body as { compliance: unknown }).compliance).toEqual(
+      EMPTY_COMPLIANCE,
+    );
+  });
+
+  it('400s when several networks are served and none is named', async () => {
+    configState.served_domains = [
+      { network: 'blue_dot', domain: 'seeker' },
+      { network: 'yellow_dot', domain: 'student' },
+    ];
+    rowQueue.push(onboarded);
+    rowQueue.push([{ age: 30 }]);
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com' },
+    });
+
+    expect(reply.statusCode).toBe(400);
+    expect((reply.body as { error: string }).error).toBe('NETWORK_REQUIRED');
+  });
+
+  it('an explicit ?network= overrides the served default', async () => {
+    configState.served_domains = [
+      { network: 'blue_dot', domain: 'seeker' },
+      { network: 'yellow_dot', domain: 'student' },
+    ];
+    queueRead({ userConsentRows: [{ category: 'terms', version: 2 }] });
+    consentVersionState.current = { terms: 2, privacy: 2, profile_creation: 2 };
+
+    const reply = await call(participant_read_handler, {
+      acting_org: AGG,
+      query: { email: 'a@b.com', network: 'yellow_dot' },
+    });
+
+    expect(reply.statusCode).toBe(200);
+    expect(leafFor(queries[3].where, 'cr.network')).toEqual({
       op: 'eq',
-      a: 'items.created_by',
-      b: 'u1',
+      a: 'cr.network',
+      b: 'yellow_dot',
     });
   });
 
