@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 1120 600" width="1120" height="600"><defs><marker id="ah-1971c2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#1971c2" stroke-width="1.6"/></marker><marker id="ah-1e1e1e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#1e1e1e" stroke-width="1.6"/></marker><marker id="ah-2f9e44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#2f9e44" stroke-width="1.6"/></marker><marker id="ah-6741d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#6741d9" stroke-width="1.6"/></marker><marker id="ah-868e96" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#868e96" stroke-width="1.6"/></marker><marker id="ah-e03131" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#e03131" stroke-width="1.6"/></marker><marker id="ah-f08c00" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#f08c00" stroke-width="1.6"/></marker></defs><rect width="1120" height="600" fill="#ffffff"/>
+<rect x="30" y="40" width="350" height="232" rx="10" fill="none" stroke="#6741d9" stroke-width="2"/>
+<text x="205.0" y="63.2" fill="#6741d9" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" text-anchor="middle" xml:space="preserve">user</text>
+<line x1="30" y1="74" x2="380" y2="74" stroke="#6741d9" stroke-width="1"/>
+<text x="44" y="94.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">id            text PK</text>
+<text x="372" y="93.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">= UUID = Keycloak sub</text>
+<text x="44" y="114.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">name  email uniq  phone_number uniq</text>
+<text x="372" y="113.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">identity</text>
+<text x="44" y="134.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">email_verified  phone_number_verified</text>
+<text x="44" y="154.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">role  banned  ban_reason  ban_expires</text>
+<text x="372" y="153.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">one global role</text>
+<text x="44" y="174.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">age  location  domains text[]</text>
+<text x="372" y="173.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">participant</text>
+<text x="44" y="194.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">terms_accepted  privacy_accepted</text>
+<text x="44" y="214.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">onboarded_by_org_id  -&gt; organization</text>
+<text x="372" y="213.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">one owner org</text>
+<text x="44" y="234.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">onboarded_by_default  _via  _source_id  _at</text>
+<text x="44" y="254.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">tags jsonb</text>
+<text x="372" y="253.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">ops markers</text>
+<text x="205.0" y="292.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">no org column   no parent   no permissions</text>
+<rect x="420" y="90" width="300" height="128" rx="10" fill="none" stroke="#2f9e44" stroke-width="2"/>
+<text x="570.0" y="113.2" fill="#2f9e44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" text-anchor="middle" xml:space="preserve">member</text>
+<line x1="420" y1="124" x2="720" y2="124" stroke="#2f9e44" stroke-width="1"/>
+<text x="434" y="144.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">id            text PK</text>
+<text x="434" y="161.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">organization_id -&gt; organization</text>
+<text x="434" y="178.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">user_id         -&gt; user</text>
+<text x="434" y="195.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">role   member | service</text>
+<text x="434" y="212.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">team_id  unused</text>
+<text x="570.0" y="238.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">read only as: member of SOME org</text>
+<line x1="418" y1="154" x2="384" y2="154" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah-2f9e44)"/>
+<line x1="722" y1="154" x2="756" y2="154" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah-2f9e44)"/>
+<rect x="760" y="40" width="330" height="168" rx="10" fill="none" stroke="#1971c2" stroke-width="2"/>
+<text x="925.0" y="63.2" fill="#1971c2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="16" text-anchor="middle" xml:space="preserve">organization</text>
+<line x1="760" y1="74" x2="1090" y2="74" stroke="#1971c2" stroke-width="1"/>
+<text x="774" y="94.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">id            text PK</text>
+<text x="774" y="114.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">name  slug uniq  logo</text>
+<text x="774" y="134.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">metadata      text (JSON string)</text>
+<text x="1076" y="133.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">external_id</text>
+<text x="774" y="154.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">type          network_service |</text>
+<text x="774" y="174.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">              aggregator | voice</text>
+<text x="1076" y="173.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">capability</text>
+<text x="774" y="194.4" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">default_for_bindings text[]</text>
+<text x="1076" y="193.5" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="end" xml:space="preserve">PII inherit</text>
+<text x="925.0" y="228.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">flat list   no parent_id   no depth</text>
+<rect x="30" y="320" width="1060" height="245" rx="10" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="560.0" y="346.2" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" text-anchor="middle" xml:space="preserve">domain data   -   references the ids above</text>
+<line x1="60" y1="360" x2="1060" y2="360" stroke="#868e96" stroke-width="1"/>
+<text x="60" y="383.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" text-anchor="start" xml:space="preserve">hard FK</text>
+<text x="60" y="405.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">items.created_by                          -&gt; user.id  ON DELETE RESTRICT</text>
+<text x="60" y="422.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">item_actions.performed_by_service_user_id -&gt; user.id</text>
+<text x="60" y="439.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">item_actions.performed_by_org_id          -&gt; organization.id</text>
+<text x="60" y="456.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">user.onboarded_by_org_id                  -&gt; organization.id</text>
+<text x="60" y="473.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">item_metrics.onboarded_by_org_id          -&gt; organization.id</text>
+<text x="590" y="383.4" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" text-anchor="start" xml:space="preserve">text column, no FK   (target is partitioned)</text>
+<text x="590" y="405.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">items.item_state / item_private_state   the person&#x27;s PII</text>
+<text x="590" y="422.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">item_actions.source_item_owner / target_item_owner</text>
+<text x="590" y="439.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">action_events.source_item_owner / target_item_owner</text>
+<text x="590" y="456.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">item_metrics.owner_user_id</text>
+<text x="590" y="473.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">consent_record.user_id</text>
+<text x="590" y="490.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">minor_guardian.user_id</text>
+<text x="590" y="507.5" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10" text-anchor="start" xml:space="preserve">pii_reveal_audit.viewer_user_id / revealed_item_owner</text>
+<text x="560.0" y="539.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12" text-anchor="middle" xml:space="preserve">user.id is load-bearing across every partition   -   it can never be re-keyed</text>
+</svg>

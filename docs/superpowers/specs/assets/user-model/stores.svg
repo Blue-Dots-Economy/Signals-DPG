@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 1140 510" width="1140" height="510"><defs><marker id="ah-1971c2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#1971c2" stroke-width="1.6"/></marker><marker id="ah-1e1e1e" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#1e1e1e" stroke-width="1.6"/></marker><marker id="ah-2f9e44" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#2f9e44" stroke-width="1.6"/></marker><marker id="ah-868e96" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#868e96" stroke-width="1.6"/></marker><marker id="ah-e03131" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#e03131" stroke-width="1.6"/></marker><marker id="ah-f08c00" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L9,5 L0,9" fill="none" stroke="#f08c00" stroke-width="1.6"/></marker></defs><rect width="1140" height="510" fill="#ffffff"/>
+<rect x="30" y="40" width="350" height="400" rx="10" fill="none" stroke="#f08c00" stroke-width="2"/>
+<text x="205.0" y="64.2" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" text-anchor="middle" xml:space="preserve">Keycloak</text>
+<text x="205.0" y="82.0" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="middle" xml:space="preserve">realm bluedots, shared with aggregator-dpg</text>
+<line x1="44" y1="92" x2="366" y2="92" stroke="#f08c00" stroke-width="1"/>
+<text x="44" y="118.5" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">identity + credentials</text>
+<text x="52" y="138.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">username, email, emailVerified</text>
+<text x="52" y="154.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">attribute phoneNumber, verified</text>
+<text x="52" y="170.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">firstName / lastName</text>
+<text x="52" y="186.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">enabled  =  not banned</text>
+<text x="52" y="202.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">OTP flow (custom authenticator SPI)</text>
+<text x="44" y="222.4" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">coarse authorisation</text>
+<text x="52" y="242.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">realm role signals_participant</text>
+<text x="52" y="258.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">realm role signals_admin</text>
+<text x="52" y="274.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">claim signals_acting_orgs (org grant)</text>
+<text x="44" y="294.4" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">clients</text>
+<text x="52" y="314.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">signals-ui        public, PKCE</text>
+<text x="52" y="330.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">signals-api       confidential</text>
+<text x="52" y="346.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">aggregator-dpg    client credentials</text>
+<text x="44" y="366.4" fill="#f08c00" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">join key</text>
+<text x="52" y="386.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">keycloak user.id == sub == user.id</text>
+<text x="205.0" y="454.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">DORMANT   AUTH_PROVIDER=betterauth is default</text>
+<rect x="400" y="40" width="350" height="350" rx="10" fill="none" stroke="#1971c2" stroke-width="2"/>
+<text x="575.0" y="64.2" fill="#1971c2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" text-anchor="middle" xml:space="preserve">Postgres</text>
+<text x="575.0" y="82.0" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="middle" xml:space="preserve">one dpg database per instance</text>
+<line x1="414" y1="92" x2="736" y2="92" stroke="#1971c2" stroke-width="1"/>
+<text x="414" y="118.5" fill="#1971c2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">authoritative user columns</text>
+<text x="422" y="138.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">age, location, domains text[]</text>
+<text x="422" y="154.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">terms_accepted, privacy_accepted</text>
+<text x="422" y="170.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">onboarded_by_org_id / _default / _via</text>
+<text x="422" y="186.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">onboarded_source_id / _at, tags jsonb</text>
+<text x="414" y="206.4" fill="#1971c2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">authoritative structures</text>
+<text x="422" y="226.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">organization, member  (never in Keycloak)</text>
+<text x="422" y="242.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">apikey  (service auth today)</text>
+<text x="422" y="258.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">account, verification  (better-auth only)</text>
+<text x="414" y="278.4" fill="#1971c2" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">domain data</text>
+<text x="422" y="298.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">items  LIST(item_network) -&gt; LIST(item_domain)</text>
+<text x="422" y="314.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">item_actions, action_events  same shape</text>
+<text x="422" y="330.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">item_search  owned by signals-search</text>
+<text x="422" y="346.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">consent_record, minor_guardian, item_metrics</text>
+<text x="422" y="362.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">pii_reveal_audit, aggregator_default_audit</text>
+<text x="575.0" y="404.4" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">18 tables   -   4 partitioned, 14 Drizzle-owned</text>
+<rect x="770" y="40" width="340" height="318" rx="10" fill="none" stroke="#2f9e44" stroke-width="2"/>
+<text x="940.0" y="64.2" fill="#2f9e44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" text-anchor="middle" xml:space="preserve">Redis</text>
+<text x="940.0" y="82.0" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="middle" xml:space="preserve">no session table exists in Postgres</text>
+<line x1="784" y1="92" x2="1096" y2="92" stroke="#2f9e44" stroke-width="1"/>
+<text x="784" y="118.5" fill="#2f9e44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">session + login</text>
+<text x="792" y="138.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">better-auth session (secondaryStorage)</text>
+<text x="792" y="154.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">otp:phone:&lt;num&gt;  otp:email:&lt;addr&gt;   5 min</text>
+<text x="792" y="170.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">signup_extras:&lt;hash&gt;, signup_guardian:&lt;hash&gt;</text>
+<text x="784" y="190.4" fill="#2f9e44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">U18 guardian</text>
+<text x="792" y="210.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">guardian_otp:code / :rl / :vrl</text>
+<text x="792" y="226.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">guardian_action:&lt;ward&gt;:&lt;action&gt;:&lt;src&gt;:&lt;tgt&gt;</text>
+<text x="792" y="242.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">guardian_action_bulk:&lt;ward&gt;:&lt;network&gt;:&lt;hash&gt;</text>
+<text x="784" y="262.4" fill="#2f9e44" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="start" xml:space="preserve">caches + counters</text>
+<text x="792" y="282.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">local-item-fetch:&lt;filters&gt;   1 s</text>
+<text x="792" y="298.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">geo:place:&lt;query&gt;            geocoding</text>
+<text x="792" y="314.0" fill="#1e1e1e" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="10.5" text-anchor="start" xml:space="preserve">action_pair:&lt;network&gt;:&lt;a&gt;:&lt;b&gt;  per-pair cap</text>
+<text x="940.0" y="372.4" fill="#868e96" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">volatile   -   losing it logs everyone out</text>
+<text x="570.0" y="482.4" fill="#e03131" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="11" text-anchor="middle" xml:space="preserve">PII at rest   items.item_private_state and every minor_guardian PII column: AES-256-GCM under SIGNALS_PII_KEY   -   items.item_state stays plaintext</text>
+</svg>
