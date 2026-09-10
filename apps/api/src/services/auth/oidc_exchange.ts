@@ -83,6 +83,41 @@ export function buildEndSessionUrl(input: {
   return url.toString();
 }
 
+/**
+ * Why Keycloak refused a grant, as `"<error> — <error_description>"`.
+ *
+ * Only the two named OAuth error fields are read, never the whole body: on the
+ * SUCCESS path that body carries the tokens themselves, which is why nothing
+ * here used to be surfaced at all. `error` and `error_description` are
+ * different — they exist to explain a refusal and never contain the code or
+ * the refresh token.
+ *
+ * Without them every failure presents as a bare `token endpoint returned 400`,
+ * which reads identically whether the grant is genuinely spent, the request
+ * reached Keycloak on a host that disagrees with the token's `iss`, or the
+ * client is misconfigured — three faults with three different fixes. Keycloak
+ * names which one it is (e.g. `invalid_grant — Invalid token issuer. Expected
+ * '<host>'`, which also names the host it wanted); throwing that away turns a
+ * one-line diagnosis into an inference problem.
+ *
+ * Returns '' when the body is absent or not the OAuth error shape, so the
+ * caller's message degrades to the status alone rather than failing.
+ */
+async function oauthErrorDetail(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: unknown;
+      error_description?: unknown;
+    };
+    const parts = [body.error, body.error_description].filter(
+      (part): part is string => typeof part === 'string' && part.length > 0
+    );
+    return parts.length > 0 ? `: ${parts.join(' — ')}` : '';
+  } catch {
+    return '';
+  }
+}
+
 async function postToken(body: URLSearchParams): Promise<OidcTokens> {
   const endpoint = `${realmUrl(keycloakConfig.internal_base_url || keycloakConfig.base_url)}/token`;
   const response = await fetch(endpoint, {
@@ -93,11 +128,8 @@ async function postToken(body: URLSearchParams): Promise<OidcTokens> {
   });
 
   if (!response.ok) {
-    // The body can carry the user's code/refresh token, so it is never logged
-    // or surfaced — only the status, which is enough to tell a bad code from a
-    // Keycloak outage.
     throw new OidcExchangeError(
-      `token endpoint returned ${response.status}`,
+      `token endpoint returned ${response.status}${await oauthErrorDetail(response)}`,
       response.status
     );
   }

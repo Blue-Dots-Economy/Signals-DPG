@@ -180,10 +180,11 @@ describe('token requests', () => {
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('reports only the status on failure — never the body', async () => {
-    // The response body echoes the code or refresh token back; putting it in an
-    // Error message would land it in a log, which is the exact class of leak
-    // this change exists to close.
+  it('reports the status and OAuth reason on failure — never the rest of the body', async () => {
+    // The response body can echo the code or refresh token back; putting THAT
+    // in an Error message would land it in a log, which is the exact class of
+    // leak this guards. `error`/`error_description` are the two fields that
+    // exist to explain a refusal, and are read by name for that reason.
     fetchMock.mockResolvedValue({
       ok: false,
       status: 400,
@@ -193,11 +194,50 @@ describe('token requests', () => {
     const err = await refreshTokens('super-secret').catch((e: unknown) => e);
 
     expect(err).toBeInstanceOf(OidcExchangeError);
-    expect((err as Error).message).toBe('token endpoint returned 400');
+    expect((err as Error).message).toBe('token endpoint returned 400: invalid_grant');
     // Asserted on the whole serialised error, not just the message, so a stack
     // or an attached cause cannot smuggle the token through either.
     expect(JSON.stringify({ ...(err as Error), message: (err as Error).message, stack: (err as Error).stack }))
       .not.toContain('super-secret');
+  });
+
+  it('carries error_description, which is what names a host/issuer mismatch', async () => {
+    // Verbatim from Keycloak 26.5.5 when a refresh is posted to a host that
+    // disagrees with the token's `iss` — it names the host it expected, which
+    // is the whole diagnostic value. Without it this is an unattributable
+    // `returned 400`, indistinguishable from a genuinely spent grant.
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: 'invalid_grant',
+        error_description: "Invalid token issuer. Expected 'http://keycloak:8080/realms/bluedots'",
+      }),
+    });
+
+    const err = await refreshTokens('rt').catch((e: unknown) => e);
+
+    expect((err as Error).message).toBe(
+      "token endpoint returned 400: invalid_grant — Invalid token issuer. Expected 'http://keycloak:8080/realms/bluedots'"
+    );
+    expect((err as InstanceType<typeof OidcExchangeError>).isGrantRejected).toBe(true);
+  });
+
+  it('falls back to the bare status when the body is not an OAuth error', async () => {
+    // A 502 from a proxy is HTML, not JSON. Diagnosis must degrade to the
+    // status rather than the parse failure replacing the real error.
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 502,
+      json: async () => {
+        throw new Error('not json');
+      },
+    });
+
+    const err = await refreshTokens('rt').catch((e: unknown) => e);
+
+    expect((err as Error).message).toBe('token endpoint returned 502');
+    expect((err as InstanceType<typeof OidcExchangeError>).isGrantRejected).toBe(false);
   });
 
   it('treats refresh_expires_in: 0 as unspecified, not as already-expired', async () => {

@@ -184,9 +184,21 @@ async function refreshAccessToken(
     });
     // `updateSession` returns null only when the row vanished mid-refresh —
     // a concurrent logout. The freshly minted tokens have nowhere to live.
-    return updated
-      ? { ok: true, accessToken: refreshed.accessToken }
-      : { ok: false, sessionOver: true };
+    if (!updated) {
+      /**
+       * Logged because this branch is otherwise invisible: Keycloak said yes,
+       * the user is signed out anyway, and nothing else here records why. If
+       * sessions are dying at their first refresh while Keycloak's SSO session
+       * stays healthy, this line and the `rejected` one below are what tell
+       * "the grant was refused" apart from "the grant was fine and the store
+       * lost it" — two faults that look identical from the browser.
+       */
+      request.log.warn(
+        'Browser session refresh succeeded but its session row was gone; ending session'
+      );
+      return { ok: false, sessionOver: true };
+    }
+    return { ok: true, accessToken: refreshed.accessToken };
   } catch (err) {
     const rejected = err instanceof OidcExchangeError && err.isGrantRejected;
 
