@@ -72,9 +72,23 @@ differ from the network defaults.
 | `blue_dot` | `up-gzb` | `public/brand/blue-dot/up-gzb/` |
 | `blue_dot` | `ka-dhwd` | `public/brand/blue-dot/ka-dhwd/` |
 | `orange_dot` | `onetac` | `public/brand/orange-dot/onetac/` |
+| `purple_dot` | `alimco` | `public/brand/purple-dot/alimco/` |
 
 The base `blue_dot` / `orange_dot` folders are the standard (brand-agnostic)
 defaults for each network.
+
+`alimco` is the ALIMCO rollout on `purple_dot`. Every variant is currently a
+byte-identical copy of the base `purple-dot/` artwork — a placeholder until the
+real ALIMCO marks are supplied, at which point files are replaced in place. The
+copies are strictly redundant (`brandLogoUrl` already falls back to the network
+path when a brand asset is absent); they exist so the folder is self-contained
+and each variant can be swapped one at a time as artwork arrives.
+
+alimco has **no `brand.json` under `examples/schemas/`**, so it deliberately
+carries no `__BRAND_REGISTRY__` entry and no
+`[data-network=purple_dot][data-brand=alimco]` CSS block: it inherits
+purple_dot's palette, `faviconType`, `logoShape` and copy. Add one there if
+alimco ever needs its own colours, favicon or title.
 
 `up-gzb` and `ka-dhwd` carry the **refreshed Blue Dots lockup** (uppercase
 wordmark, solid dot, "Seeded by EkStep") supplied for the Ghaziabad and Dharwad
