@@ -203,7 +203,13 @@ services:
     ports:
       - "${MAILPIT_UI_PORT:-8025}:8025"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8025 || exit 1"]
+      # NOT /dev/tcp: that is a bash builtin, and this image ships sh without
+      # bash, so CMD-SHELL could never satisfy it and the container reported
+      # unhealthy forever. Nothing in normal dev use waits on health, so it
+      # went unnoticed until `docker compose up --wait`, which refuses to
+      # return. wget is present in the image and /readyz is mailpit's own
+      # readiness endpoint.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/readyz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
