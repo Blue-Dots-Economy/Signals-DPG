@@ -52,8 +52,23 @@ context and the reactor needs the QueryClient:
 2. **`contexts/auth-context.tsx`** — subscribes and does the terminal work:
    clear the CSRF token, `setUser(null)` (which is what actually stops polling,
    since every polled query carries `enabled: isAuthenticated`), cancel and drop
-   the query cache, toast, and navigate to
-   `/auth/login?reason=expired&redirect=…`.
+   the query cache, then navigate to `/auth/login?reason=expired&redirect=…`.
+
+**How the user is told differs by path, and a toast is only half of it.** The
+redirect above is a `window.location` assignment, so a toast fired alongside it
+can never render — sonner and i18next are loaded by dynamic `import()`, which
+resolves a microtask after the document has already started tearing down. So the
+toast fires **only** when the handler stays on the page (already under
+`/auth/*`); on the redirect path the explanation is carried by `?reason=expired`
+and rendered on arrival by `pages/auth/session-expired-notice.tsx`.
+
+That notice must be rendered by **both** sign-in screens. `LoginPage` returns
+either `KeycloakLoginPanel` or the OTP page, each owning its own `AuthShell`, so
+anything placed in one is invisible under the other provider — which is how the
+notice shipped invisible on every Keycloak deployment, the same trap the
+`auth_error` toast fell into first. It lives in its own module (not exported
+from `login-page.tsx`, which imports the Keycloak panel) to keep that import
+acyclic.
 
 **Why this is still needed after the BFF.** Renewal moved server-side, so the
 old "renewed token never copied into storage" fault is gone — but nothing

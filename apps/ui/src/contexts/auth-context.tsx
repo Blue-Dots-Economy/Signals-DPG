@@ -257,16 +257,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void queryClient.cancelQueries();
         queryClient.removeQueries();
         clearSchemaCache();
-        void Promise.all([import('sonner'), import('i18next')]).then(
-          ([{ toast }, i18next]) =>
-            toast.error(i18next.default.t('auth.session_expired_title'), {
-              description: i18next.default.t('auth.session_expired_desc'),
-            }),
-        );
         const path = window.location.pathname;
         // Already on the login flow: clearing state is enough, and navigating
         // would discard a half-entered login.
-        if (path.startsWith('/auth/')) return;
+        if (path.startsWith('/auth/')) {
+          // The toast belongs to THIS branch only. On the redirect path below
+          // it can never be seen: the imports resolve on a later microtask
+          // while `window.location.href` is assigned synchronously, so the
+          // document is already being torn down before `toast.error` runs.
+          // What tells the user there is `?reason=expired`, rendered by
+          // `SessionExpiredNotice` on the sign-in screen they land on.
+          void Promise.all([import('sonner'), import('i18next')]).then(
+            ([{ toast }, i18next]) =>
+              toast.error(i18next.default.t('auth.session_expired_title'), {
+                description: i18next.default.t('auth.session_expired_desc'),
+              }),
+          );
+          return;
+        }
         // `redirect` is the param LoginPage already reads (`login-page.tsx`),
         // so the user lands back where they were after signing in.
         const ret = encodeURIComponent(window.location.pathname + window.location.search);

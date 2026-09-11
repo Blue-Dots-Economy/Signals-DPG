@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth, resolveKeycloakUser, HOLD } from './auth-context';
 
@@ -330,9 +330,20 @@ describe('AuthProvider — session expired', () => {
     expect(clearSchemaCache).toHaveBeenCalled();
   });
 
-  it('tells the user why, rather than silently bouncing them', async () => {
-    await mountAndExpire();
-    expect(toastError).toHaveBeenCalled();
+  // Telling the user why is split by path, because a toast cannot survive a
+  // full-page navigation: the sonner/i18next dynamic imports resolve on a later
+  // microtask while `window.location.href` is assigned synchronously.
+  it('carries the reason in the URL instead of a toast that cannot be seen', async () => {
+    await mountAndExpire('/my-actions', '?profile=abc');
+    expect(href).toContain('reason=expired');
+    // Firing one here would be dead code that reads like user-facing feedback.
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('toasts when it stays on the page, where a toast can actually render', async () => {
+    await mountAndExpire('/auth/login', '');
+    expect(href).toBe('');
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
   });
 
   it('redirects to login carrying the reason and where to return', async () => {

@@ -1288,21 +1288,41 @@ describe('guardian capture identifier normalisation', () => {
 // Forced sign-out needs a reason on screen. `auth-context` redirects here with
 // `reason=expired` when a session ends mid-use; without this the user sees a
 // bare login form and no explanation for losing their place.
-describe('LoginPage — session-expired notice', () => {
+//
+// Run against BOTH screens. The first version of this notice lived inside the
+// OTP page, which never mounts under Keycloak — so it was invisible on exactly
+// the deployments that redirect with `reason=expired`, and the tests below
+// passed the whole time because they only ever rendered the OTP screen. Pinning
+// both providers is what makes that regression impossible to reintroduce.
+describe.each([
+  ['keycloak', true],
+  ['betterauth', false],
+] as const)('LoginPage — session-expired notice (%s screen)', (_name, enabled) => {
+  beforeEach(() => {
+    keycloakEnabled = enabled;
+  });
+
+  /** Wait for the panel itself, so "nothing rendered" can't pass as "no notice". */
+  const waitForPanel = async () => {
+    if (enabled) await screen.findByRole('button', { name: /continue/i });
+    else await waitFor(() => expect(document.querySelector('input')).not.toBeNull());
+  };
+
   it('explains why the user is here when reason=expired', async () => {
     renderAt(<LoginPage />, '/auth/login?reason=expired');
+    await waitForPanel();
     expect(await screen.findByRole('status')).toBeTruthy();
   });
 
   it('shows nothing when the user came to log in normally', async () => {
     renderAt(<LoginPage />, '/auth/login');
-    await screen.findByRole('button', { name: /^continue$/i });
+    await waitForPanel();
     expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('shows nothing for an unrecognised reason', async () => {
     renderAt(<LoginPage />, '/auth/login?reason=something-else');
-    await screen.findByRole('button', { name: /^continue$/i });
+    await waitForPanel();
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
