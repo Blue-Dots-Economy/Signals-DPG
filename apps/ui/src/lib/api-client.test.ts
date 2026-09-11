@@ -15,7 +15,15 @@ vi.mock('axios', () => ({
   },
 }));
 vi.mock('./api-config', () => ({ apiConfig: { getUrl: () => 'http://api.test' } }));
-vi.mock('./auth-token', () => ({ getAuthToken: () => 'tok' }));
+/**
+ * `getCsrfToken` is the non-React signal for "this browser holds a session".
+ * The interceptor gates on it, so it has to be controllable here.
+ */
+let csrfToken: string | null = 'the-csrf-token';
+vi.mock('./bff-session', () => ({
+  getCsrfToken: () => csrfToken,
+  fetchBffSession: vi.fn(async () => ({ authenticated: true })),
+}));
 
 const emitSessionExpired = vi.fn();
 vi.mock('./auth-events', () => ({ emitSessionExpired: () => emitSessionExpired() }));
@@ -35,6 +43,7 @@ const reject = async (error: unknown) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  csrfToken = 'the-csrf-token';
 });
 
 describe('api-client — response interceptor', () => {
@@ -62,6 +71,35 @@ describe('api-client — response interceptor', () => {
     await reject({ response: { status: 401, data: { error: 'UNAUTHORIZED' } } });
     await reject({ response: { status: 401, data: {} } });
     await reject({ response: { status: 401 } });
+    expect(emitSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it('signals expiry on a 401 UNAUTHORIZED when we hold a session', async () => {
+    // What a dead cookie session actually returns. The old codes never appear
+    // on the BFF path, so without this the interceptor would never fire for the
+    // very case it exists to catch.
+    await reject({ response: { status: 401, data: { code: 'UNAUTHORIZED' } } });
+    expect(emitSessionExpired).toHaveBeenCalled();
+  });
+
+  it('does NOT sign out an anonymous caller getting the same UNAUTHORIZED', async () => {
+    /**
+     * A visitor who was never signed in gets the identical code from any
+     * authenticated route. Telling them their session expired would be wrong —
+     * and worse, `emitSessionExpired` is latched to fire once per page, so
+     * spending it here would swallow a REAL expiry later in the same page.
+     * Hence the gate lives in the interceptor, not in the handler.
+     */
+    csrfToken = null;
+
+    await reject({ response: { status: 401, data: { code: 'UNAUTHORIZED' } } });
+    expect(emitSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it('leaves a 503 alone — an outage is not a logout', async () => {
+    // The API answers a Keycloak/Redis outage with 503 on purpose so it does
+    // not read as "your session died" (see bff-session's `unknown`).
+    await reject({ response: { status: 503, data: { code: 'IDENTITY_PROVIDER_UNAVAILABLE' } } });
     expect(emitSessionExpired).not.toHaveBeenCalled();
   });
 

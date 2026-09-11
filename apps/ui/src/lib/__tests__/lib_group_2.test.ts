@@ -339,7 +339,7 @@ interface StubInstance {
   post: PostMock;
   interceptors: { request: { use: (fn: RequestInterceptor) => void } };
 }
-type RequestInterceptor = (config: { headers: Record<string, string> }) => {
+type RequestInterceptor = (config: { method?: string; headers: Record<string, string> }) => {
   headers: Record<string, string>;
 };
 
@@ -350,10 +350,14 @@ async function loadActionApi() {
   const instancePost = makePost();
   const created: Array<{ baseURL?: string; withCredentials?: boolean }> = [];
   const interceptors: RequestInterceptor[] = [];
+  // The per-instance client reads the CSRF token from the BFF session module,
+  // which holds it in memory rather than in storage; this stands in for it.
+  let csrf: string | null = null;
 
   vi.doMock('../api-client', () => ({
     createApiClient: () => ({ get, post }),
   }));
+  vi.doMock('../bff-session', () => ({ getCsrfToken: () => csrf }));
   vi.doMock('axios', async () => {
     const actual = await vi.importActual<typeof import('axios')>('axios');
     return {
@@ -374,7 +378,17 @@ async function loadActionApi() {
   });
 
   const mod = await import('../action-api');
-  return { mod, get, post, instancePost, created, interceptors };
+  return {
+    mod,
+    get,
+    post,
+    instancePost,
+    created,
+    interceptors,
+    setCsrf: (value: string | null) => {
+      csrf = value;
+    },
+  };
 }
 
 function envelope<T extends object>(entry: T) {
@@ -495,23 +509,20 @@ describe('action-api — performAction', () => {
     expect('guardian_otp' in PERFORM_PAYLOAD).toBe(false);
   });
 
-  it('builds a per-source-instance client (with the bearer interceptor) when sourceInstanceUrl is given', async () => {
-    const { mod, post, instancePost, created, interceptors } = await loadActionApi();
-    instancePost.mockResolvedValue(envelope({ action_id: 'a1' }));
-    localStorage.setItem('auth_token', 'tok-abc');
+  it('sends the action to the SAME ORIGIN even when a source instance URL is given', async () => {
+    const { mod, post, instancePost, created } = await loadActionApi();
+    post.mockResolvedValue(envelope({ action_id: 'a1' }));
 
     await mod.performAction(PERFORM_PAYLOAD, 'https://source.example');
 
-    expect(created[0]?.baseURL).toBe('https://source.example');
-    expect(created[0]?.withCredentials).toBe(true);
-    expect(instancePost.mock.calls[0][0]).toBe('/api/v1/action/perform');
-    expect(post).not.toHaveBeenCalled();
-
-    const withToken = interceptors[0]({ headers: {} });
-    expect(withToken.headers.Authorization).toBe('Bearer tok-abc');
-
-    localStorage.removeItem('auth_token');
-    expect(interceptors[0]({ headers: {} }).headers.Authorization).toBeUndefined();
+    // The session is a cookie, so it is scoped to the origin that set it — a
+    // request to any other host carries no session and 401s. The API also
+    // requires the source item to be LOCAL, and one instance serves every
+    // domain of its network, so same-origin is the correct target anyway.
+    expect(created).toHaveLength(0);
+    expect(instancePost).not.toHaveBeenCalled();
+    expect(post.mock.calls[0][0]).toBe('/api/v1/action/perform');
+    expect(post.mock.calls[0][1]).toEqual(PERFORM_PAYLOAD);
   });
 
   it('throws a BulkSingleError carrying the per-item code when the single item fails (422)', async () => {
@@ -602,12 +613,13 @@ describe('action-api — updateActionStatus and the bulk variants', () => {
   });
 
   it('performActionsBulk stamps ONE guardian OTP onto every payload in the batch (#393)', async () => {
-    const { mod, instancePost } = await loadActionApi();
-    instancePost.mockResolvedValue({ status: 200, data: { results: [], summary: { total: 0, succeeded: 0, failed: 0 } } });
+    // Same-origin client even with a source instance URL — see performAction above.
+    const { mod, post } = await loadActionApi();
+    post.mockResolvedValue({ status: 200, data: { results: [], summary: { total: 0, succeeded: 0, failed: 0 } } });
 
     await mod.performActionsBulk([PERFORM_PAYLOAD, PERFORM_PAYLOAD], 'https://source.example', '424242');
 
-    expect(instancePost.mock.calls[0][1]).toEqual([
+    expect(post.mock.calls[0][1]).toEqual([
       { ...PERFORM_PAYLOAD, guardian_otp: '424242' },
       { ...PERFORM_PAYLOAD, guardian_otp: '424242' },
     ]);

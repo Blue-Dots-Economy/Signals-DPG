@@ -24,6 +24,13 @@ vi.mock('@/config', () => ({
     bulk_max_items: 100,
     schema_registry_url: '',
   },
+  // The proxy now signs its outbound peer call (AUTH-VULN-05), so the mocked
+  // config must carry the signing material or buildPeerHeaders throws.
+  peerConfig: {
+    shared_secret: 'c'.repeat(48),
+    auth_mode: 'permissive',
+    token_window_seconds: 300,
+  },
   authConfig: {
     secret: 'test-secret',
     middleware_enabled: false,
@@ -88,7 +95,7 @@ vi.mock('@api/db/postgres/drizzle_config', () => {
 });
 
 // --- mock fetch() so the proxy hop returns a deterministic response ---
-const fetchCalls: Array<{ url: string; body: any }> = [];
+const fetchCalls: Array<{ url: string; body: any; headers: Record<string, string> }> = [];
 const fetchResponse: { status: number; body: Record<string, unknown> } = {
   status: 201,
   body: {
@@ -106,6 +113,7 @@ vi.stubGlobal(
     fetchCalls.push({
       url: String(url),
       body: JSON.parse(init.body as string),
+      headers: (init.headers ?? {}) as Record<string, string>,
     });
     return new Response(JSON.stringify(fetchResponse.body), {
       status: fetchResponse.status,
@@ -375,6 +383,29 @@ describe('POST /api/v1/action/perform — on-behalf-of (bulk)', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json().results[0]).toMatchObject({ status: 'error', error: 'NOT_AUTHORIZED_FOR_TARGET' });
     expect(fetchCalls).toHaveLength(0);
+  });
+
+  it('SIGNS the outbound peer call — the receiving instance rejects it unsigned', async () => {
+    // AUTH-VULN-05: /network/action/perform is peer-guarded and does not honour
+    // PEER_AUTH_MODE=permissive, so an unsigned proxy call 401s at the peer —
+    // including on a single instance, which calls this route over HTTP to
+    // itself. Deleting buildPeerHeaders from the proxy fails here.
+    const app = buildApp(undefined, { id: 'usr_agg_owned' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/perform/bulk',
+      payload: [VALID_BODY],
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].headers).toMatchObject({
+      'content-type': 'application/json',
+      'x-instance-token': expect.any(String),
+      'x-instance-timestamp': expect.any(String),
+    });
+    // The token is over the exact bytes sent, so it must be a sha256 hex digest.
+    expect(fetchCalls[0].headers['x-instance-token']).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('aggregator happy path: 201, forwards acting_as_user_id as source_item_owner + populates audit', async () => {
@@ -847,7 +878,11 @@ describe('POST /api/v1/action/perform — on-behalf-of (bulk)', () => {
       vi.stubGlobal(
         'fetch',
         vi.fn(async (url: string | URL, init: RequestInit) => {
-          fetchCalls.push({ url: String(url), body: JSON.parse(init.body as string) });
+          fetchCalls.push({
+            url: String(url),
+            body: JSON.parse(init.body as string),
+            headers: (init.headers ?? {}) as Record<string, string>,
+          });
           return {
             ok: true,
             json: async () => { throw new SyntaxError('Unexpected token <'); },

@@ -25,7 +25,18 @@ export interface JitterableCoord {
 /** Metres per degree of latitude (constant); longitude scales by cos(lat). */
 const METERS_PER_DEGREE = 111_320;
 
-/** mulberry32 PRNG — deterministic uniform [0, 1) sequence from a 32-bit seed. */
+/**
+ * mulberry32 PRNG — deterministic uniform [0, 1) sequence from a 32-bit seed.
+ *
+ * The `| 0` and `>>> 0` below are the algorithm, not a truncation shortcut: they
+ * force 32-bit wraparound, which is what makes the sequence match every other
+ * mulberry32 implementation. `Math.trunc` drops the fraction WITHOUT wrapping,
+ * so swapping it in changes the output stream — and this PRNG seeds the PII
+ * location jitter, where a stable mapping is the whole point (`jitterCoordinate`
+ * must send the same true coordinate to the same pin every time, or re-saving a
+ * profile visibly moves it on the map). A static analyser that flags `| 0` here
+ * as "prefer Math.trunc" is pattern-matching the idiom without the semantics.
+ */
 function mulberry32(seed: number): () => number {
   let s = seed >>> 0;
   return () => {

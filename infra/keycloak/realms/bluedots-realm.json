@@ -101,7 +101,7 @@
     {
       "clientId": "signals-ui",
       "name": "Signals UI",
-      "description": "Public OIDC client for the signals React UI — Authorization Code + PKCE, no client secret. Redirect URIs cover the Vite dev server (5173) and the containerised local-setup UI.",
+      "description": "Public OIDC client for the signals React UI — Authorization Code + PKCE. The code exchange runs on the signals API, not the browser, so the redirect URIs cover the API origin too. Keycloak caps this field at 255 chars.",
       "enabled": true,
       "publicClient": true,
       "directAccessGrantsEnabled": false,
@@ -110,17 +110,21 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://localhost:5173/*",
+        "http://localhost:3000/*",
         "http://localhost:2742/*",
-        "__PUBLIC_BASE_URL__/*"
+        "__PUBLIC_BASE_URL__/*",
+        "__API_BASE_URL__/api/v1/auth/session/callback"
       ],
       "webOrigins": [
         "http://localhost:5173",
+        "http://localhost:3000",
         "http://localhost:2742",
-        "__PUBLIC_BASE_URL__"
+        "__PUBLIC_BASE_URL__",
+        "__API_BASE_URL__"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/##http://localhost:5173/auth/login##__PUBLIC_BASE_URL__/##__PUBLIC_BASE_URL__/auth/login"
+        "post.logout.redirect.uris": "http://localhost:5173/##http://localhost:5173/auth/login##http://localhost:3000/##http://localhost:3000/auth/login##http://localhost:2742/##http://localhost:2742/auth/login##__PUBLIC_BASE_URL__/##__PUBLIC_BASE_URL__/auth/login##__API_BASE_URL__/##__API_BASE_URL__/auth/login"
       },
       "protocolMappers": [
         {

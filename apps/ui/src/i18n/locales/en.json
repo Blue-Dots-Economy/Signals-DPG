@@ -93,6 +93,9 @@
   "auth.signup_existing_title": "You already have an account",
   "auth.signup_existing_desc": "Signing you in instead.",
   "auth.oidc_retry": "Back to sign in",
+  "auth.switch_account": "Sign out and switch account",
+  "auth.non_participant_no_signals": "You're already signed in with a different account that can't be used here. Sign out, then sign in with the account for this site.",
+  "auth.aggregator_account_no_signals": "You're signed in with your aggregator portal account. That account can't be used here. Sign out, then sign in with the account for this site.",
   "actions.pair_open_disabled": "A request is already open with this profile.",
   "actions.my_actions_title": "My Actions",
   "actions.my_actions_subtitle": "Manage requests you've initiated and the ones you've received.",
@@ -697,6 +700,11 @@
   "browse.location_measured_from": "Measured from",
   "browse.location_from_profile": "My profile",
   "browse.location_from_browser": "Current location",
+  "browse.location_map_centre": "Centre the map on",
+  "browse.location_profile_hint": "Where your active profile is",
+  "browse.location_browser_hint": "Where your device is now",
+  "browse.location_profile_unavailable": "Your profile has no location",
+  "browse.location_browser_unavailable": "Your browser cannot provide a location",
   "browse.location_used_by": "Used by {{consumers}}.",
   "browse.location_used_by_distance": "the distance above",
   "browse.location_used_by_nearest": "“Nearest”",
@@ -733,8 +741,9 @@
   "match.explain_set_heading": "Also narrowing these results",
   "map.unavailable_title": "The map couldn't be loaded",
   "map.unavailable_body": "Switch to list view to keep browsing. If this persists, the map service may be misconfigured for this site.",
-  "auth": {
-    "session_expired_title": "Session expired",
-    "session_expired_desc": "Your session has ended. Please sign in again to continue."
-  }
+  "auth.toast_signout_incomplete_title": "Sign-out may not be complete",
+  "auth.toast_signout_incomplete_desc": "We could not reach the server. Close this browser to be sure you are signed out.",
+  "auth.oidc_error_cancelled": "The sign-in was cancelled or timed out. Please try again.",
+  "auth.session_expired_title": "Session expired",
+  "auth.session_expired_desc": "Your session has ended. Please sign in again to continue."
 }

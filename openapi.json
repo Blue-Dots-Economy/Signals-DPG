@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Signals DPG API",
-    "description": "Network-aware Signals DPG API — items, actions, events, consent, network fetch, admin.\n\nUnless marked otherwise, operations require authentication via either the `apiKeyAuth` or `sessionAuth` scheme (the spec default). Public operations carry no Authorizations section; the two inter-instance `*_local` operations use the service-to-service `peerAuth` scheme instead. Admin and aggregator operations additionally require the `x-acting-org-id` header (optional on action operations). See `docs/operations/integrating-dpgs.md` for the full auth model.",
+    "description": "Network-aware Signals DPG API — items, actions, events, consent, network fetch, admin.\n\nUnless marked otherwise, operations require authentication via either the `apiKeyAuth` or `sessionAuth` scheme (the spec default). Public operations carry no Authorizations section; the four inter-instance peer operations (the three `*_local` reads and `action/perform`) use the service-to-service `peerAuth` scheme instead. Admin and aggregator operations additionally require the `x-acting-org-id` header (optional on action operations). See `docs/operations/integrating-dpgs.md` for the full auth model.",
     "version": "1.0.0"
   },
   "components": {
@@ -16,8 +16,14 @@
       "sessionAuth": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "better-auth.session_token",
-        "description": "Browser session cookie issued by better-auth after sign-in, used by the web UI (apps/api/plugins/auth/auth_middleware.ts). Checked as a fallback only when x-api-key is absent."
+        "name": "sid",
+        "description": "Opaque browser-session cookie issued by the BFF after sign-in, used by the web UI (apps/api/plugins/auth/resolve_browser_session.ts). httpOnly, so script cannot read it; the access and refresh tokens live server-side in Redis and never reach the browser. Checked when x-api-key is absent, before the bearer path. Under AUTH_PROVIDER=betterauth this channel is dormant and the session cookie is better-auth's own `better-auth.session_token` instead. **Every unsafe method (anything but GET/HEAD/OPTIONS) additionally requires the `x-csrf-token` header echoing the value from `GET /api/v1/auth/session`; without it the request is refused with 403 CSRF_TOKEN_INVALID.**"
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-csrf-token",
+        "description": "Per-session CSRF token for the cookie channel, read from `GET /api/v1/auth/session` and echoed on every state-changing request. A cookie is attached by the browser automatically, so this double-submit token is what a cross-site page cannot supply — it can cause the cookie to be sent but cannot read the response that carries this value. Not required on GET/HEAD/OPTIONS, and not used by the x-api-key or bearer channels."
       },
       "peerAuth": {
         "type": "apiKey",
@@ -5568,7 +5574,11 @@
             }
           }
         },
-        "security": [],
+        "security": [
+          {
+            "peerAuth": []
+          }
+        ],
         "responses": {
           "201": {
             "description": "Default Response",
@@ -8092,6 +8102,261 @@
         }
       }
     },
+    "/api/v1/auth/session/login": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "returnTo",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "consentAttempt",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "appOrigin",
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect (Location header).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ],
+                  "description": "Redirect (Location header)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/session/callback": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "code",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "state",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "error",
+            "required": false
+          }
+        ],
+        "security": [],
+        "responses": {
+          "302": {
+            "description": "Redirect (Location header).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ],
+                  "description": "Redirect (Location header)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticated": {
+                      "type": "boolean"
+                    },
+                    "csrfToken": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "authenticated"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/session/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "endSessionUrl": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "endSessionUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/signup": {
       "post": {
         "tags": [
@@ -8577,7 +8842,8 @@
       "apiKeyAuth": []
     },
     {
-      "sessionAuth": []
+      "sessionAuth": [],
+      "csrfToken": []
     }
   ],
   "tags": [

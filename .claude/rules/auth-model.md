@@ -10,10 +10,18 @@ paths:
 
 # Auth model
 
-Two distinct auth paths, both through `apps/api/plugins/auth/auth_middleware.ts`:
+Four auth channels, all through `apps/api/plugins/auth/auth_middleware.ts`, tried in this order:
 
-1. **Apikey path** — `x-api-key` is checked first. If present and invalid, returns `403 INVALID_API_KEY` immediately (no fallback). Used by integrating DPGs (aggregator-dpg, voice-dpg).
-2. **Session path** — used by the UI when `x-api-key` is absent.
+1. **Apikey** — `x-api-key` is checked first. If present and invalid, returns `403 INVALID_API_KEY` immediately (no fallback). Used by integrating DPGs (aggregator-dpg, voice-dpg).
+2. **Browser session cookie** (`plugins/auth/resolve_browser_session.ts`) — an opaque, httpOnly `sid` cookie. This is the only channel a browser has: the access and refresh tokens live in Redis and are refreshed server-side, so nothing readable by script is a credential (AUTH-VULN-03/04). Dormant unless `keycloak_enabled`.
+3. **Service bearer** — `Authorization: Bearer <keycloak jwt>`, and **only** a client-credentials token. A human token here is refused with `401 BEARER_SESSION_NOT_SUPPORTED` however valid it is: leaving it open would have kept the pre-cookie path alive alongside the fixed one.
+4. **better-auth session** — the UI under `AUTH_PROVIDER=betterauth`.
+
+**Every unsafe method on the cookie channel needs `x-csrf-token`.** A cookie is attached by the browser automatically, which is what makes cookie auth vulnerable in a way `Authorization` never was. `SameSite=Lax` is the first layer and a per-session double-submit token is the second, compared with `timingSafeEqual`; `GET`/`HEAD`/`OPTIONS` are exempt. Failures are `403 CSRF_TOKEN_INVALID`.
+
+**The login flow is bound to the browser that started it.** `/session/login` sets a second, short-lived httpOnly cookie (`oidc_flow`, scoped to `/api/v1/auth/session`) carrying the `state`, and `/session/callback` refuses to exchange anything whose `state` does not match it. `state` alone cannot carry this and neither can PKCE: the verifier and nonce live in Redis keyed BY `state`, so they attest the server's participation, not the browser's. The deleted SPA client had the binding implicitly, via `oidc-client-ts`'s own web storage; moving the exchange server-side removed it, so it is explicit now (RFC 9700 §4.4.1). The check runs BEFORE `consumeFlowState`, so a forged callback cannot burn a login the real user still has in flight.
+
+**Two failure directions the cookie channel gets right on purpose, and must keep getting right.** A cookie with no session behind it returns `fallthrough`, not 401 — `sid` is a generic name and the clear is host-only, so a `sid` set by anything on a parent domain could otherwise 401-loop a user permanently. And only a verdict *about the token* (`TOKEN_INVALID`/`TOKEN_EXPIRED`) ends a session: a JWKS outage maps to 503 like the bearer path, because destroying sessions there turns a 30-second Keycloak restart into a fleet-wide logout.
 
 **`AUTH_PROVIDER` selects the identity provider on the session path**, resolved into `authConfig.provider` / `.keycloak_enabled` / `.betterauth_enabled` in `apps/api/src/config.ts`. **Two values, and they are exact complements. Default `betterauth` — every Keycloak path is dormant and the session path is byte-for-byte the pre-migration behaviour.**
 
@@ -28,7 +36,9 @@ Rollback is still per-instance: better-auth's code remains, and its passwordless
 
 **Under `keycloak`, better-auth's `/api/auth/*` mount is not registered at all** (`app.ts`). That mount previously stayed live in every mode, leaving `unified_otp`'s `verifyOtp` able to create users with no Keycloak identity. `x-api-key` auth is unaffected — `verifyApiKey` is an in-process call, not a route.
 
-A bearer token is then forked by *kind* of caller. A client-credentials token (an integrating DPG) resolves through `resolveServiceAccount` (`src/services/auth/service_account.ts`) to that DPG's existing service `user` row — the bearer replacement for `verifyApiKey`, accepted alongside `x-api-key` during the compatibility window. Anything else takes the human path. The mapping is by convention: **Keycloak client id == `organization.slug`**, resolved via the org's `role='service'` member.
+A bearer token is then forked by *kind* of caller. A client-credentials token (an integrating DPG) resolves through `resolveServiceAccount` (`src/services/auth/service_account.ts`) to that DPG's existing service `user` row — the bearer replacement for `verifyApiKey`, accepted alongside `x-api-key` during the compatibility window. Anything else is **refused**, not provisioned: humans authenticate with the cookie now.
+
+`isServiceAccountToken` decides that fork, and it errs toward *recognising* a service token because its failure mode is a lockout. It accepts on `azp ∈ KEYCLOAK_SERVICE_CLIENT_IDS` first — the one signal a realm cannot configure away. The other two (`client_id`, a `service-account-` `preferred_username`) are both optional in practice: the bundled realm's service clients carry no `client_id` mapper, and `preferred_username` needs the `profile` scope, so trimming that scope from a machine client would otherwise reclassify it as human and 401 every call. The mapping is by convention: **Keycloak client id == `organization.slug`**, resolved via the org's `role='service'` member.
 
 Two things that are easy to get wrong here:
 
@@ -46,4 +56,12 @@ Two things that are easy to get wrong here:
 
 **The UI's login screen is chosen from that endpoint, not from a build arg.** `authProvider` and the OIDC connection details are served precisely so the decision is a runtime one: there is deliberately no `VITE_AUTH_PROVIDER` build arg in `apps/ui/Dockerfile` or the local-setup compose. Baking it in once meant a UI image built for Keycloak redirected every user into an OIDC flow while the API was still on `betterauth` — the OTP endpoints were never called, and flipping back needed an image rebuild. `apps/ui/src/hooks/use-auth-config.ts` fetches it once per session; `apps/ui/src/lib/keycloak-config.ts` maps it (`keycloak` → OIDC screen; `betterauth` → OTP screen). A `VITE_AUTH_PROVIDER` set through `window.__DPG_UI_CONFIG__` still overrides, for a UI-side canary at rollout. See `packages/auth/CLAUDE.md` for the OTP flow internals and the `assertSelfSignupAllowed` dual-call-site invariant.
 
-**Inter-instance peer auth.** The peer-only `*_local` network routes (`network/item/count_local`, `network/item/fetch_local`) are guarded by `apps/api/src/middleware/peer_instance_guard.ts`, an HMAC instance token bound to path + body (`utils/instance_token.ts`). Signing material is `INSTANCE_SHARED_SECRET` (required, min 32, identical across a network's instances). `PEER_AUTH_MODE` (default `permissive`) allows a *missing* token during rollout but always rejects a present-but-invalid one; `enforced` requires a valid token on every peer call. The guard returns `401 PEER_AUTH_FAILED`, never throws.
+**Inter-instance peer auth.** Four peer routes are guarded by `apps/api/src/middleware/peer_instance_guard.ts`, an HMAC instance token bound to path + body (`utils/instance_token.ts`): the three `*_local` reads (`network/item/count_local`, `fetch_local`, `markers_local`) and the write `network/action/perform`. Signing material is `INSTANCE_SHARED_SECRET` (required, min 32, identical across a network's instances). The guard returns `401 PEER_AUTH_FAILED`, never throws.
+
+**The write route uses `peer_instance_guard_strict` and does NOT honour `PEER_AUTH_MODE`.** `permissive` (the default) exists so peers predating inter-instance auth keep working during rollout — it forgives a *missing* token on the reads. `network/action/perform` never had a legitimate unsigned in-repo caller, and its body asserts identity (`source_item_owner`, `performed_by_*`) rather than selecting rows, so it rejects an unsigned request in every mode. Extending `permissive` to it would leave that identity assertion open in every deployment that has not flipped the flag.
+
+`missing` (neither header) is the only reason `permissive` forgives. A token sent *without* its timestamp — or the reverse — is `incomplete` and always rejected: it is a failed authentication attempt, not an unsigned caller.
+
+The HMAC is computed over the **raw request bytes** (captured by `plugins/raw_body.ts`), never a re-serialization of `request.body`. A preHandler runs after Zod, which strips undeclared keys and injects defaults, so re-serializing produced a different string from the one the sender signed — that mismatch has silently broken federation twice (`lifecycle_filter`, then `order_by`).
+
+**Replay:** the signed string is `timestamp.targetPath.sha256(body)` with a ±300s window and no nonce, so a captured signed request can be replayed within that window. That was inert while every peer route was a read; it now covers a write, where the action pair cap absorbs the duplicate. Binding an idempotency key into the signed string would close it properly.

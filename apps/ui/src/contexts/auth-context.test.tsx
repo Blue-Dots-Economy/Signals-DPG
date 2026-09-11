@@ -2,10 +2,29 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './auth-context';
+import { AuthProvider, useAuth, resolveKeycloakUser, HOLD } from './auth-context';
 
 const { clearSchemaCache } = vi.hoisted(() => ({ clearSchemaCache: vi.fn() }));
 vi.mock('@/engine', () => ({ clearSchemaCache }));
+
+/**
+ * The BFF session client (AUTH-VULN-03/04). Hoisted rather than `vi.doMock`d
+ * inside a test, because `auth-context` imports it statically — a late
+ * `doMock` would not be seen and the real module would try to `fetch`.
+ * `bff.fetchBffSession` is reassignable so a single test can control when the
+ * restore resolves.
+ */
+const bff = vi.hoisted(() => ({
+  fetchBffSession: async () =>
+    ({ authenticated: false }) as { authenticated: boolean; unknown?: boolean },
+}));
+vi.mock('@/lib/bff-session', () => ({
+  fetchBffSession: () => bff.fetchBffSession(),
+  endBffSession: async () => {},
+  startBffLogin: () => {},
+  getCsrfToken: () => null,
+  clearCsrfToken: () => clearCsrfToken(),
+}));
 vi.mock('@/lib/auth-api', () => ({
   getSession: vi.fn().mockResolvedValue(null),
   signOut: vi.fn().mockResolvedValue(undefined),
@@ -23,12 +42,12 @@ vi.mock('@/lib/auth-api', () => ({
   }),
 }));
 
-const { clearAuthToken } = vi.hoisted(() => ({ clearAuthToken: vi.fn() }));
-vi.mock('@/lib/auth-token', () => ({
-  setAuthToken: vi.fn(),
-  clearAuthToken,
-  getAuthToken: () => null,
-}));
+/**
+ * `auth-token.ts` is gone with the BFF change — there is no token in the page.
+ * The in-memory CSRF token is what stands for a live session now, so that is
+ * what the terminal-expiry path has to clear.
+ */
+const { clearCsrfToken } = vi.hoisted(() => ({ clearCsrfToken: vi.fn() }));
 
 const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { error: toastError } }));
@@ -112,8 +131,59 @@ describe('AuthProvider signOut', () => {
   });
 });
 
+describe('resolveKeycloakUser — a dependency outage is not a logout', () => {
+  /**
+   * Tested directly rather than through the provider. From a cold start the
+   * provider's `user` is null whether we HOLD or assert null, so a
+   * provider-level test of `unknown` passes even with the branch deleted —
+   * verified by deleting it. Here the three outcomes are distinct values.
+   */
+  const notSuperseded = () => false;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('HOLDs when the API could not answer, without asking who the user is', async () => {
+    // The API maps a Keycloak or Redis outage to 503 on purpose so it does not
+    // read as "your session died". Collapsing that into signed-out logged every
+    // user out over a 30-second blip.
+    bff.fetchBffSession = async () => ({ authenticated: false, unknown: true });
+    const authApi = await import('@/lib/auth-api');
+
+    await expect(resolveKeycloakUser(notSuperseded)).resolves.toBe(HOLD);
+    expect(authApi.fetchMe).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the API definitively says there is no session', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: false });
+
+    await expect(resolveKeycloakUser(notSuperseded)).resolves.toBeNull();
+  });
+
+  it('returns the user when the session is live', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: true, csrfToken: 'c' });
+
+    const out = await resolveKeycloakUser(notSuperseded);
+
+    expect(out).not.toBe(HOLD);
+    expect((out as { id: string } | null)?.id).toBeDefined();
+  });
+
+  it('HOLDs when a login lands mid-flight, before the second request', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: true, csrfToken: 'c' });
+    const authApi = await import('@/lib/auth-api');
+
+    await expect(resolveKeycloakUser(() => true)).resolves.toBe(HOLD);
+    expect(authApi.fetchMe).not.toHaveBeenCalled();
+  });
+});
+
 describe('AuthProvider — a late session restore must not clobber a fresh login', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    bff.fetchBffSession = async () => ({ authenticated: false });
+  });
 
   it('keeps the user set by completeKeycloakLogin when the restore resolves afterwards', async () => {
     /**
@@ -148,14 +218,13 @@ describe('AuthProvider — a late session restore must not clobber a fresh login
     const restoreStarted = new Promise<void>((res) => {
       markStarted = res;
     });
-    vi.doMock('@/lib/oidc-client', () => ({
-      restoreOidcSession: async () => {
-        markStarted?.();
-        await restoreGate;
-        return null;
-      },
-      oidcLogout: async () => {},
-    }));
+    // The session now comes from the BFF (AUTH-VULN-03/04) rather than from a
+    // token in storage — same ordering hazard, different source.
+    bff.fetchBffSession = async () => {
+      markStarted?.();
+      await restoreGate;
+      return { authenticated: false };
+    };
     const client = new QueryClient();
     const { result } = renderHook(() => useAuth(), { wrapper: createWrapper(client) });
 
@@ -215,7 +284,7 @@ describe('AuthProvider — session expired', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    clearAuthToken.mockClear();
+    clearCsrfToken.mockClear();
     toastError.mockClear();
     clearSchemaCache.mockClear();
     href = '';
@@ -250,7 +319,7 @@ describe('AuthProvider — session expired', () => {
 
   it('clears the stored token', async () => {
     await mountAndExpire();
-    expect(clearAuthToken).toHaveBeenCalled();
+    expect(clearCsrfToken).toHaveBeenCalled();
   });
 
   it('cancels in-flight queries and drops the cache', async () => {
@@ -277,6 +346,6 @@ describe('AuthProvider — session expired', () => {
     // Navigating would discard a half-entered login.
     await mountAndExpire('/auth/login', '?reason=expired');
     expect(href).toBe('');
-    expect(clearAuthToken).toHaveBeenCalled();
+    expect(clearCsrfToken).toHaveBeenCalled();
   });
 });

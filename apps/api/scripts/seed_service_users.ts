@@ -43,6 +43,13 @@ import {
   apikey,
 } from '../db/postgres/schema/auth.js';
 
+// The org type below is `network_service` — network-wide scope. Which org type
+// a principal gets determines its reach, because acting-org reach is checked by
+// TYPE downstream, not by which org id a caller asserts (see the scope model in
+// `src/middleware/acting_org.ts`). A principal that should reach only PART of
+// the network cannot be expressed that way: it needs the `signals_acting_orgs`
+// claim and `ACTING_ORG_SOURCE=claim_preferred`, enabled in the same change
+// that adds it here.
 const SERVICES = [
   { slug: 'aggregator-dpg', user_email: 'aggregator-dpg-svc@signals.local' },
 ] as const;

@@ -123,6 +123,11 @@ services:
       # Substituted into the realm JSON at boot (redirectUris, webOrigins,
       # post.logout.redirect.uris). Must be the browser-facing UI base URL.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:5173}
+      # Browser-facing base URL of the signals API. Keycloak redirects the
+      # browser to the API's BFF callback, so the API origin has to be a
+      # registered redirect URI. Defaults to PUBLIC_BASE_URL when they share a
+      # host; locally they do not.
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:2742}
       # ── OTP SPI (infra/keycloak/providers/keycloak-otp-*.jar) ────────────
       # Phone channel. 'log' writes the code to the Keycloak container log,
       # which is what you want locally — no SMS account needed:
@@ -203,7 +208,13 @@ services:
     ports:
       - "${MAILPIT_UI_PORT:-8025}:8025"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8025 || exit 1"]
+      # NOT /dev/tcp: that is a bash builtin, and this image ships sh without
+      # bash, so CMD-SHELL could never satisfy it and the container reported
+      # unhealthy forever. Nothing in normal dev use waits on health, so it
+      # went unnoticed until `docker compose up --wait`, which refuses to
+      # return. wget is present in the image and /readyz is mailpit's own
+      # readiness endpoint.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8025/readyz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -287,9 +298,13 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       SIGNALS_PII_KEY: ${SIGNALS_PII_KEY:?SIGNALS_PII_KEY must be a base64-encoded 32-byte key}
       # D6 inter-instance peer auth (HMAC). Required by NetworkRuntimeSecretsSchema
-      # (min 32 chars). Single local instance in permissive mode → a static dev
-      # default is fine; must be IDENTICAL across peers in a multi-instance setup.
-      INSTANCE_SHARED_SECRET: ${INSTANCE_SHARED_SECRET:-local-dev-instance-shared-secret-change-me}
+      # (min 32 chars). Must be IDENTICAL across peers in a multi-instance setup.
+      # No default: since network/action/perform became peer-authenticated, this
+      # secret is the only thing standing between an anonymous caller and
+      # asserting another user's identity, so a shipped value would be a shipped
+      # credential on any dev-exposed instance. Generate with:
+      #   openssl rand -hex 32
+      INSTANCE_SHARED_SECRET: ${INSTANCE_SHARED_SECRET:?INSTANCE_SHARED_SECRET must be set (min 32 chars; openssl rand -hex 32)}
       PEER_AUTH_MODE: ${PEER_AUTH_MODE:-permissive}
       # Keycloak migration flag. 'betterauth' (the default) keeps every
       # Keycloak path dormant; the KEYCLOAK_* values below are inert until it

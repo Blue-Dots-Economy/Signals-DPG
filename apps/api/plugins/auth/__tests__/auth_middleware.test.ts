@@ -90,13 +90,36 @@ vi.mock('@api/db/postgres/schema/auth', () => ({
 // service_account, redis) out of this suite.
 vi.mock('../resolve_session', () => ({
   resolveKeycloakSession: vi.fn(async () => ({ ok: false, fallthrough: true })),
-  sendAuthFailure: vi.fn(),
+  sendAuthFailure: (reply: { status(c: number): unknown }, failure: { status: number }) =>
+    reply.status(failure.status),
+}));
+
+/**
+ * Stubbed for the same reason as `resolve_session` above, and it was missing:
+ * without it this suite imported the real cookie channel, which reaches the
+ * session store and constructs an ioredis client against 127.0.0.1:6379 — the
+ * exact thing the comment above says the suite keeps out.
+ *
+ * What is asserted through it here is ORDERING, which only this file can see:
+ * that the cookie channel runs after the api key and before the bearer path,
+ * and that each of its three outcomes routes correctly. The contents of those
+ * outcomes — the CSRF comparison, the refresh classification — belong to
+ * `resolve_browser_session.test.ts` and are asserted there against the real
+ * implementation.
+ */
+const resolveBrowserSession = vi.fn(async () => ({ ok: false, fallthrough: true }) as unknown);
+vi.mock('../resolve_browser_session', () => ({
+  resolveBrowserSession: (...a: unknown[]) => resolveBrowserSession(...(a as [])),
+  SESSION_COOKIE: 'sid',
+  CSRF_HEADER: 'x-csrf-token',
+  clearSessionCookie: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: (col: unknown, val: unknown) => ({ op: 'eq', col, val }),
 }));
 
+import { resolveKeycloakSession } from '../resolve_session';
 import {
   auth_middleware,
   auth_middleware_if_enabled,
@@ -164,6 +187,60 @@ beforeEach(() => {
   authConfigState.middleware_enabled = true;
   getSession.mockResolvedValue(null);
   verifyApiKey.mockResolvedValue({ valid: false, error: null, key: null });
+  resolveBrowserSession.mockResolvedValue({ ok: false, fallthrough: true });
+});
+
+// ---------------------------------------------------------------------------
+// Cookie path (after the api key, before the bearer)
+// ---------------------------------------------------------------------------
+
+describe('browser session cookie', () => {
+  const CSRF_FAILURE = {
+    status: 403,
+    code: 'CSRF_TOKEN_INVALID',
+    error: 'Forbidden',
+    message: 'Missing or invalid CSRF token',
+  };
+
+  it('stops on a resolved cookie session without consulting the bearer path', async () => {
+    resolveBrowserSession.mockResolvedValue({ ok: true });
+
+    const reply = await run(auth_middleware, makeRequest());
+
+    expect(reply.statusCode).toBe(0);
+    expect(resolveKeycloakSession).not.toHaveBeenCalled();
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it('fails the request on a CSRF failure rather than falling through', async () => {
+    // Falling through here would let an unsafe cross-site request keep looking
+    // for another channel to accept it.
+    resolveBrowserSession.mockResolvedValue({ ok: false, failure: CSRF_FAILURE });
+
+    const reply = await run(auth_middleware, makeRequest());
+
+    expect(reply.statusCode).toBe(403);
+    expect(resolveKeycloakSession).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the bearer path when no cookie was sent', async () => {
+    const reply = await run(auth_middleware, makeRequest());
+
+    // Reaching the later channels IS the fallthrough. With no bearer and no
+    // better-auth session either, the request ends unauthenticated — which is
+    // the point: the cookie channel declined rather than answering.
+    expect(resolveKeycloakSession).toHaveBeenCalled();
+    expect(reply.statusCode).toBe(401);
+  });
+
+  it('is not consulted at all when an api key is present', async () => {
+    verifyApiKey.mockResolvedValue({ valid: true, error: null, key: { userId: 'u1' } });
+    rowQueue.push([{ id: 'u1', email: 'a@b.com', name: 'Ada', role: 'user' }]);
+
+    await run(auth_middleware, makeRequest({ headers: { 'x-api-key': 'k' } }));
+
+    expect(resolveBrowserSession).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

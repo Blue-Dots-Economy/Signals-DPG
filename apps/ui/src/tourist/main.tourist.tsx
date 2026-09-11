@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createQueryClient } from '@/lib/query-client';
+import { purgeLegacyAuthStorage } from '@/lib/purge-legacy-auth-storage';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ThemeModeProvider } from '@/theme/mode-provider';
 import '../i18n';
@@ -25,6 +26,11 @@ const meta = applyNetworkBrand(TOURIST_NETWORK_ID, TOURIST_BRAND);
 //   2. VITE_TOURIST_APP_TITLE runtime/build env
 //   3. neutral default 'Signals'
 document.title = meta.copy.title || getRuntimeEnv('VITE_TOURIST_APP_TITLE')?.trim() || 'Signals';
+
+// AUTH-VULN-03/04: clear the access/refresh tokens the old build left in
+// this browser. Nothing reads them any more, so they would otherwise sit
+// there readable by any script on the origin.
+purgeLegacyAuthStorage();
 
 const queryClient = createQueryClient();
 

@@ -9,6 +9,11 @@
  *   keycloak    Keycloak only. There is no better-auth fallback — a request that
  *               carries no usable Keycloak token is simply unauthenticated.
  *
+ * Bearer tokens are a SERVICE channel only (AUTH-VULN-03/04). A human token
+ * presented in an `Authorization` header is refused however valid it is: a
+ * browser session is the `sid` cookie, resolved by `resolve_browser_session.ts`,
+ * which calls this module's `resolveHumanSession` itself.
+ *
  * A token that *looks* Keycloak-issued but fails validation is rejected outright
  * rather than passed on. That mattered when a fallback existed (it would have
  * turned a precise failure — "expired", "wrong client" — into a generic 401, and
@@ -35,7 +40,7 @@ import { resolveServiceAccount } from '../../src/services/auth/service_account';
 import type { ServiceAccountErrorCode } from '../../src/services/auth/service_account';
 
 /** Shape every auth failure shares, matching the existing middleware replies. */
-interface AuthFailure {
+export interface AuthFailure {
   status: number;
   code: string;
   error: string;
@@ -49,7 +54,7 @@ interface AuthFailure {
  * unreachable we do not know whether the token is good, and answering 401
  * would tell every user their session died during someone else's outage.
  */
-const TOKEN_FAILURES: Record<KeycloakTokenErrorCode, AuthFailure> = {
+export const TOKEN_FAILURES: Record<KeycloakTokenErrorCode, AuthFailure> = {
   TOKEN_EXPIRED: {
     status: 401,
     code: 'TOKEN_EXPIRED',
@@ -163,6 +168,30 @@ const WRONG_PATH_FOR_CLIENT: AuthFailure = {
 };
 
 /**
+ * A human token presented as `Authorization: Bearer` (AUTH-VULN-03/04).
+ *
+ * Human sessions authenticate with the `sid` cookie now. Keeping this channel
+ * open would leave the hole the cookie was introduced to close: a token that
+ * any script on the origin can attach to a request is exactly what the pentest
+ * replayed, and an httpOnly cookie is worth nothing while a second, script-
+ * readable credential is still accepted for the same identity.
+ *
+ * Every human client signals serves today is the browser SPA, which is now
+ * driven end to end by the BFF (`routes/v1/auth/session.ts`). Adding a human
+ * client that CANNOT hold a cookie — a native app, say — means giving it a
+ * channel of its own, not re-opening this one for everybody.
+ *
+ * Service callers are untouched: they present client-credentials tokens and
+ * resolve on the service path, which never went through a browser.
+ */
+const BEARER_NOT_A_SESSION: AuthFailure = {
+  status: 401,
+  code: 'BEARER_SESSION_NOT_SUPPORTED',
+  error: 'Unauthorized',
+  message: 'User sessions authenticate with the session cookie, not a bearer token',
+};
+
+/**
  * A realm-valid token for an accepted client that carries none of the signals
  * realm roles (`KEYCLOAK_REQUIRED_REALM_ROLES`).
  *
@@ -176,6 +205,28 @@ const MISSING_REALM_ROLE: AuthFailure = {
   code: 'TOKEN_ROLE_REJECTED',
   error: 'Forbidden',
   message: 'This account is not a participant of the Signals Stack',
+};
+
+/**
+ * A realm-valid token that belongs to the AGGREGATOR portal, not to signals.
+ *
+ * Same rejection as `MISSING_REALM_ROLE` — the gate is unchanged — but it says
+ * which account the caller is actually signed in as. Both apps share one realm,
+ * so signing into the aggregator leaves an SSO session that Keycloak silently
+ * reuses here: the user never chose this identity and is not told that is what
+ * happened. "Not a participant" is true of an aggregator coordinator and reads
+ * as "your account is broken", which sends them nowhere.
+ *
+ * Recognised positively from `aggregator_id` / the `org_owner` realm role
+ * rather than inferred from the absence of signals roles, so the claim is only
+ * made when it is certain.
+ */
+const AGGREGATOR_ACCOUNT: AuthFailure = {
+  status: 403,
+  code: 'TOKEN_AGGREGATOR_ACCOUNT',
+  error: 'Forbidden',
+  message:
+    'You are signed in as an aggregator account. Signals needs a participant account — sign in with a different account.',
 };
 
 export const UNAUTHORIZED: AuthFailure = {
@@ -219,19 +270,27 @@ export async function resolveKeycloakSession(
   }
 
   /**
-   * Fork on what kind of caller this is. The audience gate in
-   * `verifyKeycloakToken` has already confirmed the client is one signals
-   * serves at all; this decides which of the two paths it may take.
+   * Only one kind of caller may authenticate with a bearer token: an
+   * integrating DPG holding a client-credentials token. A human token gets a
+   * 401 here regardless of how valid it is — see `BEARER_NOT_A_SESSION`. The
+   * human path still exists and is still reached, but only through the cookie
+   * (`resolve_browser_session.ts`), which calls `resolveHumanSession` directly.
    *
-   * Both directions are checked, because conflating them is the actual risk:
-   * a service token must never be run through human provisioning (it has no
-   * email or phone, and would otherwise try to mint a user mirror), and a
-   * token from the public `signals-ui` client must never be honoured as an
-   * integrating DPG's service identity.
+   * The fork is still on `isServiceAccountToken` rather than on the client
+   * allowlist, because conflating the two was the original risk: a service
+   * token must never be run through human provisioning (it has no email or
+   * phone, and would otherwise try to mint a user mirror).
    */
-  return isServiceAccountToken(verified.claims)
-    ? resolveServiceSession(verified.claims, request)
-    : resolveHumanSession(verified.claims, request);
+  if (!isServiceAccountToken(verified.claims)) {
+    const azp = typeof verified.claims.azp === 'string' ? verified.claims.azp : null;
+    request.log.warn(
+      { azp },
+      'rejected a user bearer token: user sessions authenticate with the session cookie'
+    );
+    return { ok: false, failure: BEARER_NOT_A_SESSION };
+  }
+
+  return resolveServiceSession(verified.claims, request);
 }
 
 function logTokenFailure(
@@ -270,13 +329,18 @@ async function resolveServiceSession(
 /**
  * Human path: named-client and realm-role gates, then the local user mirror.
  *
+ * Reached only from the cookie path now (`resolve_browser_session.ts`) — the
+ * bearer fork above refuses human tokens outright. The gates below still apply
+ * in full, because the token behind a session cookie is the same realm token
+ * with the same claims; only how it reached the API changed.
+ *
  * A missing `azp` is a rejection, not a pass: the audience gate in
  * `verifyKeycloakToken` accepts on an `aud` match alone, so a token with no
  * `azp` but an `aud` naming an accepted client would otherwise skip the client
  * check entirely and reach provisioning unattributed. Keycloak always emits
  * `azp`, so nothing legitimate lands there.
  */
-async function resolveHumanSession(
+export async function resolveHumanSession(
   claims: KeycloakClaims,
   request: FastifyRequest,
 ): Promise<SessionResolution> {
@@ -296,12 +360,19 @@ async function resolveHumanSession(
   // operator has emptied KEYCLOAK_REQUIRED_REALM_ROLES.
   const required = keycloakConfig.required_realm_roles;
   if (required.length > 0 && !required.some((role) => hasRealmRole(claims, role))) {
+    // Same rejection either way; only the explanation differs. An aggregator
+    // token here means the shared-realm SSO session was reused silently, which
+    // the caller cannot tell from a broken account unless we say so.
+    const isAggregatorAccount =
+      typeof claims['aggregator_id'] === 'string' || hasRealmRole(claims, 'org_owner');
     request.log.warn(
-      { azp, roles: realmRoles(claims), required },
-      'keycloak token rejected: carries none of the required signals realm roles ' +
-        '(check the client\'s `roles` scope and that migration assigned the role)',
+      { azp, roles: realmRoles(claims), required, aggregator_account: isAggregatorAccount },
+      isAggregatorAccount
+        ? 'keycloak token rejected: aggregator account reached signals via the shared realm SSO session'
+        : 'keycloak token rejected: carries none of the required signals realm roles ' +
+            '(check the client\'s `roles` scope and that migration assigned the role)',
     );
-    return { ok: false, failure: MISSING_REALM_ROLE };
+    return { ok: false, failure: isAggregatorAccount ? AGGREGATOR_ACCOUNT : MISSING_REALM_ROLE };
   }
 
   const provisioned = await provisionUserFromClaims(claims, request.log);

@@ -54,6 +54,13 @@ interface MapViewProps {
    * covered when the map goes fullscreen, so we surface it here too).
    */
   filtersSlot?: React.ReactNode;
+  /**
+   * The location-source control. Same reason as `filtersSlot`: the page
+   * header hosts it normally, but that header is covered when the map goes
+   * fullscreen. Without this the map's one location control would vanish
+   * exactly when the map is the whole screen.
+   */
+  locationSlot?: React.ReactNode;
   /** Optional custom popup renderer passed to the active provider. */
   renderPopup?: (marker: MapMarker) => React.ReactNode;
   /**
@@ -159,6 +166,7 @@ export function MapView({
   closePopupNonce,
   selfLocation,
   filtersSlot,
+  locationSlot,
   renderPopup,
   resolveMarkerLabel,
   heightClassName = 'h-[calc(100dvh-8rem)] min-h-[400px]',
@@ -305,10 +313,12 @@ export function MapView({
         resolveMarkerImage={resolveMarkerImage}
         onViewportChange={onViewportChange}
       />
-      {/* Top-right overlay: Filters (only while maximized — the page header
-          hosts it normally but is hidden in fullscreen) + maximize toggle.
-          Placed top-right to avoid the providers' top-left controls. */}
+      {/* Top-right overlay: Filters and the location source (only while
+          maximized — the page header hosts them normally but is hidden in
+          fullscreen) + maximize toggle. Placed top-right to avoid the
+          providers' top-left controls. */}
       <div className="absolute right-2 top-2 z-[1000] flex items-center gap-2">
+        {isMaximized && locationSlot}
         {isMaximized && filtersSlot}
         <Button
           type="button"
