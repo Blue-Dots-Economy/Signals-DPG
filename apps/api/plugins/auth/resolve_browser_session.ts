@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { authConfig } from '../../src/config';
 import { verifyKeycloakToken } from '@/utils/keycloak_token';
 import {
   readSession,
@@ -44,16 +45,35 @@ export async function resolveBrowserSession(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<SessionResolution> {
+  /**
+   * Dormant unless Keycloak is the provider, mirroring
+   * `resolveKeycloakSession`. Without this the channel stays live under
+   * `AUTH_PROVIDER=betterauth` — the stated rollback path — and a `sid` row
+   * surviving the flip resolves all the way through Keycloak provisioning on an
+   * instance that is supposed to have every Keycloak path switched off. It also
+   * keeps this off Redis entirely on a betterauth instance.
+   */
+  if (!authConfig.keycloak_enabled) return { ok: false, fallthrough: true };
+
   const sessionId = request.cookies?.[SESSION_COOKIE];
   if (!sessionId) return { ok: false, fallthrough: true };
 
   const session = await readSession(sessionId);
   if (!session) {
-    // Cookie present but the session is gone (expired, revoked, or a stale
-    // cookie from a previous deployment). Clear it so the browser stops
-    // re-sending a credential that can never work again.
+    /**
+     * Cookie present but the session is gone (expired, revoked, or a stale
+     * cookie from a previous deployment). Clear it so the browser stops
+     * re-sending a credential that can never work again.
+     *
+     * `fallthrough`, NOT a 401: `sid` is a generic name and `clearCookie` here
+     * sets no `Domain`, so a host-only clear cannot remove a `sid` set by
+     * something else on a parent domain. Answering 401 would re-reject that
+     * cookie on every request and lock the user out permanently, with nothing
+     * they could do about it. Falling through lets the other channels answer,
+     * and an unauthenticated request still ends in the usual 401 from there.
+     */
     clearSessionCookie(reply);
-    return { ok: false, failure: UNAUTHENTICATED };
+    return { ok: false, fallthrough: true };
   }
 
   if (!csrfOk(request, session)) {

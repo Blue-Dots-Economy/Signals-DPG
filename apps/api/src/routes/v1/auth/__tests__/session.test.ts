@@ -34,9 +34,11 @@ vi.mock('@/config', () => ({
 }));
 
 const exchangeCode = vi.fn();
-// Default: the id token carries no nonce claim, so the check is skipped — the
-// shape most of these cases are about. The mismatch case sets it explicitly.
-const idTokenNonce = vi.fn<(t?: string) => string | null>(() => null);
+// Default: the id token carries the nonce the flow asked for, which is what
+// every real login looks like. It used to default to `null` — no nonce claim —
+// back when absence SKIPPED the check; absence is now a rejection, so that
+// default would have quietly made most of these cases exercise the reject path.
+const idTokenNonce = vi.fn<(t?: string) => string | null>(() => 'nonce');
 const buildAuthorizeUrl = vi.fn(() => 'https://kc.example.org/authorize?state=st');
 const buildEndSessionUrl = vi.fn(
   (input: { idToken?: string; postLogoutRedirectUri: string }) =>
@@ -54,14 +56,22 @@ vi.mock('@/services/auth/oidc_exchange', () => ({
 
 const saveFlowState = vi.fn();
 const consumeFlowState = vi.fn();
-vi.mock('@/services/auth/oidc_flow_state', () => ({
-  saveFlowState: (...a: unknown[]) => saveFlowState(...a),
-  consumeFlowState: (...a: unknown[]) => consumeFlowState(...a),
-  safeReturnTo: (raw: unknown, fallback = '/') =>
-    typeof raw === 'string' && raw.startsWith('/') && !raw.startsWith('//') ? raw : fallback,
-  safeAppOrigin: (raw: unknown, fallback: string) =>
-    raw === 'https://app.example.org' ? raw : fallback,
-}));
+/**
+ * Only the two Redis-backed functions are stubbed. `safeReturnTo` is the REAL
+ * one on purpose: it was previously re-implemented here, which meant deleting
+ * the call to it in the route left this suite green — the open-redirect guard
+ * was asserted against a copy of itself rather than against the code that ships.
+ */
+vi.mock('@/services/auth/oidc_flow_state', async (orig) => {
+  const actual = await orig<typeof import('@/services/auth/oidc_flow_state')>();
+  return {
+    ...actual,
+    saveFlowState: (...a: unknown[]) => saveFlowState(...a),
+    consumeFlowState: (...a: unknown[]) => consumeFlowState(...a),
+    safeAppOrigin: (raw: unknown, fallback: string) =>
+      raw === 'https://app.example.org' ? raw : fallback,
+  };
+});
 
 const createSession = vi.fn();
 const readSession = vi.fn();
@@ -73,6 +83,9 @@ vi.mock('@/services/auth/browser_session', () => ({
   newSessionId: () => 'the-session-id',
   newCsrfToken: () => 'the-csrf-token',
   SESSION_TTL_SECONDS: 28800,
+  // Real, not a stub: the flow-cookie binding compares with it, and a lenient
+  // fake would make that comparison pass on values the route must reject.
+  safeEqual: (a: string, b: string) => a === b,
 }));
 
 const TOKENS = {
@@ -131,7 +144,8 @@ beforeEach(() => {
     appOrigin: 'https://app.example.org',
   });
   exchangeCode.mockResolvedValue(TOKENS);
-  idTokenNonce.mockReturnValue(null);
+  // A real login always returns an id token carrying the nonce we sent.
+  idTokenNonce.mockReturnValue('nonce');
   createSession.mockResolvedValue(undefined);
   readSession.mockResolvedValue(null);
   destroySession.mockResolvedValue(undefined);
@@ -223,6 +237,49 @@ describe('GET /auth/session/login', () => {
     expect(saveFlowState.mock.calls[0][1]).toMatchObject({ consentAttempt: 'attempt-1' });
   });
 
+  it('sets the flow cookie that the callback requires, scoped and short-lived', async () => {
+    const res = await inject({ method: 'GET', url: '/api/v1/auth/session/login' });
+
+    const flow = res.cookies.find((c) => c.name === 'oidc_flow');
+    expect(flow).toMatchObject({
+      value: 'the-state',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      path: '/api/v1/auth/session',
+    });
+    // Lax, not Strict: the callback is a top-level cross-site GET from Keycloak
+    // and Strict would withhold the cookie on exactly that navigation.
+    expect(flow?.maxAge).toBe(300);
+  });
+
+  it.each([
+    ['//evil.test', 'protocol-relative'],
+    ['https://evil.test', 'absolute'],
+    ['/\\evil.test', 'backslash, which the URL parser reads as protocol-relative'],
+  ])('discards a returnTo of %s (%s)', async (hostile) => {
+    // Exercised through the ROUTE with the real `safeReturnTo`. This suite used
+    // to stub that function, so deleting the call in the route left it green.
+    await inject({
+      method: 'GET',
+      url: `/api/v1/auth/session/login?returnTo=${encodeURIComponent(hostile)}`,
+    });
+
+    expect(saveFlowState).toHaveBeenCalledWith(
+      'the-state',
+      expect.objectContaining({ returnTo: '/' }),
+    );
+  });
+
+  it('keeps a same-origin path returnTo', async () => {
+    await inject({ method: 'GET', url: '/api/v1/auth/session/login?returnTo=%2Fprofile%2Fnew' });
+
+    expect(saveFlowState).toHaveBeenCalledWith(
+      'the-state',
+      expect.objectContaining({ returnTo: '/profile/new' }),
+    );
+  });
+
   it('404s when the instance is not running Keycloak', async () => {
     mockAuthConfig.keycloak_enabled = false;
 
@@ -235,9 +292,15 @@ describe('GET /auth/session/login', () => {
 
 describe('GET /auth/session/callback', () => {
   const CALLBACK = '/api/v1/auth/session/callback?code=the-code&state=the-state';
+  /**
+   * The browser half of the flow binding. Every legitimate callback carries it,
+   * because `/session/login` set it before redirecting — so the happy-path
+   * cases send it, and the cases asserting it is REQUIRED omit it deliberately.
+   */
+  const boundToThisBrowser = { cookie: 'oidc_flow=the-state' };
 
   it('exchanges the code, opens a session, and sets an opaque cookie', async () => {
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(exchangeCode).toHaveBeenCalledWith({
       code: 'the-code',
@@ -259,7 +322,7 @@ describe('GET /auth/session/callback', () => {
   it('sends no token to the browser, in any header or the body', async () => {
     // The finding, stated as an assertion: the pentest read both of these out
     // of the page. Nothing on this response may carry either.
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     const sent = everythingSentBack(res);
     expect(sent).not.toContain('the-access-token');
@@ -268,10 +331,13 @@ describe('GET /auth/session/callback', () => {
   });
 
   it('marks the cookie httpOnly, Secure and SameSite=Lax outside development', async () => {
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     // httpOnly is the control: script cannot read it, which is the whole point.
     expect(res.cookies[0]).toMatchObject({ httpOnly: true, secure: true, sameSite: 'Lax', path: '/' });
+    // Asserted so dropping maxAge cannot silently turn `sid` into a
+    // browser-session cookie that dies with the tab.
+    expect(res.cookies[0]).toMatchObject({ maxAge: 28800 });
   });
 
   it('drops Secure in development, where the cookie would otherwise be discarded', async () => {
@@ -279,7 +345,7 @@ describe('GET /auth/session/callback', () => {
     // "login does nothing" locally.
     mockInstance.INSTANCE_ENV = 'development';
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(res.cookies[0].httpOnly).toBe(true);
     expect(res.cookies[0].secure).toBeFalsy();
@@ -288,14 +354,14 @@ describe('GET /auth/session/callback', () => {
   it('redirects to the app origin, carrying the flow parameters back to the UI', async () => {
     consumeFlowState.mockResolvedValue({
       verifier: 'the-verifier',
-      nonce: 'n',
+      nonce: 'nonce',
       returnTo: '/profile/new',
       consentAttempt: 'attempt-1',
       redirectUri: 'https://api.example.org/api/v1/auth/session/callback',
       appOrigin: 'https://app.example.org',
     });
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     const location = new URL(res.headers.location as string);
     expect(location.origin).toBe('https://app.example.org');
@@ -310,17 +376,19 @@ describe('GET /auth/session/callback', () => {
     // reads as a control that exists.
     idTokenNonce.mockReturnValue('a-different-nonce');
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(res.headers.location).toContain('auth_error=1');
     expect(createSession).not.toHaveBeenCalled();
-    expect(res.cookies).toHaveLength(0);
+    // The flow cookie is cleared on the way out, but no SESSION cookie is set —
+    // which is the property that matters.
+    expect(res.cookies.some((c) => c.name === 'sid')).toBe(false);
   });
 
   it('accepts a matching nonce', async () => {
     idTokenNonce.mockReturnValue('nonce');
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(createSession).toHaveBeenCalled();
     expect(res.cookies[0]).toMatchObject({ name: 'sid' });
@@ -331,7 +399,7 @@ describe('GET /auth/session/callback', () => {
     // authorization finds nothing.
     consumeFlowState.mockResolvedValue(null);
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toContain('auth_error=1');
@@ -352,11 +420,51 @@ describe('GET /auth/session/callback', () => {
   it('opens no session when the exchange fails', async () => {
     exchangeCode.mockRejectedValue(new Error('token endpoint returned 400'));
 
-    const res = await inject({ method: 'GET', url: CALLBACK });
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
 
     expect(res.headers.location).toBe('https://app.example.org/auth/login?auth_error=1');
     expect(createSession).not.toHaveBeenCalled();
-    expect(res.cookies).toHaveLength(0);
+    expect(res.cookies.some((c) => c.name === 'sid')).toBe(false);
+  });
+
+  /**
+   * The flow binding, which is what stops an authorization response obtained in
+   * one browser being redeemed in another. `state` alone cannot carry this: the
+   * verifier and nonce live server-side keyed BY `state`, so they attest the
+   * server's participation, not the browser's.
+   */
+  it('refuses a callback that carries no flow cookie', async () => {
+    const res = await inject({ method: 'GET', url: CALLBACK });
+
+    expect(res.headers.location).toContain('auth_error=1');
+    expect(createSession).not.toHaveBeenCalled();
+    expect(res.cookies.some((c) => c.name === 'sid')).toBe(false);
+  });
+
+  it('refuses a callback whose flow cookie names a different flow', async () => {
+    const res = await inject({
+      method: 'GET',
+      url: CALLBACK,
+      headers: { cookie: 'oidc_flow=someone-elses-state' },
+    });
+
+    expect(res.headers.location).toContain('auth_error=1');
+    expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves the flow state unspent when the binding fails', async () => {
+    // Checked BEFORE the single-use flow state is consumed, so a forged
+    // callback cannot burn a login the real user still has in flight.
+    await inject({ method: 'GET', url: CALLBACK });
+
+    expect(consumeFlowState).not.toHaveBeenCalled();
+  });
+
+  it('clears the flow cookie once the session is open', async () => {
+    const res = await inject({ method: 'GET', url: CALLBACK, headers: boundToThisBrowser });
+
+    const flow = res.cookies.find((c) => c.name === 'oidc_flow');
+    expect(flow?.value).toBe('');
   });
 });
 
@@ -373,6 +481,22 @@ describe('betterauth instances', () => {
     expect(cb.statusCode).toBe(404);
     expect(out.statusCode).toBe(404);
     expect(buildEndSessionUrl).not.toHaveBeenCalled();
+  });
+
+  it('404s GET /session and never reaches the store', async () => {
+    // A betterauth instance has no BFF session to report on, so this must not
+    // touch Redis either. The guard was missing here while the other three
+    // routes had it.
+    mockAuthConfig.keycloak_enabled = false;
+
+    const res = await inject({
+      method: 'GET',
+      url: '/api/v1/auth/session',
+      headers: { cookie: 'sid=leftover-from-keycloak-mode' },
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(readSession).not.toHaveBeenCalled();
   });
 });
 

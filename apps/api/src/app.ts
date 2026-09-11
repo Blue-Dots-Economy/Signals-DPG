@@ -282,7 +282,17 @@ export async function buildApp(): Promise<FastifyInstance> {
         },
         // Default for every operation; exceptions are applied per-route in
         // documentAuthTransform below.
-        security: [{ apiKeyAuth: [] }, { sessionAuth: [] }],
+        /**
+         * Two alternatives, not three requirements: a caller presents EITHER an
+         * api key OR the session cookie, and the cookie alternative additionally
+         * carries the CSRF token. Pairing them here is what makes the header
+         * discoverable to a generated client — without it the spec described a
+         * cookie session that could authenticate reads but never perform a
+         * write, because nothing said the header existed. It is enforced only on
+         * unsafe methods (see the `csrfToken` scheme's description); sending it
+         * on a GET is simply ignored.
+         */
+        security: [{ apiKeyAuth: [] }, { sessionAuth: [], csrfToken: [] }],
         // Tag descriptions make starlight-openapi emit one overview page per
         // group in the published reference (tags without a description get
         // sidebar-group-only treatment).
@@ -329,11 +339,29 @@ export async function buildApp(): Promise<FastifyInstance> {
             sessionAuth: {
               type: 'apiKey',
               in: 'cookie',
-              name: 'better-auth.session_token',
+              name: 'sid',
               description:
-                'Browser session cookie issued by better-auth after sign-in, used by the web UI ' +
-                '(apps/api/plugins/auth/auth_middleware.ts). Checked as a fallback only when ' +
-                'x-api-key is absent.',
+                'Opaque browser-session cookie issued by the BFF after sign-in, used by the web UI ' +
+                '(apps/api/plugins/auth/resolve_browser_session.ts). httpOnly, so script cannot ' +
+                'read it; the access and refresh tokens live server-side in Redis and never reach ' +
+                'the browser. Checked when x-api-key is absent, before the bearer path. Under ' +
+                'AUTH_PROVIDER=betterauth this channel is dormant and the session cookie is ' +
+                "better-auth's own `better-auth.session_token` instead. **Every unsafe method " +
+                '(anything but GET/HEAD/OPTIONS) additionally requires the `x-csrf-token` header ' +
+                'echoing the value from `GET /api/v1/auth/session`; without it the request is ' +
+                'refused with 403 CSRF_TOKEN_INVALID.**',
+            },
+            csrfToken: {
+              type: 'apiKey',
+              in: 'header',
+              name: 'x-csrf-token',
+              description:
+                'Per-session CSRF token for the cookie channel, read from `GET /api/v1/auth/session` ' +
+                'and echoed on every state-changing request. A cookie is attached by the browser ' +
+                'automatically, so this double-submit token is what a cross-site page cannot supply ' +
+                '— it can cause the cookie to be sent but cannot read the response that carries ' +
+                'this value. Not required on GET/HEAD/OPTIONS, and not used by the x-api-key or ' +
+                'bearer channels.',
             },
             peerAuth: {
               type: 'apiKey',

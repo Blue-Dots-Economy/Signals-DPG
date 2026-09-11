@@ -328,9 +328,24 @@ export function hasRealmRole(claims: KeycloakClaims, role: string): boolean {
  *
  * Keycloak marks service-account tokens with a `client_id` claim and a
  * `service-account-<clientId>` username; either signal is sufficient.
+ *
+ * `azp` is checked FIRST and is the only signal that cannot be configured away.
+ * The other two are both optional in practice: the bundled realm's service
+ * clients carry no `client_id` mapper, and `preferred_username` requires the
+ * `profile` scope. Trimming that scope from a machine client is a natural
+ * hardening step, and without this branch it would silently reclassify that
+ * client as a human — which now means `401 BEARER_SESSION_NOT_SUPPORTED` on
+ * every call. The failure mode of this discriminator is a lockout, so it errs
+ * toward recognising a service token, not toward doubting one.
+ *
+ * Recognising a token here is not by itself an authorization: the caller still
+ * has to resolve to a service account, and `service_client_ids` is empty by
+ * default, so an unlisted client gains nothing from matching.
  */
 export function isServiceAccountToken(claims: KeycloakClaims): boolean {
   return (
+    (typeof claims.azp === 'string' &&
+      keycloakConfig.service_client_ids.includes(claims.azp)) ||
     typeof claims.client_id === 'string' ||
     (typeof claims.preferred_username === 'string' &&
       claims.preferred_username.startsWith('service-account-'))

@@ -15,6 +15,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 // redis client; stub it so importing the module does not need a server.
 vi.mock('@api/db/secondary/redis', () => ({ redis: {} }));
 
+// Controllable rather than inherited from the ambient env: the provider gate is
+// one of the behaviours under test, and a suite that silently depended on
+// whatever AUTH_PROVIDER happened to be set would assert nothing about it.
+const mockAuthConfig = { keycloak_enabled: true };
+vi.mock('@/config', () => ({ authConfig: mockAuthConfig }));
+
 const readSession = vi.fn();
 const updateSession = vi.fn();
 const destroySession = vi.fn();
@@ -95,6 +101,7 @@ const makeReply = () => ({ clearCookie: vi.fn() }) as unknown as FastifyReply;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockAuthConfig.keycloak_enabled = true;
   readSession.mockResolvedValue(storedSession());
   verifyKeycloakToken.mockResolvedValue({ ok: true, claims: { sub: 'user-1' } });
   resolveHumanSession.mockResolvedValue({ ok: true });
@@ -113,14 +120,62 @@ describe('no cookie', () => {
 });
 
 describe('cookie present but no session behind it', () => {
-  it('clears the cookie and refuses, rather than leaving a dead credential in the browser', async () => {
+  it('clears the cookie and falls through, rather than locking the browser out', async () => {
+    /**
+     * Fallthrough, not 401. `sid` is a generic name and the clear here is
+     * host-only, so a `sid` set by something else on a PARENT domain cannot be
+     * removed by it. Answering 401 would re-reject that cookie on every request
+     * and lock the user out permanently with nothing they could do. Falling
+     * through lets the other channels answer; an unauthenticated request still
+     * ends in the usual 401 from there.
+     */
     readSession.mockResolvedValue(null);
     const reply = makeReply();
 
     const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), reply);
 
-    expect(result).toMatchObject({ ok: false, failure: { status: 401 } });
+    expect(result).toEqual({ ok: false, fallthrough: true });
     expect(reply.clearCookie).toHaveBeenCalled();
+  });
+});
+
+describe('provider gate', () => {
+  it('is dormant under betterauth, even with a session cookie present', async () => {
+    /**
+     * `AUTH_PROVIDER=betterauth` is the stated rollback path, and the realistic
+     * rollback flips one env var while KEYCLOAK_* stays configured. Without
+     * this gate a `sid` row surviving the flip resolved all the way through
+     * Keycloak provisioning on an instance where every Keycloak path is
+     * supposed to be off.
+     */
+    mockAuthConfig.keycloak_enabled = false;
+
+    const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), makeReply());
+
+    expect(result).toEqual({ ok: false, fallthrough: true });
+    expect(readSession).not.toHaveBeenCalled();
+    expect(resolveHumanSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('appOrigin', () => {
+  it('is NOT compared against the request — isolation comes from the host-only cookie', async () => {
+    /**
+     * Pinning today's contract rather than asserting a guard that does not
+     * exist. `appOrigin` is stored for the logout redirect and read only there;
+     * cross-portal isolation is a property of the cookie being host-only, not
+     * of a server-side check.
+     *
+     * Enforcing it here would BREAK the split-origin deployments this flow
+     * already supports — locally the UI is :3000 and the API :2742, so
+     * `appOrigin` never equals the request origin. If that ever changes, this
+     * test should fail and be rewritten deliberately, not quietly deleted.
+     */
+    readSession.mockResolvedValue(storedSession({ appOrigin: 'https://a-different-portal.test' }));
+
+    const result = await resolveBrowserSession(makeRequest({ cookie: 'sid-1' }), makeReply());
+
+    expect(result).toEqual({ ok: true });
   });
 });
 

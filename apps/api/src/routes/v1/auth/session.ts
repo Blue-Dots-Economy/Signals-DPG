@@ -14,6 +14,7 @@ import {
 } from '@/services/auth/oidc_exchange';
 import {
   consumeFlowState,
+  FLOW_TTL_SECONDS,
   safeAppOrigin,
   safeReturnTo,
   saveFlowState,
@@ -24,6 +25,7 @@ import {
   newCsrfToken,
   newSessionId,
   readSession,
+  safeEqual,
   SESSION_TTL_SECONDS,
 } from '@/services/auth/browser_session';
 import {
@@ -52,6 +54,20 @@ import { public_rate_limit } from '@/middleware/public_rate_limit';
  * already true for `http://localhost:2742/*` in the bundled realm, and covered
  * by `__PUBLIC_BASE_URL__/*` wherever the two share an origin.
  */
+
+/**
+ * Declared so the committed spec matches reality. These routes never answer
+ * 200: the two browser-facing ones only ever redirect, and all four answer 404
+ * when the provider is not Keycloak. A generated client built from a spec that
+ * claimed 200 would model a response body that does not exist.
+ */
+const ErrorResponseSchema = z.object({
+  error: z.string(),
+  message: z.string(),
+});
+
+/** A redirect carries no body; declared so the status itself is documented. */
+const RedirectResponse = z.null().describe('Redirect (Location header).');
 
 const SessionResponse = z.object({
   authenticated: z.boolean(),
@@ -96,6 +112,48 @@ function notEnabled(reply: FastifyReply) {
   });
 }
 
+/**
+ * Ties the authorization response to the browser that began the flow.
+ *
+ * `state` on its own says nothing about WHICH user agent is redeeming the code.
+ * The verifier and nonce live in Redis keyed by `state`, so they attest the
+ * SERVER's participation in the flow, not the browser's — PKCE cannot stand in
+ * for this. Without a browser-held value, an authorization response obtained in
+ * one browser can be redeemed in another, landing that user in a session they
+ * did not start.
+ *
+ * The deleted SPA client had this binding implicitly: `oidc-client-ts` kept its
+ * state in that browser's own web storage, so a callback arriving anywhere else
+ * had nothing to validate against. Moving the exchange server-side removed it,
+ * so it is re-established explicitly here. RFC 9700 §4.4.1.
+ */
+const FLOW_COOKIE = 'oidc_flow';
+
+/**
+ * Scoped to the session routes, not `/`: the callback is the only reader, and a
+ * flow cookie has no business riding along on every API request.
+ */
+const FLOW_COOKIE_PATH = '/api/v1/auth/session';
+
+function flowCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: instance.INSTANCE_ENV !== 'development',
+    // Lax for the same reason as the session cookie: the callback arrives as a
+    // top-level cross-site GET from Keycloak, and `Strict` withholds a cookie
+    // on exactly that navigation — which would make every login fail closed.
+    sameSite: 'lax' as const,
+    path: FLOW_COOKIE_PATH,
+    // Matches the flow state's own TTL, so the cookie and the Redis row expire
+    // together rather than one outliving the other.
+    maxAge: FLOW_TTL_SECONDS,
+  };
+}
+
+function clearFlowCookie(reply: FastifyReply): void {
+  reply.clearCookie(FLOW_COOKIE, { path: FLOW_COOKIE_PATH });
+}
+
 function cookieOptions() {
   return {
     httpOnly: true,
@@ -132,6 +190,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
         /** The UI's own `window.location.origin`; allowlisted, never trusted. */
         appOrigin: z.string().optional(),
       }),
+      response: { 302: RedirectResponse, 404: ErrorResponseSchema },
     },
     handler: async (request, reply) => {
       if (!authConfig.keycloak_enabled) return notEnabled(reply);
@@ -154,6 +213,11 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
         appOrigin: safeAppOrigin(request.query.appOrigin, self),
       });
 
+      // The browser's half of the binding checked at the callback. Set before
+      // the redirect so it is already in place when Keycloak sends the user
+      // back, however fast that round-trip is.
+      reply.setCookie(FLOW_COOKIE, state, flowCookieOptions());
+
       return reply.redirect(
         buildAuthorizeUrl({ redirectUri, state, nonce, challenge })
       );
@@ -174,6 +238,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
         state: z.string().optional(),
         error: z.string().optional(),
       }),
+      response: { 302: RedirectResponse, 404: ErrorResponseSchema },
     },
     handler: async (request, reply) => {
       if (!authConfig.keycloak_enabled) return notEnabled(reply);
@@ -192,13 +257,34 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       // sign-in screen, which surfaces `auth_error`. Landing on the logged-out
       // home page said nothing at all, so a user who cancelled at Keycloak — or
       // whose 5-minute flow expired — got no explanation.
-      const authError = (origin: string) =>
-        reply.redirect(`${origin}/auth/login?auth_error=1`);
+      const authError = (origin: string) => {
+        // Every failure exit drops the flow cookie: it is single-use by intent,
+        // and leaving it set lets a later callback reuse a binding whose flow
+        // state is already gone.
+        clearFlowCookie(reply);
+        return reply.redirect(`${origin}/auth/login?auth_error=1`);
+      };
 
       // Keycloak reports failures on the redirect rather than as a status, so
       // this is the normal "user cancelled" path, not an exception.
       if (error || !code || !state) {
         request.log.warn({ oidcError: error ?? 'missing code/state' }, 'OIDC callback rejected');
+        return authError(requestOrigin(request));
+      }
+
+      /**
+       * Checked BEFORE `consumeFlowState`, deliberately. The flow state is
+       * single-use, so validating the browser binding first means a forged
+       * callback cannot burn a legitimate login that is still in flight —
+       * otherwise rejecting the request would still have cost the real user
+       * their flow.
+       */
+      const flowCookie = request.cookies?.[FLOW_COOKIE];
+      if (!flowCookie || !safeEqual(flowCookie, state)) {
+        request.log.warn(
+          { hasFlowCookie: Boolean(flowCookie) },
+          'OIDC callback rejected: not bound to the browser that started the flow'
+        );
         return authError(requestOrigin(request));
       }
 
@@ -232,8 +318,16 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
        * nothing compares is worse than no field at all, because it reads as a
        * control that exists.
        */
+      /**
+       * A missing nonce is a failure, not a pass. We always request
+       * `scope=openid` and always send a nonce, so Keycloak always returns an
+       * id token carrying it — `null` here means either the claim is absent or
+       * the token did not parse, and neither is a state we should exchange in.
+       * Treating absence as "nothing to check" let the one case that matters
+       * through: an id token that never went through our authorize request.
+       */
       const returnedNonce = idTokenNonce(tokens.idToken);
-      if (returnedNonce !== null && returnedNonce !== flow.nonce) {
+      if (returnedNonce === null || returnedNonce !== flow.nonce) {
         request.log.error('OIDC callback: id token nonce did not match the flow');
         return authError(flow.appOrigin);
       }
@@ -251,6 +345,8 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
       });
 
       reply.setCookie(SESSION_COOKIE, sessionId, cookieOptions());
+      // The binding has done its job; the flow it pointed at is consumed.
+      clearFlowCookie(reply);
 
       // Hand the flow's parameters back to the UI's callback page, which still
       // owns everything that happens AFTER a session exists — consent resume,
@@ -274,9 +370,12 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
     method: 'GET',
     schema: {
       tags: ['auth'],
-      response: { 200: SessionResponse },
+      response: { 200: SessionResponse, 404: ErrorResponseSchema },
     },
     handler: async (request, reply) => {
+      // Same guard as the other three routes. Without it this one reaches Redis
+      // on a betterauth instance, where a BFF session cannot exist.
+      if (!authConfig.keycloak_enabled) return notEnabled(reply);
       const sessionId = request.cookies?.[SESSION_COOKIE];
       if (!sessionId) return reply.send({ authenticated: false });
 
@@ -299,7 +398,7 @@ export const auth_session: FastifyPluginAsyncZod = async (fastify) => {
     method: 'POST',
     schema: {
       tags: ['auth'],
-      response: { 200: LogoutResponse },
+      response: { 200: LogoutResponse, 404: ErrorResponseSchema },
     },
     handler: async (request, reply) => {
       // Guarded like the other three: under `betterauth` `keycloakConfig` has

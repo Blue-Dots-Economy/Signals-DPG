@@ -1,3 +1,4 @@
+import z from '@dpg/schemas';
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { redis } from '@api/db/secondary/redis';
 
@@ -34,13 +35,19 @@ const SESSION_ID_BYTES = 32;
  */
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
-export interface BrowserSession {
-  accessToken: string;
-  refreshToken: string;
+/**
+ * The stored shape, declared as a schema so `readSession` can VALIDATE a row
+ * rather than assert it, with the type inferred from it so the two cannot
+ * drift. The field notes live here rather than on a parallel interface for the
+ * same reason — one declaration, one place to change.
+ */
+export const BrowserSessionSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
   /** Epoch ms. Used to refresh slightly early rather than on a 401. */
-  accessTokenExp: number;
+  accessTokenExp: z.number(),
   /** Epoch ms. A session cannot outlive this. */
-  refreshTokenExp: number;
+  refreshTokenExp: z.number(),
   /**
    * Kept only to pass as `id_token_hint` on logout. Without it Keycloak cannot
    * tell whose session is ending and interrupts the user with a "Do you want to
@@ -50,22 +57,28 @@ export interface BrowserSession {
    * Optional because a Keycloak that returns no id token must still yield a
    * usable session; logout then falls back to naming the client instead.
    */
-  idToken?: string;
+  idToken: z.string().optional(),
   /**
    * Per-session CSRF token, echoed by the UI in `x-csrf-token` on every
    * state-changing request. Checked in `plugins/auth/resolve_browser_session.ts`.
    */
-  csrfToken: string;
+  csrfToken: z.string(),
   /**
    * The browser origin this session was opened from, validated against the CORS
    * allowlist at login (see `safeAppOrigin`). Kept so logout can send the user
    * back to the APP rather than to the API — the two are not necessarily the
    * same origin, and Keycloak only accepts post-logout URLs registered for the
    * app.
+   *
+   * Read ONLY for that redirect. It is not an authorization input: cross-portal
+   * isolation comes from the cookie being host-only, not from comparing this.
+   * See `resolve_browser_session`'s tests, which pin that contract.
    */
-  appOrigin: string;
-  createdAt: number;
-}
+  appOrigin: z.string(),
+  createdAt: z.number(),
+});
+
+export type BrowserSession = z.infer<typeof BrowserSessionSchema>;
 
 /** Never let a raw session id become a Redis key — see the note above. */
 function storeKey(sessionId: string): string {
@@ -111,10 +124,21 @@ export async function readSession(
   const raw = await redis.get(storeKey(sessionId));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as BrowserSession;
+    /**
+     * Parsed AND validated, not cast. A cast makes any valid JSON a live
+     * session, and the fields are then trusted downstream: a row missing
+     * `csrfToken` reaches `safeEqual(header, undefined)`, which throws a
+     * `TypeError` — and `apps/api` registers no `setErrorHandler`, so that
+     * surfaces as an unhandled 500 rather than a clean 401.
+     *
+     * The realistic trigger is not corruption but versioning: a later release
+     * changing this shape while old rows are still in Redis. Validating costs
+     * one parse and turns that into an ordinary re-login.
+     */
+    return BrowserSessionSchema.parse(JSON.parse(raw));
   } catch {
-    // A corrupt entry is treated as no session rather than a 500: the caller
-    // is simply logged out and can sign in again.
+    // Corrupt or superseded shape: treated as no session rather than a 500, so
+    // the caller is simply logged out and can sign in again.
     return null;
   }
 }

@@ -33,7 +33,7 @@ export function setBrowserAllowedOrigins(origins: readonly string[]): void {
  */
 
 const FLOW_PREFIX = 'oidcflow:';
-const FLOW_TTL_SECONDS = 5 * 60;
+export const FLOW_TTL_SECONDS = 5 * 60;
 
 export interface OidcFlowState {
   verifier: string;
@@ -92,6 +92,13 @@ export function safeReturnTo(raw: unknown, fallback = '/'): string {
   if (typeof raw !== 'string' || raw.length === 0) return fallback;
   if (!raw.startsWith('/')) return fallback;
   if (raw.startsWith('//')) return fallback;
+  // A backslash is a path separator to the WHATWG URL parser, so `/\evil.test`
+  // is read as protocol-relative and resolves off-origin — it clears both
+  // checks above. Today the only consumer hands this to `replace`, whose
+  // `replaceState` would throw on a cross-origin result, but that is a browser
+  // invariant rather than a control of ours, and `bff-session.ts` already
+  // assigns `window.location` directly elsewhere. Reject the character.
+  if (raw.includes('\\')) return fallback;
   return raw;
 }
 

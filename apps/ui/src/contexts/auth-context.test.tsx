@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './auth-context';
 
@@ -15,7 +15,8 @@ vi.mock('@/engine', () => ({ clearSchemaCache }));
  * restore resolves.
  */
 const bff = vi.hoisted(() => ({
-  fetchBffSession: async () => ({ authenticated: false }) as { authenticated: boolean },
+  fetchBffSession: async () =>
+    ({ authenticated: false }) as { authenticated: boolean; unknown?: boolean },
 }));
 vi.mock('@/lib/bff-session', () => ({
   fetchBffSession: () => bff.fetchBffSession(),
@@ -117,6 +118,30 @@ describe('AuthProvider signOut', () => {
     });
 
     expect(client.getQueryData(['consent-status', 'network-a'])).toBeUndefined();
+  });
+});
+
+describe('AuthProvider — a dependency outage is not a logout', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('holds the signed-out state rather than asserting it when the API cannot answer', async () => {
+    /**
+     * The API maps a Keycloak or Redis outage to 503 on purpose so it does not
+     * read as "your session died". The client used to collapse every non-2xx
+     * into signed-out, so a 30-second blip logged every user out. `unknown`
+     * means hold what you have.
+     */
+    bff.fetchBffSession = async () => ({ authenticated: false, unknown: true });
+    const authApi = await import('@/lib/auth-api');
+
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper(new QueryClient()) });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // Never asked who the user is, because it was never told the session ended.
+    expect(authApi.fetchMe).not.toHaveBeenCalled();
+    expect(result.current.user).toBeNull();
   });
 });
 

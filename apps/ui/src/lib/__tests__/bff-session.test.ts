@@ -53,8 +53,9 @@ afterEach(() => {
   });
 });
 
-const jsonResponse = (body: unknown, ok = true) => ({
+const jsonResponse = (body: unknown, ok = true, status = ok ? 200 : 401) => ({
   ok,
+  status,
   json: async () => body,
 });
 
@@ -86,24 +87,43 @@ describe('fetchBffSession', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'include' });
   });
 
-  it('reports signed-out and drops any stale token on a non-OK response', async () => {
+  it('reports signed-out and drops any stale token on a 401', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ authenticated: true, csrfToken: 'c' }));
     await fetchBffSession();
     expect(getCsrfToken()).toBe('c');
 
-    fetchMock.mockResolvedValue(jsonResponse({}, false));
+    fetchMock.mockResolvedValue(jsonResponse({}, false, 401));
 
     await expect(fetchBffSession()).resolves.toEqual({ authenticated: false });
     expect(getCsrfToken()).toBeNull();
   });
 
-  it('treats a network failure as signed-out rather than throwing', async () => {
-    // The caller renders the signed-out state and the next call retries; an
-    // exception here would take down whatever rendered it.
+  it('reports UNKNOWN on a 5xx and keeps the CSRF token', async () => {
+    /**
+     * The API answers a Keycloak or Redis outage with 503 precisely so it does
+     * not read as "your session died". Collapsing that into signed-out showed a
+     * 30-second blip to every logged-in user as a logout. The token is kept so
+     * a write still works the moment the dependency recovers.
+     */
+    fetchMock.mockResolvedValue(jsonResponse({ authenticated: true, csrfToken: 'c' }));
+    await fetchBffSession();
+
+    fetchMock.mockResolvedValue(jsonResponse({}, false, 503));
+
+    await expect(fetchBffSession()).resolves.toEqual({ authenticated: false, unknown: true });
+    expect(getCsrfToken()).toBe('c');
+  });
+
+  it('treats a network failure as unknown rather than throwing or signing out', async () => {
+    // An exception here would take down whatever rendered it, and claiming
+    // signed-out would log the user out every time the connection hiccupped.
+    fetchMock.mockResolvedValue(jsonResponse({ authenticated: true, csrfToken: 'c' }));
+    await fetchBffSession();
+
     fetchMock.mockRejectedValue(new Error('offline'));
 
-    await expect(fetchBffSession()).resolves.toEqual({ authenticated: false });
-    expect(getCsrfToken()).toBeNull();
+    await expect(fetchBffSession()).resolves.toEqual({ authenticated: false, unknown: true });
+    expect(getCsrfToken()).toBe('c');
   });
 });
 

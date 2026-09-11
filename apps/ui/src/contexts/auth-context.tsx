@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import {
   getSession,
   fetchMe,
@@ -99,6 +100,20 @@ function evictPerUserQueries(queryClient: QueryClient): void {
   }
 }
 
+/**
+ * True when a failure says nothing about whether the session is still valid.
+ *
+ * The API answers a dependency outage with 503 rather than 401 specifically so
+ * a Keycloak restart is not a fleet-wide logout. A thrown request with no
+ * response at all (offline, DNS, aborted) is the same class. Anything else —
+ * notably a 401 — is a real answer and must sign the user out.
+ */
+function isTransientAuthFailure(err: unknown): boolean {
+  if (!isAxiosError(err)) return false;
+  const status = err.response?.status;
+  return status === undefined || status >= 500;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -149,6 +164,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // principle — `authenticated` is the whole answer.
         const session = await fetchBffSession();
         if (superseded()) return;
+        // The API could not answer (outage, offline). Hold what we have rather
+        // than signing the user out over a blip — see `BffSession.unknown`.
+        if (session.unknown) return;
         if (!session.authenticated) {
           setUser(null);
           return;
@@ -166,8 +184,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const session = await getSession();
       if (superseded()) return;
       setUser(session.user);
-    } catch {
+    } catch (err) {
       if (superseded()) return;
+      /**
+       * Only a definitive answer signs the user out. The API maps a Keycloak or
+       * Redis outage to 503 on purpose so it does not read as "your session
+       * died"; treating every thrown error as a logout undid that, and a brief
+       * dependency blip emptied the session for everyone signed in. A 5xx or a
+       * transport failure leaves `user` alone — the next poll settles it.
+       */
+      if (isTransientAuthFailure(err)) return;
       setUser(null);
     } finally {
       // Superseded means a login already owns the state — including having

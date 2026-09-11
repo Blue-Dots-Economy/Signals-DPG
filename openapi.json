@@ -16,8 +16,14 @@
       "sessionAuth": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "better-auth.session_token",
-        "description": "Browser session cookie issued by better-auth after sign-in, used by the web UI (apps/api/plugins/auth/auth_middleware.ts). Checked as a fallback only when x-api-key is absent."
+        "name": "sid",
+        "description": "Opaque browser-session cookie issued by the BFF after sign-in, used by the web UI (apps/api/plugins/auth/resolve_browser_session.ts). httpOnly, so script cannot read it; the access and refresh tokens live server-side in Redis and never reach the browser. Checked when x-api-key is absent, before the bearer path. Under AUTH_PROVIDER=betterauth this channel is dormant and the session cookie is better-auth's own `better-auth.session_token` instead. **Every unsafe method (anything but GET/HEAD/OPTIONS) additionally requires the `x-csrf-token` header echoing the value from `GET /api/v1/auth/session`; without it the request is refused with 403 CSRF_TOKEN_INVALID.**"
+      },
+      "csrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-csrf-token",
+        "description": "Per-session CSRF token for the cookie channel, read from `GET /api/v1/auth/session` and echoed on every state-changing request. A cookie is attached by the browser automatically, so this double-submit token is what a cross-site page cannot supply — it can cause the cookie to be sent but cannot read the response that carries this value. Not required on GET/HEAD/OPTIONS, and not used by the x-api-key or bearer channels."
       },
       "peerAuth": {
         "type": "apiKey",
@@ -8129,8 +8135,43 @@
         ],
         "security": [],
         "responses": {
-          "200": {
-            "description": "Default Response"
+          "302": {
+            "description": "Redirect (Location header).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ],
+                  "description": "Redirect (Location header)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -8168,8 +8209,43 @@
         ],
         "security": [],
         "responses": {
-          "200": {
-            "description": "Default Response"
+          "302": {
+            "description": "Redirect (Location header).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "nullable": true,
+                  "enum": [
+                    null
+                  ],
+                  "description": "Redirect (Location header)."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -8202,6 +8278,29 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
           }
         }
       }
@@ -8226,6 +8325,29 @@
                   },
                   "required": [
                     "endSessionUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "message"
                   ],
                   "additionalProperties": false
                 }
@@ -8720,7 +8842,8 @@
       "apiKeyAuth": []
     },
     {
-      "sessionAuth": []
+      "sessionAuth": [],
+      "csrfToken": []
     }
   ],
   "tags": [

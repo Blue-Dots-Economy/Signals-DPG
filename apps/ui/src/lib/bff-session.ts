@@ -18,6 +18,16 @@ import { apiConfig } from './api-config';
 export interface BffSession {
   authenticated: boolean;
   csrfToken?: string;
+  /**
+   * The server could not answer — NOT a statement that the session is gone.
+   *
+   * The API deliberately answers a Keycloak or Redis outage with 503 rather
+   * than 401, precisely so it does not read as "your session died". Collapsing
+   * every non-2xx into `authenticated: false` threw that distinction away and
+   * showed a 30-second blip to every signed-in user as being logged out. The
+   * caller should hold its existing state when this is set.
+   */
+  unknown?: boolean;
 }
 
 /** In-memory only. A reload re-reads it from the API; nothing is persisted. */
@@ -48,6 +58,14 @@ export async function fetchBffSession(): Promise<BffSession> {
       headers: { accept: 'application/json' },
     });
     if (!response.ok) {
+      /**
+       * A 5xx is the server saying it could not reach its own dependencies —
+       * the session may well still be alive. Keep the CSRF token so a write
+       * still works once the dependency recovers, and tell the caller the
+       * answer is unknown rather than negative.
+       */
+      if (response.status >= 500) return { authenticated: false, unknown: true };
+      // 401/403/404: a real answer. The session is gone or was never there.
       csrfToken = null;
       return { authenticated: false };
     }
@@ -55,10 +73,9 @@ export async function fetchBffSession(): Promise<BffSession> {
     csrfToken = session.csrfToken ?? null;
     return session;
   } catch {
-    // Network failure is indistinguishable from logged-out for our purposes;
-    // the caller renders the signed-out state and the next call retries.
-    csrfToken = null;
-    return { authenticated: false };
+    // Could not reach the API at all — offline, DNS, a dropped connection.
+    // That says nothing about the session, so it is `unknown` too.
+    return { authenticated: false, unknown: true };
   }
 }
 
