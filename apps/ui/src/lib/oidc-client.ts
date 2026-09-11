@@ -85,12 +85,27 @@ export function resetUserManager(): void {
   manager = null;
 }
 
-/** Send the browser to Keycloak. Does not return — the page navigates away. */
+/**
+ * Send the browser to Keycloak. Does not return — the page navigates away.
+ *
+ * Deliberately has no "force re-prompt" option. `prompt=login` re-authenticates
+ * the CURRENT user, so it cannot switch accounts on this shared realm: naming a
+ * different user makes Keycloak throw USER_CONFLICT and report
+ * `invalid_user_credentials`. Account switching goes through `oidcLogout`
+ * (#753).
+ */
+export interface StartOidcLoginOptions {
+  /** Deep link to return to after the round trip. */
+  returnTo?: string;
+  /** Binds a parked consent acceptance to THIS login. See lib/pending-consent.ts. */
+  consentAttempt?: string;
+}
+
 export async function startOidcLogin(
   serverConfig: AuthConfigResponse | null | undefined,
-  returnTo?: string,
-  consentAttempt?: string
+  options: StartOidcLoginOptions = {}
 ): Promise<void> {
+  const { returnTo, consentAttempt } = options;
   const userManager = getUserManager(serverConfig);
   if (!userManager) throw new Error('Keycloak is not configured');
 

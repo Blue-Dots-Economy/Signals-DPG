@@ -310,27 +310,43 @@ describe('service vs human fork (Build 3)', () => {
 describe('realm-role gate on the human path (shared-realm defence in depth)', () => {
   beforeEach(() => setProvider('keycloak'));
 
-  it('refuses an accepted-client token that carries no signals realm role', async () => {
-    // The scenario the client allowlist alone does not cover: a foreign-realm
-    // client whose `aud`/`azp` names a signals client. Signals stamps
-    // signals_participant / signals_admin on its own users; aggregator's do not
-    // carry either, and a client cannot mint itself a realm role.
+  /** Resolves a human-path token carrying the given claims. */
+  async function resolveWith(claims: Record<string, unknown>) {
     verifyKeycloakToken.mockResolvedValue({
       ok: true,
-      claims: {
-        sub: 'x',
-        azp: 'signals-ui',
-        email: 'someone@example.org',
-        realm_access: { roles: ['org_owner'] },
-      },
+      claims: { sub: 'x', azp: 'signals-ui', email: 'someone@example.org', ...claims },
     });
-
     const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
-
-    expect(result.ok).toBe(false);
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
-    expect(result.failure.status).toBe(403);
-    expect(result.failure.code).toBe('TOKEN_ROLE_REJECTED');
+    return result.failure;
+  }
+
+  it('names the aggregator account when an org owner reaches signals', async () => {
+    // Shared realm: signing into the aggregator leaves an SSO session Keycloak
+    // reuses here silently. Still refused, but "not a participant" reads as
+    // "your account is broken" and leaves the user nowhere (#753).
+    const failure = await resolveWith({ realm_access: { roles: ['org_owner'] } });
+    expect(failure.status).toBe(403);
+    expect(failure.code).toBe('TOKEN_AGGREGATOR_ACCOUNT');
+    expect(failure.message).toMatch(/aggregator account/i);
+    expect(failure.message).toMatch(/different account/i);
+    expect(provisionUserFromClaims).not.toHaveBeenCalled();
+  });
+
+  it('names the aggregator account for a coordinator (aggregator_id claim)', async () => {
+    const failure = await resolveWith({
+      aggregator_id: 'agg-1',
+      realm_access: { roles: [] },
+    });
+    expect(failure.code).toBe('TOKEN_AGGREGATOR_ACCOUNT');
+    expect(provisionUserFromClaims).not.toHaveBeenCalled();
+  });
+
+  it('keeps the generic message for a realm user that is neither', async () => {
+    // Only claim "you are an aggregator account" when that is certain.
+    const failure = await resolveWith({ realm_access: { roles: ['offline_access'] } });
+    expect(failure.status).toBe(403);
+    expect(failure.code).toBe('TOKEN_ROLE_REJECTED');
     expect(provisionUserFromClaims).not.toHaveBeenCalled();
   });
 
