@@ -55,7 +55,7 @@ const csv_escape = (v: unknown): string => {
   if (Array.isArray(v)) s = v.join('|');
   else if (v instanceof Date) s = v.toISOString();
   else s = String(v);
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  if (/[",\n\r]/.test(s)) return `"${s.replaceAll('"', '""')}"`;
   return s;
 };
 
