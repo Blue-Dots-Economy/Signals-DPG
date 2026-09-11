@@ -207,6 +207,28 @@ const MISSING_REALM_ROLE: AuthFailure = {
   message: 'This account is not a participant of the Signals Stack',
 };
 
+/**
+ * A realm-valid token that belongs to the AGGREGATOR portal, not to signals.
+ *
+ * Same rejection as `MISSING_REALM_ROLE` — the gate is unchanged — but it says
+ * which account the caller is actually signed in as. Both apps share one realm,
+ * so signing into the aggregator leaves an SSO session that Keycloak silently
+ * reuses here: the user never chose this identity and is not told that is what
+ * happened. "Not a participant" is true of an aggregator coordinator and reads
+ * as "your account is broken", which sends them nowhere.
+ *
+ * Recognised positively from `aggregator_id` / the `org_owner` realm role
+ * rather than inferred from the absence of signals roles, so the claim is only
+ * made when it is certain.
+ */
+const AGGREGATOR_ACCOUNT: AuthFailure = {
+  status: 403,
+  code: 'TOKEN_AGGREGATOR_ACCOUNT',
+  error: 'Forbidden',
+  message:
+    'You are signed in as an aggregator account. Signals needs a participant account — sign in with a different account.',
+};
+
 export const UNAUTHORIZED: AuthFailure = {
   status: 401,
   code: 'UNAUTHORIZED',
@@ -338,12 +360,19 @@ export async function resolveHumanSession(
   // operator has emptied KEYCLOAK_REQUIRED_REALM_ROLES.
   const required = keycloakConfig.required_realm_roles;
   if (required.length > 0 && !required.some((role) => hasRealmRole(claims, role))) {
+    // Same rejection either way; only the explanation differs. An aggregator
+    // token here means the shared-realm SSO session was reused silently, which
+    // the caller cannot tell from a broken account unless we say so.
+    const isAggregatorAccount =
+      typeof claims['aggregator_id'] === 'string' || hasRealmRole(claims, 'org_owner');
     request.log.warn(
-      { azp, roles: realmRoles(claims), required },
-      'keycloak token rejected: carries none of the required signals realm roles ' +
-        '(check the client\'s `roles` scope and that migration assigned the role)',
+      { azp, roles: realmRoles(claims), required, aggregator_account: isAggregatorAccount },
+      isAggregatorAccount
+        ? 'keycloak token rejected: aggregator account reached signals via the shared realm SSO session'
+        : 'keycloak token rejected: carries none of the required signals realm roles ' +
+            '(check the client\'s `roles` scope and that migration assigned the role)',
     );
-    return { ok: false, failure: MISSING_REALM_ROLE };
+    return { ok: false, failure: isAggregatorAccount ? AGGREGATOR_ACCOUNT : MISSING_REALM_ROLE };
   }
 
   const provisioned = await provisionUserFromClaims(claims, request.log);

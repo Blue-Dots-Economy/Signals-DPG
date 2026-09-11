@@ -8,7 +8,7 @@ interface OtpInputProps {
 }
 
 export function OtpInput({ length = 6, onComplete, disabled = false }: OtpInputProps) {
-  const [otp, setOtp] = useState<string[]>(Array(length).fill(''));
+  const [otp, setOtp] = useState<string[]>(new Array(length).fill(''));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleChange = (index: number, value: string) => {

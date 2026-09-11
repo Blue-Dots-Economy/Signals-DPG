@@ -5,7 +5,14 @@
 
 /** Generic Phase-1 CTA: the frontend base URL + the UI login route. */
 export function buildCtaUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/auth/login`;
+  // Trailing slashes are trimmed by a loop rather than /\/+$/: that pattern
+  // backtracks quadratically on a long run of slashes that does not end in a
+  // match. `baseUrl` is operator-set config today, so this is not a reachable
+  // DoS — but the linear form costs nothing and does not rely on that staying
+  // true if the helper is ever handed a caller-supplied value.
+  let base = baseUrl;
+  while (base.endsWith('/')) base = base.slice(0, -1);
+  return `${base}/auth/login`;
 }
 
 /**

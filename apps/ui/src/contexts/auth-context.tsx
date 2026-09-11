@@ -248,6 +248,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Full navigation to the API, which runs the OIDC flow server-side and
       // sets the session cookie on the way back. The code exchange no longer
       // happens in the page, so no token passes through the browser at all.
+      // Supersedes #688's `startOidcLogin(authCfg, {...})`: that options-object
+      // refactor lived in the OIDC client this change removes.
       startBffLogin(returnTo ?? '/', consentAttempt);
     },
     []

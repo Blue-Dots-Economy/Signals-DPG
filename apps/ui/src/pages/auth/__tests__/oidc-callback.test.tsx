@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { takePendingWrongPortal } from '@/lib/pending-wrong-portal';
@@ -32,6 +32,20 @@ vi.mock('@/hooks/use-auth-config', () => ({
     isLoading: false,
     isKeycloakLogin: true,
   }),
+}));
+
+/**
+ * The escape hatch from #688/#753 now runs through the BFF client: `oidcLogout`
+ * lived in the OIDC client this change removes, and `endBffSession` is its
+ * replacement — it destroys the server session AND hands off to Keycloak's
+ * end-session endpoint, so a switch cannot leave a live `sid` behind.
+ */
+const endBffSession = vi.fn(async () => true);
+const startBffLogin = vi.fn();
+vi.mock('@/lib/bff-session', async (orig) => ({
+  ...(await orig<typeof import('@/lib/bff-session')>()),
+  endBffSession: () => endBffSession(),
+  startBffLogin: (...a: unknown[]) => startBffLogin(...a),
 }));
 
 const completeKeycloakLogin = vi.fn(async () => {});
@@ -588,5 +602,86 @@ describe('#558 — first-time-login profile redirect', () => {
 
     await waitFor(() => expect(fetchMyProfilesLite).toHaveBeenCalled());
     expect(order).toEqual(['session', 'profiles']);
+  });
+
+  describe('cross-app sign-in (#753)', () => {
+    /** Fails the exchange with an API error carrying `code` + `message`. */
+    function rejectWith(code: string, message: string) {
+      completeKeycloakLogin.mockRejectedValue({
+        response: { data: { code, message } },
+      });
+    }
+
+    it('ENDS the session when the caller is an aggregator account', async () => {
+      // "Back to sign in" is a loop: Keycloak's SSO cookie is still valid, so
+      // the login page returns the same identity and the same error.
+      //
+      // A forced re-prompt does not fix it either. `prompt=login`
+      // re-authenticates the CURRENT user, so entering a different one makes
+      // Keycloak throw USER_CONFLICT and report `invalid_user_credentials` —
+      // rendered as "Invalid username or password" on a passwordless flow.
+      // Only ending the session clears the authenticated user.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+      renderPage();
+
+      const button = await screen.findByRole('button', { name: /sign out and switch account/i });
+      fireEvent.click(button);
+
+      await waitFor(() => expect(endBffSession).toHaveBeenCalled());
+      // Regression guard: starting a fresh login here is the broken behaviour —
+      // Keycloak's SSO cookie is still live, so it returns the same identity.
+      expect(startBffLogin).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalledWith('/auth/login', { replace: true });
+    });
+
+    it('shows the LOCALISED body, not the API English, for that case', async () => {
+      // The API message is English by construction (it doubles as log and
+      // API-client copy). Rendering it verbatim put an English sentence above
+      // a translated button on a Hindi or Kannada session.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'RAW-API-ENGLISH-SHOULD-NOT-RENDER');
+      renderPage();
+      expect(
+        await screen.findByText(/signed in with your aggregator portal account/i),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
+    });
+
+    it('offers the sign-out escape for a NON-aggregator rejection too', async () => {
+      // The loop is caused by the live realm session, not by which identity it
+      // holds. A coordinator whose token carries no `aggregator_id` claim (no
+      // mapper on the signals-ui client) lands here, and "Back to sign in"
+      // would hand back the same identity for ever.
+      rejectWith('TOKEN_ROLE_REJECTED', 'RAW-API-ENGLISH-SHOULD-NOT-RENDER');
+      renderPage();
+
+      expect(
+        await screen.findByRole('button', { name: /sign out and switch account/i }),
+      ).toBeInTheDocument();
+      // Localised, not the API's English.
+      expect(screen.queryByText(/RAW-API-ENGLISH-SHOULD-NOT-RENDER/)).toBeNull();
+      expect(screen.getByText(/already signed in with a different account/i)).toBeInTheDocument();
+    });
+
+    it('keeps the plain retry when signing out could not possibly help', async () => {
+      // Switching account cannot fix a misconfigured instance, so offering it
+      // would just walk the user round a loop with no exit.
+      rejectWith('KEYCLOAK_NOT_CONFIGURED', 'Keycloak is not configured on this instance');
+      renderPage();
+
+      expect(await screen.findByText(/not configured/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /sign out and switch account/i })).toBeNull();
+    });
+
+    it('falls back to the login page when the sign-out cannot start', async () => {
+      // A dead button would be worse than a redirect that at least moves them.
+      rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
+      endBffSession.mockRejectedValueOnce(new Error('keycloak unreachable'));
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /sign out and switch account/i }));
+      await waitFor(() =>
+        expect(navigate).toHaveBeenCalledWith('/auth/login', { replace: true }),
+      );
+    });
   });
 });

@@ -231,7 +231,7 @@ export class fetchSchema {
       .slice(1)
       .split('/')
       .filter(Boolean)
-      .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+      .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'));
 
     let currentValue: JsonValue | unknown = document;
 

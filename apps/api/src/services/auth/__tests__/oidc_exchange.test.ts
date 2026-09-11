@@ -95,6 +95,31 @@ describe('URLs the BROWSER is sent to', () => {
     expect(url.searchParams.get('response_type')).not.toContain('token');
   });
 
+  it('never sends `prompt`, so the realm SSO session still applies', () => {
+    /**
+     * Carried over from #688's `oidc-client-prompt.test.ts`, which guarded this
+     * on the deleted SPA client. The authorize URL is built here now, so the
+     * invariant moves here with it.
+     *
+     * A forced re-prompt looks like it would let a user pick a different
+     * account on this shared realm, but `prompt=login` re-authenticates the
+     * CURRENT one: naming another makes Keycloak throw USER_CONFLICT and report
+     * `invalid_user_credentials`, surfaced as "Invalid username or password" on
+     * a flow that never asked for a password. Account switching goes through
+     * the logout route instead (#753).
+     */
+    const url = new URL(
+      buildAuthorizeUrl({
+        redirectUri: 'http://localhost:2742/api/v1/auth/session/callback',
+        state: 'st',
+        nonce: 'no',
+        challenge: 'ch',
+      }),
+    );
+
+    expect(url.searchParams.has('prompt')).toBe(false);
+  });
+
   it('builds the end-session URL on the public issuer', () => {
     const url = new URL(
       buildEndSessionUrl({ postLogoutRedirectUri: 'http://localhost:3000/auth/login' }),

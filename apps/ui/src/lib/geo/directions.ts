@@ -20,7 +20,7 @@ export function directionsUrl(dest: LatLng, label: string | undefined, platform:
   switch (platform) {
     case 'android': {
       const encodedLabel = label
-        ? encodeURIComponent(label).replace(/\(/g, '%28').replace(/\)/g, '%29')
+        ? encodeURIComponent(label).replaceAll('(', '%28').replaceAll(')', '%29')
         : '';
       const q = label ? `${lat},${lng}(${encodedLabel})` : `${lat},${lng}`;
       return `geo:${lat},${lng}?q=${q}`;
@@ -34,7 +34,7 @@ export function directionsUrl(dest: LatLng, label: string | undefined, platform:
 
 /** Build a `tel:` href. A bare 10-digit number gets the default country code. */
 export function telHref(phone: string, defaultCountryCode = '+91'): string {
-  const cleaned = phone.replace(/[^\d+]/g, '');
+  const cleaned = phone.replaceAll(/[^\d+]/g, '');
   if (!cleaned) return '';
   if (cleaned.startsWith('+')) return `tel:${cleaned}`;
   if (/^\d{10}$/.test(cleaned)) return `tel:${defaultCountryCode}${cleaned}`;

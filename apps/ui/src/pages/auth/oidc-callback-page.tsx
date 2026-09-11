@@ -8,6 +8,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/auth-context';
 import { useAuthConfig } from '@/hooks/use-auth-config';
+import { endBffSession } from '@/lib/bff-session';
 import { takePendingConsent } from '@/lib/pending-consent';
 import { takePendingSignupExtras } from '@/lib/pending-signup-extras';
 import {
@@ -192,6 +193,7 @@ export function OidcCallbackPage() {
   const { config: authCfg, isLoading: isConfigLoading } = useAuthConfig();
   const { themeId, brand } = useNetworkTheme();
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   /**
    * Terms/privacy still outstanding for this user — the login-time gate.
    *
@@ -286,7 +288,7 @@ export function OidcCallbackPage() {
             setPendingWrongPortal(gate.heldDomain);
             await signOut();
             // Still reached when `signoutRedirect()` could not navigate (e.g.
-            // Keycloak unreachable, so `oidcLogout` falls back to a local
+            // Keycloak unreachable, so sign-out falls back to a local
             // `removeUser`). Both paths share the `wrong-portal-block` toast
             // id, so the user sees one message, not two.
             navigate('/auth/login', {
@@ -343,6 +345,7 @@ export function OidcCallbackPage() {
         navigate(landing, { replace: true });
       } catch (err) {
         if (cancelled) return;
+        setErrorCode(extractCode(err));
         setError(extractMessage(err) ?? t('auth.oidc_error_desc'));
       }
     })();
@@ -428,20 +431,92 @@ export function OidcCallbackPage() {
     );
   }
 
+  /**
+   * End the session so the user can sign in as someone else (#688 / #753).
+   *
+   * A forced re-prompt (`prompt=login`) is NOT enough: it re-authenticates the
+   * CURRENT user, so naming a different one makes Keycloak throw USER_CONFLICT
+   * (AuthenticationProcessor.setAutheticatedUser) and report
+   * `invalid_user_credentials` — which the login theme renders as "Invalid
+   * username or password" on a flow that never asked for a password. Only
+   * ending the session clears the authenticated user.
+   *
+   * `endBffSession` replaces #688's `oidcLogout`, which lived in the OIDC
+   * client this change removes. It is the stronger of the two: it destroys the
+   * server-side session as well as handing off to Keycloak's end-session
+   * endpoint, so the escape hatch cannot leave a live `sid` behind while the
+   * realm session goes. Returns `false` when the server did not end it, which
+   * is the same dead-button case the fallback below is for.
+   *
+   * Falls back to the login page if the redirect cannot start, which at least
+   * leaves them somewhere rather than on a dead button.
+   */
+  const switchAccount = async (): Promise<void> => {
+    try {
+      const ended = await endBffSession();
+      // `endBffSession` navigates to Keycloak itself when it has an end-session
+      // URL. Reaching here with `false` means it had none, so nothing is in
+      // flight and this is the only thing that will move the user.
+      if (!ended) navigate('/auth/login', { replace: true });
+    } catch {
+      navigate('/auth/login', { replace: true });
+    }
+  };
+
+  // The API's message is English by construction (it doubles as log and
+  // API-client copy), so prefer a localised equivalent wherever one exists —
+  // otherwise a Hindi user reads an English sentence above a Hindi button.
+  const body = LOCALISED_REJECTION_KEYS[errorCode ?? ''] ?? '';
+
   return (
     <AuthShell>
       <div className="mx-auto flex max-w-md flex-col gap-4 py-16">
         <Alert variant="destructive">
           <OctagonX className="size-4" />
           <AlertTitle>{t('auth.oidc_error_title')}</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{body ? t(body) : error}</AlertDescription>
         </Alert>
-        <Button onClick={() => navigate('/auth/login', { replace: true })}>
-          {t('auth.oidc_retry')}
-        </Button>
+        {isRecoverableIdentity(errorCode) ? (
+          // "Back to sign in" is a loop for EVERY one of these: Keycloak's SSO
+          // cookie is still valid, so the login page hands back the same
+          // identity and the same error. The loop is caused by the live realm
+          // session, not by which identity it holds — so the escape cannot be
+          // gated on one diagnosis.
+          <Button onClick={() => void switchAccount()}>{t('auth.switch_account')}</Button>
+        ) : (
+          <Button onClick={() => navigate('/auth/login', { replace: true })}>
+            {t('auth.oidc_retry')}
+          </Button>
+        )}
       </div>
     </AuthShell>
   );
+}
+
+/**
+ * Rejections whose copy we localise, keyed by the API's error code.
+ *
+ * Anything absent falls back to the API's own English message, which is the
+ * right default for the long tail (SELF_SIGNUP_DISABLED, USER_BANNED, …).
+ */
+const LOCALISED_REJECTION_KEYS: Readonly<Record<string, string>> = {
+  TOKEN_AGGREGATOR_ACCOUNT: 'auth.aggregator_account_no_signals',
+  TOKEN_ROLE_REJECTED: 'auth.non_participant_no_signals',
+};
+
+/**
+ * Whether signing out and back in could plausibly succeed.
+ *
+ * True only for "the realm handed us the wrong identity" — the caller may well
+ * hold a participant account. Deliberately NOT true for the long tail:
+ * offering "sign in with a different account" for KEYCLOAK_NOT_CONFIGURED or
+ * USER_BANNED would send the user round a loop that cannot resolve.
+ *
+ * @param errorCode - Machine-readable code from the API, when present.
+ * @returns True when the sign-out escape should be offered.
+ */
+function isRecoverableIdentity(errorCode: string | null | undefined): boolean {
+  return errorCode === 'TOKEN_AGGREGATOR_ACCOUNT' || errorCode === 'TOKEN_ROLE_REJECTED';
 }
 
 /**
@@ -454,6 +529,21 @@ export function OidcCallbackPage() {
  * by redirecting to `/?auth_error=1` rather than sending the browser to this
  * page at all.
  */
+/**
+ * Reads the API's machine-readable error code, when present.
+ *
+ * `TOKEN_AGGREGATOR_ACCOUNT` means the caller is signed in as an aggregator
+ * account via the shared realm's SSO session — recoverable by switching
+ * account, unlike the other failures here (#753).
+ *
+ * @param err - The thrown request error.
+ * @returns The `error.code` string, or null.
+ */
+function extractCode(err: unknown): string | null {
+  const code = (err as { response?: { data?: { code?: unknown } } } | null)?.response?.data?.code;
+  return typeof code === 'string' && code !== '' ? code : null;
+}
+
 function extractMessage(err: unknown): string | null {
   const apiMessage = (
     err as { response?: { data?: { message?: unknown } } } | null
