@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider, useAuth } from './auth-context';
+import { AuthProvider, useAuth, resolveKeycloakUser, HOLD } from './auth-context';
 
 const { clearSchemaCache } = vi.hoisted(() => ({ clearSchemaCache: vi.fn() }));
 vi.mock('@/engine', () => ({ clearSchemaCache }));
@@ -121,27 +121,51 @@ describe('AuthProvider signOut', () => {
   });
 });
 
-describe('AuthProvider — a dependency outage is not a logout', () => {
+describe('resolveKeycloakUser — a dependency outage is not a logout', () => {
+  /**
+   * Tested directly rather than through the provider. From a cold start the
+   * provider's `user` is null whether we HOLD or assert null, so a
+   * provider-level test of `unknown` passes even with the branch deleted —
+   * verified by deleting it. Here the three outcomes are distinct values.
+   */
+  const notSuperseded = () => false;
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('holds the signed-out state rather than asserting it when the API cannot answer', async () => {
-    /**
-     * The API maps a Keycloak or Redis outage to 503 on purpose so it does not
-     * read as "your session died". The client used to collapse every non-2xx
-     * into signed-out, so a 30-second blip logged every user out. `unknown`
-     * means hold what you have.
-     */
+  it('HOLDs when the API could not answer, without asking who the user is', async () => {
+    // The API maps a Keycloak or Redis outage to 503 on purpose so it does not
+    // read as "your session died". Collapsing that into signed-out logged every
+    // user out over a 30-second blip.
     bff.fetchBffSession = async () => ({ authenticated: false, unknown: true });
     const authApi = await import('@/lib/auth-api');
 
-    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper(new QueryClient()) });
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    // Never asked who the user is, because it was never told the session ended.
+    await expect(resolveKeycloakUser(notSuperseded)).resolves.toBe(HOLD);
     expect(authApi.fetchMe).not.toHaveBeenCalled();
-    expect(result.current.user).toBeNull();
+  });
+
+  it('returns null when the API definitively says there is no session', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: false });
+
+    await expect(resolveKeycloakUser(notSuperseded)).resolves.toBeNull();
+  });
+
+  it('returns the user when the session is live', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: true, csrfToken: 'c' });
+
+    const out = await resolveKeycloakUser(notSuperseded);
+
+    expect(out).not.toBe(HOLD);
+    expect((out as { id: string } | null)?.id).toBeDefined();
+  });
+
+  it('HOLDs when a login lands mid-flight, before the second request', async () => {
+    bff.fetchBffSession = async () => ({ authenticated: true, csrfToken: 'c' });
+    const authApi = await import('@/lib/auth-api');
+
+    await expect(resolveKeycloakUser(() => true)).resolves.toBe(HOLD);
+    expect(authApi.fetchMe).not.toHaveBeenCalled();
   });
 });
 

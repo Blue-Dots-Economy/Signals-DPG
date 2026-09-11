@@ -101,6 +101,42 @@ function evictPerUserQueries(queryClient: QueryClient): void {
 }
 
 /**
+ * "Leave `user` exactly as it is." Distinct from `null`, which asserts the
+ * session is gone — the difference between a dependency blip and a logout.
+ */
+export const HOLD = Symbol('hold');
+
+/**
+ * Who the BFF session belongs to, or `HOLD` when we must not touch state.
+ *
+ * Extracted from `fetchSession` so each has one job: this resolves the Keycloak
+ * branch, the caller owns the try/finally and the provider fork.
+ *
+ * `superseded` is threaded in rather than checked only by the caller so a login
+ * that lands mid-flight short-circuits before the second request, exactly as
+ * the inline version did.
+ *
+ * Exported for its own tests: its three outcomes are only distinguishable here.
+ * Through the provider they collapse — from a cold start `user` is null whether
+ * we hold or assert null, so a provider-level test of `unknown` passes even
+ * with the branch deleted.
+ */
+export async function resolveKeycloakUser(
+  superseded: () => boolean,
+): Promise<User | null | typeof HOLD> {
+  // The BFF owns the session now (AUTH-VULN-03/04): ask whether this browser
+  // has one rather than reading a token out of storage. The cookie is httpOnly,
+  // so there is nothing here to read even in principle.
+  const session = await fetchBffSession();
+  if (superseded()) return HOLD;
+  // The API could not answer (outage, offline). Holding beats signing the user
+  // out over a blip — see `BffSession.unknown`.
+  if (session.unknown) return HOLD;
+  if (!session.authenticated) return null;
+  return meToUser(await fetchMe());
+}
+
+/**
  * True when a failure says nothing about whether the session is still valid.
  *
  * The API answers a dependency outage with 503 rather than 401 specifically so
@@ -157,33 +193,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     /** A login landed while we were awaiting — its user is newer than ours. */
     const superseded = () => epoch !== authEpochRef.current;
     try {
-      if (isKeycloakLogin) {
-        // The BFF owns the session now (AUTH-VULN-03/04): ask whether this
-        // browser has one rather than reading a token out of storage. The
-        // cookie is httpOnly, so there is nothing here to read even in
-        // principle — `authenticated` is the whole answer.
-        const session = await fetchBffSession();
-        if (superseded()) return;
-        // The API could not answer (outage, offline). Hold what we have rather
-        // than signing the user out over a blip — see `BffSession.unknown`.
-        if (session.unknown) return;
-        if (!session.authenticated) {
-          setUser(null);
-          return;
-        }
-        const me = meToUser(await fetchMe());
-        if (superseded()) return;
-        setUser(me);
-        return;
-      }
-
-      // better-auth path (AUTH_PROVIDER=betterauth). Its session is a cookie
-      // better-auth sets and reads itself, so the token it also returns no
-      // longer needs storing — it was only ever kept to build a Bearer header,
-      // which is the storage this change removes.
-      const session = await getSession();
+      // better-auth's session is a cookie it sets and reads itself, so the
+      // token it also returns no longer needs storing — that was only ever kept
+      // to build a Bearer header, which is the storage this change removes.
+      const next = isKeycloakLogin
+        ? await resolveKeycloakUser(superseded)
+        : (await getSession()).user;
       if (superseded()) return;
-      setUser(session.user);
+      if (next !== HOLD) setUser(next);
     } catch (err) {
       if (superseded()) return;
       /**
