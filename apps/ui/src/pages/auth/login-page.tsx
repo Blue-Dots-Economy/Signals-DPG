@@ -34,6 +34,7 @@ import { isMinorFromAge } from '@/lib/guardian-consent';
 import { PhoneInput, toE164 } from '@/components/auth/phone-input';
 import { useAuthConfig } from '@/hooks/use-auth-config';
 import { KeycloakLoginPanel } from './keycloak-login-panel';
+import { SessionExpiredNotice } from './session-expired-notice';
 import {
   SignupGuardianFlow,
   type SignupIdentifier,
@@ -628,6 +629,10 @@ function OtpLoginPage() {
           <ArrowLeft className="h-4 w-4" />
           {t('auth.back')}
         </button>
+
+        {/* Shared with the Keycloak panel — see session-expired-notice.tsx for
+            why it is not inline here any more. */}
+        <SessionExpiredNotice />
 
         {/* Heading */}
         <div className="mb-6">

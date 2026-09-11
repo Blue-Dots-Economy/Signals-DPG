@@ -743,5 +743,7 @@
   "map.unavailable_body": "Switch to list view to keep browsing. If this persists, the map service may be misconfigured for this site.",
   "auth.toast_signout_incomplete_title": "Sign-out may not be complete",
   "auth.toast_signout_incomplete_desc": "We could not reach the server. Close this browser to be sure you are signed out.",
-  "auth.oidc_error_cancelled": "The sign-in was cancelled or timed out. Please try again."
+  "auth.oidc_error_cancelled": "The sign-in was cancelled or timed out. Please try again.",
+  "auth.session_expired_title": "Session expired",
+  "auth.session_expired_desc": "Your session has ended. Please sign in again to continue."
 }

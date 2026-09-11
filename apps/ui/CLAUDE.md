@@ -31,7 +31,67 @@ Both resolve independently through the same priority chain: `?query` param → `
 
 ## Data fetching
 
-No generated API client. `src/lib/api-client.ts` builds one shared `axios` instance (Bearer-token interceptor via `src/contexts/auth-context.tsx`'s session), and each `src/lib/*-api.ts` file (`auth-api`, `item-api`, `network-api`, `action-api`, `consent-api`, `wallet-api`, `digilocker-api`, `match-score-api`, `support-api`, `bulk-api`) wraps a specific set of endpoints by hand. React Query (`@tanstack/react-query`) is the caching layer, used via hooks (`use-network-config.ts`, `use-consent-config.ts`, `use-consent-gate.ts`, etc.) rather than context — `auth-context.tsx` is the only React Context in the app.
+No generated API client. `src/lib/api-client.ts` builds one shared `axios` instance with **two** interceptors — a request one attaching the per-session CSRF token on unsafe methods (the session itself rides an httpOnly cookie the browser sends automatically), and a response one that ends the session when the server says it is gone (see below) — and each `src/lib/*-api.ts` file (`auth-api`, `item-api`, `network-api`, `action-api`, `consent-api`, `wallet-api`, `digilocker-api`, `match-score-api`, `support-api`, `bulk-api`) wraps a specific set of endpoints by hand. React Query (`@tanstack/react-query`) is the caching layer, used via hooks (`use-network-config.ts`, `use-consent-config.ts`, `use-consent-gate.ts`, etc.) rather than context — `auth-context.tsx` is the only React Context in the app.
+
+## Session expiry is a two-part chain — both parts are required
+
+A dead session must terminate the client's, not just fail one request. The
+pieces are deliberately in separate modules because the detector has no React
+context and the reactor needs the QueryClient:
+
+1. **`lib/api-client.ts`** — the response interceptor raises
+   `emitSessionExpired()` on a 401 that means "your session is gone". Under the
+   cookie session that code is `UNAUTHORIZED`, which an anonymous caller also
+   receives, so the trigger additionally requires `getCsrfToken() !== null` —
+   the non-React signal that this browser held a session.
+   `TOKEN_EXPIRED`/`NO_ACTIVE_SESSION` are kept for the betterauth and service
+   paths. Narrow on purpose: a 401 from a route the user merely may not call has
+   to stay an ordinary error, and a 5xx never qualifies (the API answers a
+   dependency outage with 503 precisely so it does NOT read as a logout — see
+   `bff-session.ts`'s `unknown`).
+2. **`contexts/auth-context.tsx`** — subscribes and does the terminal work:
+   clear the CSRF token, `setUser(null)` (which is what actually stops polling,
+   since every polled query carries `enabled: isAuthenticated`), cancel and drop
+   the query cache, then navigate to `/auth/login?reason=expired&redirect=…`.
+
+**How the user is told differs by path, and a toast is only half of it.** The
+redirect above is a `window.location` assignment, so a toast fired alongside it
+can never render — sonner and i18next are loaded by dynamic `import()`, which
+resolves a microtask after the document has already started tearing down. So the
+toast fires **only** when the handler stays on the page (already under
+`/auth/*`); on the redirect path the explanation is carried by `?reason=expired`
+and rendered on arrival by `pages/auth/session-expired-notice.tsx`.
+
+That notice must be rendered by **both** sign-in screens. `LoginPage` returns
+either `KeycloakLoginPanel` or the OTP page, each owning its own `AuthShell`, so
+anything placed in one is invisible under the other provider — which is how the
+notice shipped invisible on every Keycloak deployment, the same trap the
+`auth_error` toast fell into first. It lives in its own module (not exported
+from `login-page.tsx`, which imports the Keycloak panel) to keep that import
+acyclic.
+
+**Why this is still needed after the BFF.** Renewal moved server-side, so the
+old "renewed token never copied into storage" fault is gone — but nothing
+replaced the *detection*. `fetchSession` runs on mount only and there is no
+global error hook, so a session dying mid-use is discovered ONLY here. Without
+it the app keeps rendering as signed-in and polls 401s indefinitely.
+
+`lib/auth-events.ts` sits between them and **fires once per page lifetime**.
+That latch matters: four queries poll `/api/v1/action/fetch`, so one expiry
+surfaces as a burst of concurrent 401s, and without it each would trigger its
+own logout and navigation. It is also why the anonymous-caller gate lives in the
+interceptor rather than the handler — an anonymous 401 reaching the emitter
+would spend the latch and swallow a real expiry later in the same page.
+
+Relatedly, `lib/query-client.ts`'s `retry` never retries a 401/403 — an auth
+failure cannot succeed without new credentials, so retrying it only multiplies
+the noise. Read the status off `error.response.status` (axios) as well as
+`error.status`.
+
+The aggregator-dpg web app implements the same refresh-then-logout policy, split
+server/client across its BFF (`apps/web/src/lib/upstream-client.ts` and
+`apps/web/src/services/http.ts`) — worth reading if you change the policy here,
+so the two products don't diverge.
 
 ## Largest files (candidates for splitting if you're touching them heavily)
 

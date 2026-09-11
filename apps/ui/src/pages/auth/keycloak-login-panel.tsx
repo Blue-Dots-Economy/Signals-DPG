@@ -38,6 +38,7 @@ import { BirthYearSelect } from '@/components/consent/u18/birth-year-select';
 import { getServedScope } from '@/lib/served-binding';
 import type { DotNetworkDomain } from '@/engine/types';
 import { formatDomainLabel } from '@/lib/domain-icons';
+import { SessionExpiredNotice } from './session-expired-notice';
 import type { ConsentAcceptBody, ConsentConfigDocument } from '@dpg/schemas';
 
 /**
@@ -701,6 +702,8 @@ export function KeycloakLoginPanel() {
         <ArrowLeft className="h-4 w-4" />
         {t('auth.back')}
       </button>
+
+      <SessionExpiredNotice />
 
       <div className="mb-6">
         <h2 className="text-3xl font-bold text-foreground">

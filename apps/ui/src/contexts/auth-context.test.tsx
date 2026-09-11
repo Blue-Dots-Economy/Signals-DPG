@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth, resolveKeycloakUser, HOLD } from './auth-context';
 
@@ -23,7 +23,7 @@ vi.mock('@/lib/bff-session', () => ({
   endBffSession: async () => {},
   startBffLogin: () => {},
   getCsrfToken: () => null,
-  clearCsrfToken: () => {},
+  clearCsrfToken: () => clearCsrfToken(),
 }));
 vi.mock('@/lib/auth-api', () => ({
   getSession: vi.fn().mockResolvedValue(null),
@@ -41,6 +41,16 @@ vi.mock('@/lib/auth-api', () => ({
     authProvider: 'betterauth',
   }),
 }));
+
+/**
+ * `auth-token.ts` is gone with the BFF change — there is no token in the page.
+ * The in-memory CSRF token is what stands for a live session now, so that is
+ * what the terminal-expiry path has to clear.
+ */
+const { clearCsrfToken } = vi.hoisted(() => ({ clearCsrfToken: vi.fn() }));
+
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { error: toastError } }));
 
 function createWrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -237,5 +247,116 @@ describe('AuthProvider — a late session restore must not clobber a fresh login
     });
 
     expect(result.current.isAuthenticated).toBe(true);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Terminal session expiry — the path an unrecoverable 401 takes.
+//
+// `setUser(null)` here is what actually stops the polling: every polled query
+// carries `enabled: isAuthenticated` (`use-actions.ts`). Before this existed,
+// the client kept believing it was signed in and emitted 401s indefinitely —
+// measured at 33 requests in 45s, in bursts of nine.
+describe('AuthProvider — session expired', () => {
+  let href: string;
+  let pathname: string;
+  let search: string;
+
+  async function mountAndExpire(at = '/my-actions', qs = '?profile=abc') {
+    pathname = at;
+    search = qs;
+    const client = new QueryClient();
+    const cancelQueries = vi.spyOn(client, 'cancelQueries').mockResolvedValue(undefined);
+    const removeQueries = vi.spyOn(client, 'removeQueries').mockReturnValue(undefined);
+    const { result } = renderHook(() => useAuth(), { wrapper: createWrapper(client) });
+    // The subscription is registered from a dynamic import inside an effect.
+    const { emitSessionExpired } = await import('@/lib/auth-events');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      emitSessionExpired();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    return { result, cancelQueries, removeQueries };
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    clearCsrfToken.mockClear();
+    toastError.mockClear();
+    clearSchemaCache.mockClear();
+    href = '';
+    pathname = '/my-actions';
+    search = '';
+    const { resetSessionExpiredForTests } = await import('@/lib/auth-events');
+    resetSessionExpiredForTests();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        get pathname() {
+          return pathname;
+        },
+        get search() {
+          return search;
+        },
+        set href(v: string) {
+          href = v;
+        },
+        get href() {
+          return href;
+        },
+      },
+    });
+  });
+
+  it('drops the user, which is what disables every polled query', async () => {
+    const { result } = await mountAndExpire();
+    expect(result.current.user).toBeNull();
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+
+  it('clears the stored token', async () => {
+    await mountAndExpire();
+    expect(clearCsrfToken).toHaveBeenCalled();
+  });
+
+  it('cancels in-flight queries and drops the cache', async () => {
+    // Otherwise a signed-out page keeps rendering the previous user's data.
+    const { cancelQueries, removeQueries } = await mountAndExpire();
+    expect(cancelQueries).toHaveBeenCalled();
+    expect(removeQueries).toHaveBeenCalled();
+    expect(clearSchemaCache).toHaveBeenCalled();
+  });
+
+  // Telling the user why is split by path, because a toast cannot survive a
+  // full-page navigation: the sonner/i18next dynamic imports resolve on a later
+  // microtask while `window.location.href` is assigned synchronously.
+  it('carries the reason in the URL instead of a toast that cannot be seen', async () => {
+    await mountAndExpire('/my-actions', '?profile=abc');
+    expect(href).toContain('reason=expired');
+    // Firing one here would be dead code that reads like user-facing feedback.
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it('toasts when it stays on the page, where a toast can actually render', async () => {
+    await mountAndExpire('/auth/login', '');
+    expect(href).toBe('');
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+  });
+
+  it('redirects to login carrying the reason and where to return', async () => {
+    await mountAndExpire('/my-actions', '?profile=abc');
+    expect(href).toContain('/auth/login');
+    expect(href).toContain('reason=expired');
+    expect(href).toContain(encodeURIComponent('/my-actions?profile=abc'));
+  });
+
+  it('does NOT navigate when already inside the login flow', async () => {
+    // Navigating would discard a half-entered login.
+    await mountAndExpire('/auth/login', '?reason=expired');
+    expect(href).toBe('');
+    expect(clearCsrfToken).toHaveBeenCalled();
   });
 });
