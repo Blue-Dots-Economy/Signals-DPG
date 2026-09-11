@@ -65,8 +65,40 @@ function domainLabel(domain: DotNetworkDomain): string {
  * no screen while the config loads; showing the OTP form first and then
  * swapping it for a redirect button would be worse.
  */
+/**
+ * Explain a sign-in that failed before a session existed — cancelled at
+ * Keycloak, an expired 5-minute flow, or a refused code exchange. The API can
+ * only signal it as `?auth_error=1` on the redirect, so this is the one place
+ * that can say what happened.
+ *
+ * Lives on the WRAPPER, not on either panel: under Keycloak the OTP page never
+ * mounts, so an effect placed there would silently never run — which is exactly
+ * how this was missed the first time.
+ */
+function useFailedSignInNotice(): void {
+  const [searchParams] = useSearchParams();
+  const { t } = useTranslation();
+
+  useEffect(() => {
+    if (searchParams.get('auth_error') !== '1') return;
+    toast.error(t('auth.oidc_error_title', 'Sign-in could not be completed'), {
+      // Stable id so StrictMode's double-invoke shows one toast, not two.
+      id: 'oidc-auth-error',
+      description: t(
+        'auth.oidc_error_cancelled',
+        'The sign-in was cancelled or timed out. Please try again.',
+      ),
+    });
+    // Scrub the param so a refresh does not re-announce a stale failure.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('auth_error');
+    window.history.replaceState({}, '', url.pathname + url.search);
+  }, [searchParams, t]);
+}
+
 export function LoginPage() {
   const { isKeycloakLogin, isLoading } = useAuthConfig();
+  useFailedSignInNotice();
 
   if (isLoading) {
     return (

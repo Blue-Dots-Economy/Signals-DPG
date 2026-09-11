@@ -15,6 +15,7 @@ import {
   instance,
   uiHostBindings,
 } from '@/config';
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import fastifyQs from 'fastify-qs';
 import fastifySwagger from '@fastify/swagger';
@@ -56,6 +57,12 @@ const PUBLIC_OPERATION_URLS = new Set([
   '/api/v1/consent/status-by-identifier',
   '/api/v1/network/schemas',
   '/api/v1/network/item/fetch',
+  // The BFF login flow. Unauthenticated by definition — they are how a browser
+  // GETS a session — so the generated spec must not claim otherwise.
+  '/api/v1/auth/session',
+  '/api/v1/auth/session/login',
+  '/api/v1/auth/session/callback',
+  '/api/v1/auth/session/logout',
 ]);
 
 // Operations guarded by peer_instance_guard (inter-instance HMAC) instead of
@@ -75,9 +82,16 @@ const PEER_OPERATION_URLS = new Set([
 // request ever reaching us; `auth/config` describes the instance's auth wiring.
 // Both are public by design — it is the *caching* that is the finding, not the
 // access. Every other public route keeps its own caching semantics.
+import { setBrowserAllowedOrigins } from '@/services/auth/oidc_flow_state';
+
 const NO_STORE_PUBLIC_URLS = new Set([
   '/api/v1/auth/config',
   '/api/v1/consent/status-by-identifier',
+  // Carries `authenticated` and the per-session CSRF token, and resolves no
+  // `request.user` (it reads the cookie itself), so the authenticated-response
+  // branch of the no-store hook never fires for it. Without this a shared proxy
+  // could hand one user's CSRF token to the next — the AUTH-VULN-07 class.
+  '/api/v1/auth/session',
 ]);
 
 /**
@@ -191,6 +205,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     networkAllowedOrigins
   );
 
+  // The BFF login validates `appOrigin` and the request Host against the same
+  // list, so anywhere the browser may CALL from is somewhere it may be SENT to,
+  // and the two cannot drift apart.
+  setBrowserAllowedOrigins(corsAllowedOrigins);
+
   // Add schema validator and serializer
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
@@ -212,6 +231,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     }
     return payload;
   });
+
+  /**
+   * Cookie parsing, for the BFF browser session (AUTH-VULN-03/04).
+   *
+   * Registered at the ROOT scope and before any route, because it decorates
+   * `request.cookies` / `reply.setCookie`: registered later, or inside an
+   * encapsulated scope, the session routes and the cookie auth channel silently
+   * see no cookies at all rather than failing loudly.
+   *
+   * No `secret` is configured on purpose — the `sid` value is an opaque random
+   * id with no meaning outside Redis, so signing it would add a key to manage
+   * and prove nothing the session lookup does not already prove.
+   */
+  await app.register(cookie);
 
   // CORS
   await app.register(cors, {
@@ -249,7 +282,17 @@ export async function buildApp(): Promise<FastifyInstance> {
         },
         // Default for every operation; exceptions are applied per-route in
         // documentAuthTransform below.
-        security: [{ apiKeyAuth: [] }, { sessionAuth: [] }],
+        /**
+         * Two alternatives, not three requirements: a caller presents EITHER an
+         * api key OR the session cookie, and the cookie alternative additionally
+         * carries the CSRF token. Pairing them here is what makes the header
+         * discoverable to a generated client — without it the spec described a
+         * cookie session that could authenticate reads but never perform a
+         * write, because nothing said the header existed. It is enforced only on
+         * unsafe methods (see the `csrfToken` scheme's description); sending it
+         * on a GET is simply ignored.
+         */
+        security: [{ apiKeyAuth: [] }, { sessionAuth: [], csrfToken: [] }],
         // Tag descriptions make starlight-openapi emit one overview page per
         // group in the published reference (tags without a description get
         // sidebar-group-only treatment).
@@ -296,11 +339,29 @@ export async function buildApp(): Promise<FastifyInstance> {
             sessionAuth: {
               type: 'apiKey',
               in: 'cookie',
-              name: 'better-auth.session_token',
+              name: 'sid',
               description:
-                'Browser session cookie issued by better-auth after sign-in, used by the web UI ' +
-                '(apps/api/plugins/auth/auth_middleware.ts). Checked as a fallback only when ' +
-                'x-api-key is absent.',
+                'Opaque browser-session cookie issued by the BFF after sign-in, used by the web UI ' +
+                '(apps/api/plugins/auth/resolve_browser_session.ts). httpOnly, so script cannot ' +
+                'read it; the access and refresh tokens live server-side in Redis and never reach ' +
+                'the browser. Checked when x-api-key is absent, before the bearer path. Under ' +
+                'AUTH_PROVIDER=betterauth this channel is dormant and the session cookie is ' +
+                "better-auth's own `better-auth.session_token` instead. **Every unsafe method " +
+                '(anything but GET/HEAD/OPTIONS) additionally requires the `x-csrf-token` header ' +
+                'echoing the value from `GET /api/v1/auth/session`; without it the request is ' +
+                'refused with 403 CSRF_TOKEN_INVALID.**',
+            },
+            csrfToken: {
+              type: 'apiKey',
+              in: 'header',
+              name: 'x-csrf-token',
+              description:
+                'Per-session CSRF token for the cookie channel, read from `GET /api/v1/auth/session` ' +
+                'and echoed on every state-changing request. A cookie is attached by the browser ' +
+                'automatically, so this double-submit token is what a cross-site page cannot supply ' +
+                '— it can cause the cookie to be sent but cannot read the response that carries ' +
+                'this value. Not required on GET/HEAD/OPTIONS, and not used by the x-api-key or ' +
+                'bearer channels.',
             },
             peerAuth: {
               type: 'apiKey',

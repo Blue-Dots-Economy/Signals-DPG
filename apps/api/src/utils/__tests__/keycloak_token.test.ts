@@ -20,6 +20,9 @@ const mockKeycloakConfig = {
   api_client_id: 'signals-api',
   api_client_secret: undefined as string | undefined,
   accepted_client_ids: ['signals-ui', 'signals-api'],
+  // Empty by default, exactly as the real config is, so the `azp` branch of
+  // isServiceAccountToken only fires for a client an operator has listed.
+  service_client_ids: [] as string[],
   jwks_cache_max_age_ms: 600_000,
   clock_tolerance_seconds: 30,
 };
@@ -94,6 +97,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   resetKeycloakJwksCache();
+  // Reset between tests: two cases below set it, and a leaked value would make
+  // an unrelated token look like a service account.
+  mockKeycloakConfig.service_client_ids = [];
   jwksRequests = 0;
   jwksServerFails = false;
   mockKeycloakConfig.issuer = issuer;
@@ -341,6 +347,25 @@ describe('claim helpers', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(isServiceAccountToken(result.claims)).toBe(true);
+  });
+
+  it('identifies a service token by azp alone, with no client_id or username claim', () => {
+    /**
+     * The lockout case. The bundled realm's service clients carry no
+     * `client_id` mapper, and `preferred_username` needs the `profile` scope —
+     * so an operator trimming that scope from a machine client left it looking
+     * human, which now means 401 BEARER_SESSION_NOT_SUPPORTED on every call.
+     * `azp` against the configured list is the signal a realm cannot remove.
+     */
+    mockKeycloakConfig.service_client_ids = ['aggregator-dpg'];
+
+    expect(isServiceAccountToken({ azp: 'aggregator-dpg' } as never)).toBe(true);
+  });
+
+  it('does not treat an unlisted azp as a service account', () => {
+    mockKeycloakConfig.service_client_ids = ['aggregator-dpg'];
+
+    expect(isServiceAccountToken({ azp: 'signals-ui' } as never)).toBe(false);
   });
 
   it('does not mistake a human session token for a service account', async () => {

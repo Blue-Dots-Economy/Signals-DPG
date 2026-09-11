@@ -62,7 +62,9 @@ vi.mock('../../../src/services/auth/service_account', () => ({
   resolveServiceAccount: (...args: unknown[]) => resolveServiceAccount(...args),
 }));
 
-const { resolveKeycloakSession, sendAuthFailure } = await import('../resolve_session.js');
+const { resolveKeycloakSession, resolveHumanSession, sendAuthFailure } = await import(
+  '../resolve_session.js'
+);
 
 const setProvider = (provider: 'betterauth' | 'keycloak') => {
   mockAuthConfig.provider = provider;
@@ -81,6 +83,20 @@ const okClaims = {
   email: 'asha@example.org',
   azp: 'signals-ui',
   realm_access: { roles: ['signals_participant'] },
+};
+
+/**
+ * Reach the human path the way the only caller does.
+ *
+ * A human token in an `Authorization` header is refused outright now
+ * (AUTH-VULN-03/04), so `resolveKeycloakSession` can no longer be used to get
+ * here. `resolve_browser_session.ts` verifies the token it pulled out of Redis
+ * and hands the claims straight to `resolveHumanSession`; these tests do the
+ * same, so what they assert is still the path production runs.
+ */
+const resolveHuman = async (claims: unknown, request = makeRequest()) => {
+  const result = await resolveHumanSession(claims as never, request);
+  return { result, request };
 };
 
 beforeEach(() => {
@@ -127,13 +143,16 @@ describe('AUTH_PROVIDER=betterauth — the Keycloak path is inert', () => {
 describe('AUTH_PROVIDER=keycloak — token validation', () => {
   beforeEach(() => setProvider('keycloak'));
 
-  it('validates a Keycloak token and populates request.user from the mirror', async () => {
-    const request = makeRequest('Bearer a.b.c');
+  it('verifies the bearer token it was given', async () => {
+    await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
 
-    const result = await resolveKeycloakSession(request);
+    expect(verifyKeycloakToken).toHaveBeenCalledWith('a.b.c');
+  });
+
+  it('populates request.user from the mirror on the human path', async () => {
+    const { result, request } = await resolveHuman(okClaims);
 
     expect(result.ok).toBe(true);
-    expect(verifyKeycloakToken).toHaveBeenCalledWith('a.b.c');
     expect(provisionUserFromClaims).toHaveBeenCalledWith(okClaims, request.log);
     expect(request.user).toEqual({
       id: 'user-1',
@@ -242,22 +261,37 @@ describe('service vs human fork (Build 3)', () => {
     expect(provisionUserFromClaims).not.toHaveBeenCalled();
   });
 
-  it('never runs a human token through service resolution', async () => {
-    await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
+  /**
+   * AUTH-VULN-03/04. The bearer channel is service-only now: a human session is
+   * the `sid` cookie, and honouring a second, script-attachable credential for
+   * the same identity would leave the pentest's replay working against an API
+   * that had otherwise been fixed. A perfectly valid `signals-ui` token is the
+   * case that matters here — it is what the SPA used to hold.
+   */
+  it('refuses a valid human token presented as a bearer token', async () => {
+    const request = makeRequest('Bearer a.b.c');
 
+    const result = await resolveKeycloakSession(request);
+
+    expect(result.ok).toBe(false);
+    if (result.ok || !('failure' in result)) throw new Error('expected a failure');
+    expect(result.failure.status).toBe(401);
+    expect(result.failure.code).toBe('BEARER_SESSION_NOT_SUPPORTED');
+    // Refused before any of it: no service lookup, and above all no user mirror
+    // minted off a credential that reached us the wrong way.
     expect(resolveServiceAccount).not.toHaveBeenCalled();
-    expect(provisionUserFromClaims).toHaveBeenCalled();
+    expect(provisionUserFromClaims).not.toHaveBeenCalled();
+    expect(request.user).toBeUndefined();
   });
 
   it('refuses a human token from a service-only client', async () => {
-    // The public signals-ui client must not be able to reach the service path,
-    // and an integrating DPG's client must not be provisioned as a person.
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { sub: 'x', azp: 'aggregator-dpg', email: 'someone@example.org' },
+    // An integrating DPG's client must not be provisioned as a person. Checked
+    // on the human path itself, so it holds for a cookie session too.
+    const { result } = await resolveHuman({
+      sub: 'x',
+      azp: 'aggregator-dpg',
+      email: 'someone@example.org',
     });
-
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
 
     expect(result.ok).toBe(false);
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
@@ -270,17 +304,12 @@ describe('service vs human fork (Build 3)', () => {
     // `azp` required, so treating a missing `azp` as "no client to check" let a
     // token with a matching `aud` skip this gate and reach provisioning
     // unattributed. Keycloak always emits `azp`; this must be a rejection.
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: {
-        sub: 'x',
-        email: 'someone@example.org',
-        aud: ['signals-ui'],
-        realm_access: { roles: ['signals_participant'] },
-      },
+    const { result } = await resolveHuman({
+      sub: 'x',
+      email: 'someone@example.org',
+      aud: ['signals-ui'],
+      realm_access: { roles: ['signals_participant'] },
     });
-
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
 
     expect(result.ok).toBe(false);
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
@@ -310,13 +339,23 @@ describe('service vs human fork (Build 3)', () => {
 describe('realm-role gate on the human path (shared-realm defence in depth)', () => {
   beforeEach(() => setProvider('keycloak'));
 
-  /** Resolves a human-path token carrying the given claims. */
+  /**
+   * Resolves a human-path token carrying the given claims.
+   *
+   * Goes through `resolveHumanSession` rather than `resolveKeycloakSession`,
+   * because that is the channel humans actually arrive on now: the cookie
+   * session calls it directly with the verified claims, and a HUMAN bearer is
+   * refused with `BEARER_SESSION_NOT_SUPPORTED` before the fork is reached
+   * (AUTH-VULN-03/04). Driving it through the bearer path would assert the
+   * aggregator diagnosis on a route no user can take.
+   */
   async function resolveWith(claims: Record<string, unknown>) {
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { sub: 'x', azp: 'signals-ui', email: 'someone@example.org', ...claims },
+    const { result } = await resolveHuman({
+      sub: 'x',
+      azp: 'signals-ui',
+      email: 'someone@example.org',
+      ...claims,
     });
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
     return result.failure;
   }
@@ -351,12 +390,11 @@ describe('realm-role gate on the human path (shared-realm defence in depth)', ()
   });
 
   it('refuses a token with no realm_access claim at all', async () => {
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { sub: 'x', azp: 'signals-ui', email: 'someone@example.org' },
+    const { result } = await resolveHuman({
+      sub: 'x',
+      azp: 'signals-ui',
+      email: 'someone@example.org',
     });
-
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
 
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
     expect(result.failure.code).toBe('TOKEN_ROLE_REJECTED');
@@ -364,12 +402,10 @@ describe('realm-role gate on the human path (shared-realm defence in depth)', ()
   });
 
   it('accepts signals_admin as well as signals_participant', async () => {
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { ...okClaims, realm_access: { roles: ['signals_admin'] } },
+    const { result } = await resolveHuman({
+      ...okClaims,
+      realm_access: { roles: ['signals_admin'] },
     });
-
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
 
     expect(result.ok).toBe(true);
     expect(provisionUserFromClaims).toHaveBeenCalled();
@@ -377,12 +413,12 @@ describe('realm-role gate on the human path (shared-realm defence in depth)', ()
 
   it('skips the gate when the required-role list is empty (operator opt-out)', async () => {
     mockKeycloakConfig.required_realm_roles = [];
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { sub: 'user-1', azp: 'signals-ui', email: 'asha@example.org' },
-    });
 
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
+    const { result } = await resolveHuman({
+      sub: 'user-1',
+      azp: 'signals-ui',
+      email: 'asha@example.org',
+    });
 
     expect(result.ok).toBe(true);
   });
@@ -445,7 +481,7 @@ describe('failure mapping', () => {
   ] as const)('maps provisioning failure %s to HTTP %i', async (code, status) => {
     provisionUserFromClaims.mockResolvedValue({ ok: false, code, message: 'detail' });
 
-    const result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
+    const { result } = await resolveHuman(okClaims);
 
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
     expect(result.failure.status).toBe(status);
@@ -458,7 +494,7 @@ describe('failure mapping', () => {
       code: 'SELF_SIGNUP_DISABLED',
       message: 'Self sign-up is disabled on this instance.',
     });
-    let result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
+    let { result } = await resolveHuman(okClaims);
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
     expect(result.failure.message).toBe('Self sign-up is disabled on this instance.');
 
@@ -468,7 +504,7 @@ describe('failure mapping', () => {
       code: 'PROVISIONING_FAILED',
       message: 'relation "user" does not exist',
     });
-    result = await resolveKeycloakSession(makeRequest('Bearer a.b.c'));
+    ({ result } = await resolveHuman(okClaims));
     if (result.ok || !('failure' in result)) throw new Error('expected a failure');
     expect(result.failure.message).not.toContain('relation');
   });
@@ -501,13 +537,10 @@ describe('acting-org grant plumbing (§5.1)', () => {
   beforeEach(() => setProvider('keycloak'));
 
   it('threads the grant off a human token onto the request', async () => {
-    verifyKeycloakToken.mockResolvedValue({
-      ok: true,
-      claims: { ...okClaims, signals_acting_orgs: ['org_a', 'org_b'] },
+    const { request } = await resolveHuman({
+      ...okClaims,
+      signals_acting_orgs: ['org_a', 'org_b'],
     });
-    const request = makeRequest('Bearer a.b.c');
-
-    await resolveKeycloakSession(request);
 
     expect(request.acting_org_grant).toEqual(['org_a', 'org_b']);
   });
@@ -528,10 +561,11 @@ describe('acting-org grant plumbing (§5.1)', () => {
   it('leaves the grant undefined when the token carries no claim', async () => {
     // Distinct from an empty grant — acting_org.ts treats undefined as
     // "fall back to the header".
-    const request = makeRequest('Bearer a.b.c');
+    const { result, request } = await resolveHuman(okClaims);
 
-    await resolveKeycloakSession(request);
-
+    // Asserted, because "undefined" is also what a REFUSED resolution leaves
+    // behind — without this the test would pass for the wrong reason.
+    expect(result.ok).toBe(true);
     expect(request.acting_org_grant).toBeUndefined();
   });
 });

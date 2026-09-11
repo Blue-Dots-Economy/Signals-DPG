@@ -39,8 +39,9 @@
  * it is not a theoretical ordering.
  *
  * So the entry is **bound to the login attempt that created it**. The caller
- * mints an opaque `attempt` id, parks it alongside the body, and sends the same
- * id through Keycloak in the OIDC `state` object (see `oidc-client.ts`). On the
+ * mints an opaque `attempt` id, parks it alongside the body, and hands it to
+ * `startBffLogin`, which carries it through the flow server-side against that
+ * login's `state` (see `services/auth/oidc_flow_state.ts` in the API). On the
  * callback, `takePendingConsent` returns the body only if the id handed back by
  * that specific login matches. A different person's login carries a different
  * `state`, so it can never consume this entry — regardless of timing.

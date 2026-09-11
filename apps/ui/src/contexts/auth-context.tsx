@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { isAxiosError } from 'axios';
 import {
   getSession,
   fetchMe,
@@ -17,7 +18,15 @@ import {
   type MeResponse,
   type User,
 } from '@/lib/auth-api';
-import { setAuthToken, clearAuthToken } from '@/lib/auth-token';
+import {
+  clearCsrfToken,
+  endBffSession,
+  fetchBffSession,
+  startBffLogin,
+} from '@/lib/bff-session';
+import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import type { QueryClient } from '@tanstack/react-query';
 import { clearSchemaCache } from '@/engine';
 import { useAuthConfig } from '@/hooks/use-auth-config';
 
@@ -69,63 +78,112 @@ function meToUser(me: MeResponse): User {
   };
 }
 
+/**
+ * Drop the signed-out user's cached data so it does not linger until gcTime and
+ * bleed into the next session (an SPA sign-out does not reload the page).
+ *
+ * All five hold per-user data: my-items + edit-item are the user's own items;
+ * profile-consent is their accepted profiles; actions covers their
+ * applications/connections — including pendingCount, whose key is NOT
+ * network/user-scoped, so a stale count would otherwise show to the next user
+ * on re-login. consent-status (`['consent-status', themeId]`, see
+ * `use-consent-gate.ts`) is keyed only by network, not by user, and its
+ * endpoint reflects whichever session resolved it — without this, signing out
+ * and straight back in as someone else on the same device would let the U18
+ * guardian consent gate serve the FIRST user's "already consented" status to
+ * the second, skipping the documents until the background refetch corrected it.
+ * browse-items/markers/*-config are public network-scoped data and can stay.
+ */
+function evictPerUserQueries(queryClient: QueryClient): void {
+  for (const key of ['my-items', 'profile-consent', 'edit-item', 'actions', 'consent-status']) {
+    queryClient.removeQueries({ queryKey: [key] });
+  }
+}
+
+/**
+ * "Leave `user` exactly as it is." Distinct from `null`, which asserts the
+ * session is gone — the difference between a dependency blip and a logout.
+ */
+export const HOLD = Symbol('hold');
+
+/**
+ * Who the BFF session belongs to, or `HOLD` when we must not touch state.
+ *
+ * Extracted from `fetchSession` so each has one job: this resolves the Keycloak
+ * branch, the caller owns the try/finally and the provider fork.
+ *
+ * `superseded` is threaded in rather than checked only by the caller so a login
+ * that lands mid-flight short-circuits before the second request, exactly as
+ * the inline version did.
+ *
+ * Exported for its own tests: its three outcomes are only distinguishable here.
+ * Through the provider they collapse — from a cold start `user` is null whether
+ * we hold or assert null, so a provider-level test of `unknown` passes even
+ * with the branch deleted.
+ */
+export async function resolveKeycloakUser(
+  superseded: () => boolean,
+): Promise<User | null | typeof HOLD> {
+  // The BFF owns the session now (AUTH-VULN-03/04): ask whether this browser
+  // has one rather than reading a token out of storage. The cookie is httpOnly,
+  // so there is nothing here to read even in principle.
+  const session = await fetchBffSession();
+  if (superseded()) return HOLD;
+  // The API could not answer (outage, offline). Holding beats signing the user
+  // out over a blip — see `BffSession.unknown`.
+  if (session.unknown) return HOLD;
+  if (!session.authenticated) return null;
+  return meToUser(await fetchMe());
+}
+
+/**
+ * True when a failure says nothing about whether the session is still valid.
+ *
+ * The API answers a dependency outage with 503 rather than 401 specifically so
+ * a Keycloak restart is not a fleet-wide logout. A thrown request with no
+ * response at all (offline, DNS, aborted) is the same class. Anything else —
+ * notably a 401 — is a real answer and must sign the user out.
+ */
+function isTransientAuthFailure(err: unknown): boolean {
+  if (!isAxiosError(err)) return false;
+  const status = err.response?.status;
+  return status === undefined || status >= 500;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const queryClient = useQueryClient();
   // Which provider this instance runs is served by the API, not compiled in.
-  const {
-    config: authCfg,
-    isKeycloakLogin,
-    isLoading: isConfigLoading,
-  } = useAuthConfig();
+  const { isKeycloakLogin, isLoading: isConfigLoading } = useAuthConfig();
+  const { t } = useTranslation();
 
   /**
-   * Restore an existing session on mount. The two providers restore
-   * differently: better-auth asks the server for the session, whereas OIDC
-   * holds the tokens client-side and then asks the API who that token is.
+   * Restore an existing session on mount. Both providers now ask the SERVER
+   * whether this browser has a session — better-auth via its own session
+   * endpoint, Keycloak via the BFF's `GET /auth/session`. Neither reads a
+   * credential out of the page, because there is no longer one to read.
    *
-   * Waits for the auth config first — restoring the wrong way round would
-   * either miss an OIDC session or fire a pointless better-auth request.
+   * Waits for the auth config first: which of the two to ask is the API's
+   * answer, so asking before it lands means asking the wrong one.
    */
-  /**
-   * `authCfg` is React Query data, so a refetch hands back a NEW object with
-   * identical contents. Depending on that identity re-ran the whole restore and
-   * re-derived `user` from storage on every refetch — turning any momentary
-   * "no usable token" (an expired access token whose renewal is still in
-   * flight) into a visible sign-out. Depend on the config's VALUES instead, and
-   * read the object through a ref so the callback stays stable.
-   */
-  const authCfgRef = useRef(authCfg);
-  // Synced in an effect rather than during render: a render-phase ref write is
-  // an impure render and misbehaves under concurrent rendering. Declared BEFORE
-  // the fetchSession effect so the ref is current by the time it runs, and
-  // seeded by useRef's initial value for the very first render.
-  useEffect(() => {
-    authCfgRef.current = authCfg;
-  }, [authCfg]);
-
-  const keycloakConfigKey = authCfg?.keycloak
-    ? `${authCfg.keycloak.url}|${authCfg.keycloak.realm}|${authCfg.keycloak.clientId}`
-    : '';
 
   /**
    * Bumped every time a login explicitly establishes the user (OIDC callback or
    * OTP verify). `fetchSession` captures it before awaiting and discards its own
-   * result if it changed, because on a FIRST login the two race and the restore
-   * loses:
+   * result if it changed, because the two can race on a first login and the
+   * restore can lose:
    *
-   *   1. provider mounts, fetchSession waits for authCfg
-   *   2. authCfg lands, fetchSession calls restoreOidcSession — storage is still
-   *      EMPTY, the code exchange has not finished → resolves null
-   *   3. the callback page finishes the exchange, /me returns 200,
-   *      completeKeycloakLogin sets the user
+   *   1. provider mounts, fetchSession waits for the auth config
+   *   2. the config lands, fetchSession asks the API for the session
+   *   3. the callback page resolves the user, completeKeycloakLogin sets it
    *   4. step 2's await finally resolves and `setUser(null)` lands LAST
    *
-   * The user ended up signed out with a perfectly valid token in storage: /me
-   * kept returning 200 and cached queries kept rendering, so only the top bar
-   * looked wrong. A second login "fixed" it because storage was populated by
-   * then, so the restore returned a token instead of null.
+   * The user ended up signed out while perfectly authenticated: /me kept
+   * returning 200 and cached queries kept rendering, so only the top bar looked
+   * wrong. Moving the code exchange server-side makes step 2 far less likely to
+   * come back empty — the cookie is already set before this page loads — but
+   * "less likely" is not "cannot", and the guard costs one integer.
    */
   const authEpochRef = useRef(0);
 
@@ -135,30 +193,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     /** A login landed while we were awaiting — its user is newer than ours. */
     const superseded = () => epoch !== authEpochRef.current;
     try {
-      if (isKeycloakLogin) {
-        // Dynamic import so the OIDC library is not pulled into the bundle for
-        // deployments still on the OTP login.
-        const { restoreOidcSession } = await import('@/lib/oidc-client');
-        const token = await restoreOidcSession(authCfgRef.current);
-        if (superseded()) return;
-        if (!token) {
-          setUser(null);
-          return;
-        }
-        const me = meToUser(await fetchMe());
-        if (superseded()) return;
-        setUser(me);
-        return;
-      }
-
-      const session = await getSession();
+      // better-auth's session is a cookie it sets and reads itself, so the
+      // token it also returns no longer needs storing — that was only ever kept
+      // to build a Bearer header, which is the storage this change removes.
+      const next = isKeycloakLogin
+        ? await resolveKeycloakUser(superseded)
+        : (await getSession()).user;
       if (superseded()) return;
-      if (session.token) {
-        setAuthToken(session.token);
-      }
-      setUser(session.user);
-    } catch {
+      if (next !== HOLD) setUser(next);
+    } catch (err) {
       if (superseded()) return;
+      /**
+       * Only a definitive answer signs the user out. The API maps a Keycloak or
+       * Redis outage to 503 on purpose so it does not read as "your session
+       * died"; treating every thrown error as a logout undid that, and a brief
+       * dependency blip emptied the session for everyone signed in. A 5xx or a
+       * transport failure leaves `user` alone — the next poll settles it.
+       */
+      if (isTransientAuthFailure(err)) return;
       setUser(null);
     } finally {
       // Superseded means a login already owns the state — including having
@@ -166,7 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // past the guard it just respected.
       if (!superseded()) setIsLoading(false);
     }
-  }, [keycloakConfigKey, isConfigLoading, isKeycloakLogin]);
+  }, [isConfigLoading, isKeycloakLogin]);
 
   useEffect(() => {
     fetchSession();
@@ -186,7 +238,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const verifyOtp = useCallback(async (identifier: AuthIdentifier, otp: string, name?: string): Promise<void> => {
     const { verifyOtp: verifyOtpApi } = await import('@/lib/auth-api');
     const response = await verifyOtpApi(identifier, otp, name);
-    setAuthToken(response.token);
     // Same precedence claim as the OIDC path (see authEpochRef).
     authEpochRef.current += 1;
     setUser(response.user);
@@ -194,10 +245,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const startKeycloakLogin = useCallback(
     async (returnTo?: string, consentAttempt?: string): Promise<void> => {
-      const { startOidcLogin } = await import('@/lib/oidc-client');
-      await startOidcLogin(authCfg, { returnTo, consentAttempt });
+      // Full navigation to the API, which runs the OIDC flow server-side and
+      // sets the session cookie on the way back. The code exchange no longer
+      // happens in the page, so no token passes through the browser at all.
+      // Supersedes #688's `startOidcLogin(authCfg, {...})`: that options-object
+      // refactor lived in the OIDC client this change removes.
+      startBffLogin(returnTo ?? '/', consentAttempt);
     },
-    [authCfg]
+    []
   );
 
   /**
@@ -216,41 +271,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     if (isKeycloakLogin) {
       setUser(null);
-      // Ends the Keycloak SSO session too, then redirects; clears the local
-      // token first, so a failure to reach Keycloak still logs out this app.
-      const { oidcLogout } = await import('@/lib/oidc-client');
-      await oidcLogout(authCfg);
+      // Destroys the server-side session, then hands off to Keycloak so the SSO
+      // session goes too. Signed out locally first, so a failure to reach
+      // Keycloak still logs the user out of this app.
+      const ended = await endBffSession();
+      // The same eviction the better-auth branch does. Skipping it left the
+      // previous user's cached data alive behind signed-out chrome — and if the
+      // logout call itself failed, the cookie and SSO session are alive too, so
+      // the next reload signs them straight back in. Clearing here means a
+      // failed sign-out at least leaves nothing of theirs on the device.
+      clearSchemaCache();
+      evictPerUserQueries(queryClient);
+      if (!ended) {
+        toast.error(t('auth.toast_signout_incomplete_title', 'Sign-out may not be complete'), {
+          description: t(
+            'auth.toast_signout_incomplete_desc',
+            'We could not reach the server. Close this browser to be sure you are signed out.',
+          ),
+        });
+      }
       return;
     }
 
     try {
       await apiSignOut();
     } finally {
-      clearAuthToken();
+      clearCsrfToken();
       setUser(null);
       clearSchemaCache();
-      // Drop the signed-out user's cached data so it doesn't linger until
-      // gcTime and bleed into the next session (SPA sign-out does not reload
-      // the page). All five hold per-user data: my-items + edit-item are the
-      // user's own items; profile-consent is their accepted profiles; actions
-      // covers their applications/connections — including pendingCount, whose
-      // key is NOT network/user-scoped, so a stale count would otherwise show
-      // to the next user on re-login. consent-status
-      // (`['consent-status', themeId]`, see `use-consent-gate.ts`) is keyed
-      // only by network, not by user, and its endpoint reflects whichever
-      // session's token is attached when it resolves — without this, signing
-      // out and straight back in as someone else on the same device/tab would
-      // let the U18 guardian consent gate serve the FIRST user's cached
-      // "already consented" status to the second, skipping the documents
-      // until the background refetch corrects it. browse-items/markers/
-      // *-config are public network-scoped data and can stay.
-      queryClient.removeQueries({ queryKey: ['my-items'] });
-      queryClient.removeQueries({ queryKey: ['profile-consent'] });
-      queryClient.removeQueries({ queryKey: ['edit-item'] });
-      queryClient.removeQueries({ queryKey: ['actions'] });
-      queryClient.removeQueries({ queryKey: ['consent-status'] });
+      evictPerUserQueries(queryClient);
     }
-  }, [authCfg, isKeycloakLogin, queryClient]);
+  }, [isKeycloakLogin, queryClient, t]);
 
   // Memoised so consumers only re-render when the session actually changes —
   // every callback above is a stable useCallback reference.

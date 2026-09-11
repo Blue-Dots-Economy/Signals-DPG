@@ -7,7 +7,7 @@
  * login page turns that router state into the `auth.wrong_portal` toast.
  *
  * That works on the better-auth path, where `signOut()` is a local API call.
- * Under Keycloak it does not: `signOut()` → `oidcLogout()` →
+ * Under Keycloak it does not: `signOut()` → `endBffSession()` →
  * `userManager.signoutRedirect()`, a FULL-PAGE navigation to Keycloak's
  * end-session endpoint. The await never resolves, so the `navigate` after it
  * never runs; Keycloak then returns the browser to `postLogoutRedirectUri`

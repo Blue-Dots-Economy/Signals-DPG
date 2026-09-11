@@ -34,20 +34,24 @@ vi.mock('@/hooks/use-auth-config', () => ({
   }),
 }));
 
+/**
+ * The escape hatch from #688/#753 now runs through the BFF client: `oidcLogout`
+ * lived in the OIDC client this change removes, and `endBffSession` is its
+ * replacement — it destroys the server session AND hands off to Keycloak's
+ * end-session endpoint, so a switch cannot leave a live `sid` behind.
+ */
+const endBffSession = vi.fn(async () => true);
+const startBffLogin = vi.fn();
+vi.mock('@/lib/bff-session', async (orig) => ({
+  ...(await orig<typeof import('@/lib/bff-session')>()),
+  endBffSession: () => endBffSession(),
+  startBffLogin: (...a: unknown[]) => startBffLogin(...a),
+}));
+
 const completeKeycloakLogin = vi.fn(async () => {});
 const signOut = vi.fn(async () => {});
 vi.mock('@/contexts/auth-context', () => ({
   useAuth: () => ({ completeKeycloakLogin, signOut }),
-}));
-
-const completeOidcLogin = vi.fn(async () => ({ returnTo: '/dashboard' }));
-const oidcLogout = vi.fn(async (_cfg?: unknown) => undefined);
-const startOidcLogin =
-  vi.fn<(cfg?: unknown, options?: unknown) => Promise<void>>(async () => undefined);
-vi.mock('@/lib/oidc-client', () => ({
-  completeOidcLogin: () => completeOidcLogin(),
-  startOidcLogin: (cfg?: unknown, options?: unknown) => startOidcLogin(cfg, options),
-  oidcLogout: (cfg?: unknown) => oidcLogout(cfg),
 }));
 
 vi.mock('@/theme/theme-provider', () => ({
@@ -144,6 +148,18 @@ vi.mock('@/lib/login-profiles', () => ({
 
 const { OidcCallbackPage } = await import('../oidc-callback-page');
 
+/**
+ * Point the page at a callback URL.
+ *
+ * The code exchange happens on the API now (AUTH-VULN-03/04), so the page no
+ * longer gets `returnTo` back from a client-side exchange — the BFF hands it
+ * back as a query parameter on the redirect it sends the browser to. That URL
+ * is the page's only input, which is what this sets up.
+ */
+function setCallbackUrl(search: string): void {
+  window.history.replaceState({}, '', `/auth/callback${search}`);
+}
+
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -174,7 +190,7 @@ beforeEach(() => {
   });
   getConsentStatus.mockResolvedValue({ statuses: { terms: [], privacy: [] } });
   fetchConsentConfigs.mockResolvedValue([]);
-  completeOidcLogin.mockResolvedValue({ returnTo: '/dashboard' });
+  setCallbackUrl('?returnTo=%2Fdashboard');
   // A completed profile → no #376 redirect, so existing expectations hold.
   fetchMyProfilesLite.mockResolvedValue([
     { item_id: 'p1', item_domain: 'seeker', lifecycle_status: 'live' },
@@ -591,7 +607,7 @@ describe('#558 — first-time-login profile redirect', () => {
   describe('cross-app sign-in (#753)', () => {
     /** Fails the exchange with an API error carrying `code` + `message`. */
     function rejectWith(code: string, message: string) {
-      completeOidcLogin.mockRejectedValue({
+      completeKeycloakLogin.mockRejectedValue({
         response: { data: { code, message } },
       });
     }
@@ -611,9 +627,10 @@ describe('#558 — first-time-login profile redirect', () => {
       const button = await screen.findByRole('button', { name: /sign out and switch account/i });
       fireEvent.click(button);
 
-      await waitFor(() => expect(oidcLogout).toHaveBeenCalled());
-      // Regression guard: starting a fresh login here is the broken behaviour.
-      expect(startOidcLogin).not.toHaveBeenCalled();
+      await waitFor(() => expect(endBffSession).toHaveBeenCalled());
+      // Regression guard: starting a fresh login here is the broken behaviour —
+      // Keycloak's SSO cookie is still live, so it returns the same identity.
+      expect(startBffLogin).not.toHaveBeenCalled();
       expect(navigate).not.toHaveBeenCalledWith('/auth/login', { replace: true });
     });
 
@@ -658,7 +675,7 @@ describe('#558 — first-time-login profile redirect', () => {
     it('falls back to the login page when the sign-out cannot start', async () => {
       // A dead button would be worse than a redirect that at least moves them.
       rejectWith('TOKEN_AGGREGATOR_ACCOUNT', 'You are signed in as an aggregator account.');
-      oidcLogout.mockRejectedValueOnce(new Error('keycloak unreachable'));
+      endBffSession.mockRejectedValueOnce(new Error('keycloak unreachable'));
       renderPage();
 
       fireEvent.click(await screen.findByRole('button', { name: /sign out and switch account/i }));

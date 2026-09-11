@@ -5,20 +5,22 @@ import { db } from '../../db/postgres/drizzle_config';
 import { user as userTable } from '../../db/postgres/schema/auth';
 import { eq } from 'drizzle-orm';
 import { resolveKeycloakSession, sendAuthFailure } from './resolve_session';
+import { resolveBrowserSession } from './resolve_browser_session';
 
 /**
  * Populates `request.user` from whichever credential the caller presented.
  *
- * There are three ways in, tried in this order:
+ * There are four ways in, tried in this order:
  *
  *   1. `x-api-key` — integrating DPGs, today's service auth.
- *   2. `Authorization: Bearer <keycloak jwt>` — either an integrating DPG's
- *      client-credentials token (the replacement for #1) or a human's session
- *      token. `resolveKeycloakSession` tells the two apart and resolves each
- *      to the right local row.
- *   3. better-auth session — the UI, today.
+ *   2. the `sid` cookie — a human who logged in through the BFF. This is the
+ *      only channel a browser has; the tokens behind it live in Redis.
+ *   3. `Authorization: Bearer <keycloak jwt>` — an integrating DPG's
+ *      client-credentials token (the replacement for #1), and ONLY that. A
+ *      human token here is refused (AUTH-VULN-03/04); see `resolve_session.ts`.
+ *   4. better-auth session — the UI under `AUTH_PROVIDER=betterauth`.
  *
- * #2 and #3 are gated by `AUTH_PROVIDER`; under the default `betterauth` this
+ * #2–#4 are gated by `AUTH_PROVIDER`; under the default `betterauth` this
  * behaves exactly as it did before the Keycloak work started.
  *
  * **Both service credentials are accepted at once, on purpose.** That is the
@@ -87,12 +89,23 @@ export async function auth_middleware(
   }
 
   /**
-   *  SESSION AUTH (fallback)
+   * BROWSER SESSION (cookie) — tried before the bearer path.
    *
-   * Keycloak first when AUTH_PROVIDER is dual/keycloak. A `fallthrough` means
-   * this isn't a Keycloak request, so better-auth handles it exactly as before;
-   * under AUTH_PROVIDER=betterauth that is always the answer, which is why
-   * merging this changes nothing in production.
+   * A `sid` cookie means a human logged in through the BFF, so the token lives
+   * in Redis rather than in the page. `fallthrough` means no cookie was sent,
+   * which is not an error: service callers and anonymous requests take the
+   * paths below.
+   */
+  const browser = await resolveBrowserSession(request, reply);
+  if (browser.ok) return;
+  if ('failure' in browser) return sendAuthFailure(reply, browser.failure);
+
+  /**
+   * SERVICE BEARER, then better-auth.
+   *
+   * A `fallthrough` from the Keycloak path means AUTH_PROVIDER=betterauth, so
+   * better-auth handles the request exactly as it did before the Keycloak work
+   * started — which is why merging that work changed nothing in production.
    */
   const keycloak = await resolveKeycloakSession(request);
   if (keycloak.ok) return;

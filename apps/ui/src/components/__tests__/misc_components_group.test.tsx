@@ -122,9 +122,11 @@ function makeQueryClient(): QueryClient {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// auth-context — the app's only React Context. It owns the bearer token that
-// api-client's request interceptor reads out of `auth-token`'s localStorage
-// slot, so the token store is asserted alongside the rendered session state.
+// auth-context — the app's only React Context. It no longer holds a token at
+// all (AUTH-VULN-03/04): the session is an httpOnly cookie the API sets and
+// this code cannot read, so these assert the rendered session state AND that
+// nothing is written to localStorage — the property the change exists to
+// guarantee.
 // ═══════════════════════════════════════════════════════════════════════════
 
 function AuthProbe() {
@@ -213,13 +215,13 @@ describe('AuthProvider session lifecycle', () => {
     expect(screen.getByTestId('who')).toHaveTextContent('Asha K');
   });
 
-  it('restores the signed-in user and stores the bearer token', async () => {
+  it('restores the signed-in user without writing any token to storage', async () => {
     renderAuthProbe();
 
     expect(await screen.findByText('ready')).toBeInTheDocument();
     expect(screen.getByTestId('who')).toHaveTextContent('Asha K');
     expect(screen.getByTestId('authed')).toHaveTextContent('true');
-    expect(localStorage.getItem('auth_token')).toBe('tok-restored');
+    expect(localStorage.getItem('auth_token')).toBeNull();
   });
 
   it('signs the user in without writing a token when the session carries none', async () => {
@@ -240,7 +242,7 @@ describe('AuthProvider session lifecycle', () => {
     expect(screen.getByTestId('authed')).toHaveTextContent('false');
   });
 
-  it('signs the user in from a verified OTP and stores the issued token', async () => {
+  it('signs the user in from a verified OTP without writing any token to storage', async () => {
     vi.mocked(authApi.getSession).mockRejectedValue(new Error('no session'));
     vi.mocked(authApi.verifyOtp).mockResolvedValue({
       redirect: false,
@@ -254,7 +256,7 @@ describe('AuthProvider session lifecycle', () => {
 
     expect(await screen.findByText('Asha K')).toBeInTheDocument();
     expect(screen.getByTestId('authed')).toHaveTextContent('true');
-    expect(localStorage.getItem('auth_token')).toBe('tok-from-otp');
+    expect(localStorage.getItem('auth_token')).toBeNull();
     expect(vi.mocked(authApi.verifyOtp).mock.calls[0]).toEqual([
       { email: 'asha@example.com' },
       '123456',
@@ -285,7 +287,7 @@ describe('AuthProvider session lifecycle', () => {
   it('drops the user and the stored token on sign-out', async () => {
     renderAuthProbe();
     expect(await screen.findByText('Asha K')).toBeInTheDocument();
-    expect(localStorage.getItem('auth_token')).toBe('tok-restored');
+    expect(localStorage.getItem('auth_token')).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: 'sign out' }));
 
