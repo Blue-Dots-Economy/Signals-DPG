@@ -41,8 +41,8 @@ importers:
         specifier: ^9.8.1
         version: 9.8.1
       '@scalar/fastify-api-reference':
-        specifier: ^1.67.0
-        version: 1.67.0
+        specifier: ^1.68.0
+        version: 1.68.0
       auth:
         specifier: workspace:*
         version: link:../../packages/auth
@@ -59,20 +59,20 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0)
       fastify:
-        specifier: ^5.12.1
-        version: 5.12.1
+        specifier: ^5.12.3
+        version: 5.12.3
       fastify-qs:
         specifier: ^5.0.0
         version: 5.0.0
       fastify-type-provider-zod:
         specifier: ^6.1.0
-        version: 6.1.0(@fastify/swagger@9.8.1)(fastify@5.12.1)(openapi-types@12.1.3)(zod@4.5.4)
+        version: 6.1.0(@fastify/swagger@9.8.1)(fastify@5.12.3)(openapi-types@12.1.3)(zod@4.5.4)
       ioredis:
         specifier: ^6.0.0
         version: 6.0.0
       jose:
-        specifier: ^6.2.10
-        version: 6.2.10
+        specifier: ^6.2.12
+        version: 6.2.12
       match_score:
         specifier: workspace:*
         version: link:../../packages/match_score
@@ -132,8 +132,8 @@ importers:
         specifier: ^5.102.8
         version: 5.102.8(react@19.2.8)
       '@vis.gl/react-google-maps':
-        specifier: ^1.9.0
-        version: 1.9.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        specifier: ^1.10.0
+        version: 1.10.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       axios:
         specifier: 1.20.0
         version: 1.20.0
@@ -156,8 +156,8 @@ importers:
         specifier: ^1.9.4
         version: 1.9.4
       lucide-react:
-        specifier: ^1.40.0
-        version: 1.41.0(react@19.2.8)
+        specifier: ^1.42.0
+        version: 1.42.0(react@19.2.8)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -263,7 +263,7 @@ importers:
     dependencies:
       '@better-auth/api-key':
         specifier: ~1.6.29
-        version: 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(better-auth@1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11))(better-call@1.4.0(zod@4.4.3))
+        version: 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(better-auth@1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11))(better-call@1.4.0(zod@4.4.3))
       better-auth:
         specifier: ~1.6.29
         version: 1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11)
@@ -1166,8 +1166,8 @@ packages:
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
 
-  '@googlemaps/js-api-loader@2.0.2':
-    resolution: {integrity: sha512-bKVuTqatS8Jven5aFqVB7rCHF1VFEzpzyi0ruzO0GUR+A7m9oMqMgtnmpANj7kMYEvvhty8Fk7TnJ1MKjWHu+Q==}
+  '@googlemaps/js-api-loader@2.1.1':
+    resolution: {integrity: sha512-yUpAwksbHrlZIWD49JmveNSfBG4oAK0AwMknfSaPMnP5N7UT8oFRVCqwjGb1XQovi//7KLbPQKZpbofiLGzpDw==}
 
   '@googlemaps/markerclusterer@2.6.2':
     resolution: {integrity: sha512-U6uVhq8iWhiIckA89sgRu8OK35mjd6/3CuoZKWakKEf0QmRRWpatlsPb3kqXkoWSmbcZkopRiI4dnW6DQSd7bQ==}
@@ -2180,28 +2180,28 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@scalar/client-side-rendering@0.3.10':
-    resolution: {integrity: sha512-FlUByzYhsas54zIvsiTJ7UgAZiVUQmErWvrQm+CKTBnIvSmIb5eWowJ4/O0bbkUa8rsOIdmCcX+HtX+EDdf0CA==}
+  '@scalar/client-side-rendering@0.4.0':
+    resolution: {integrity: sha512-a8OUod1LZbNqkPv73ijRPL3MH2/3E92I5Awa9mGXtCaIVavY3JcF7+qZW4GOtffihTfuD/CxhZ+CnQhCZds2oQ==}
     engines: {node: '>=22'}
 
-  '@scalar/fastify-api-reference@1.67.0':
-    resolution: {integrity: sha512-cheMHB4983rn1JSzEeUDzerY1SE1gk4qPoKDRKVwYISa7Tzp6gulQ5vnPt4khjXknOxj4fLTsFONvhYqywZkWQ==}
+  '@scalar/fastify-api-reference@1.68.0':
+    resolution: {integrity: sha512-nDGCFVbU/Qt4urtO/9BA5i57TrFJjcfyrz18RflbyeTvAcfq9AoFxvfFkRE6TWsiTEdv4AULcOLAGKrr4TBEJA==}
     engines: {node: '>=20'}
 
-  '@scalar/helpers@0.11.2':
-    resolution: {integrity: sha512-IgHW/hIj1XAvsPIBKiOgmK87qbyDjaQQg9S/auXU4MUtvnwKKpOeIOJc0NC71FkMdr4Mok0SSVI748cmlptoXQ==}
+  '@scalar/helpers@0.11.3':
+    resolution: {integrity: sha512-4zPzuNTXObDUtZS93xzAoK83ddHDgBGifv/vKFe6bHqEl5i+IMLTTtEHOaaOZK4dusPEXcXsU5TBSaY/I6Mi+A==}
     engines: {node: '>=22'}
 
-  '@scalar/json-magic@0.13.3':
-    resolution: {integrity: sha512-ONbveMHPl8ashCnTH/IzF2skr7CKUAC97m2tWQpbWJXhkUvc/B9vSRirjM0IqPCDURn4WZWAQFoaehDiEJICWA==}
+  '@scalar/json-magic@0.13.4':
+    resolution: {integrity: sha512-pOZdlzkgLB+/4OlIlzMToV/cr4vsvWy/MtbtJoRcNHIzDnT8sfNtv/cH8MR2pNDg/29sPpTV1HaE4SZ8b9jUOQ==}
     engines: {node: '>=22'}
 
-  '@scalar/json-schema-validator@0.1.0':
-    resolution: {integrity: sha512-3mOin8TlRqhH9CndcZeOGFicb+/WSPmclko7vnaTIIa8vqrwZ6ZtwLdsZQpU1xzM5NqMgumF35ii3KEPS7kNDA==}
+  '@scalar/json-schema-validator@0.1.1':
+    resolution: {integrity: sha512-8FcCXX/fWaOwTmdbbD+jjDqGeMGvYW5FRLc1zMduCyWLDqGmuMkEts4psLk8on5Ob6Lj2ZLm5WyKPdgBXtzuvg==}
     engines: {node: '>=22'}
 
-  '@scalar/openapi-parser@0.29.0':
-    resolution: {integrity: sha512-RVPVidIG5ohEUqPdB70kabhvAP1wq54iWwwdD9TKfJC73OSGUW2+7sHPFEwAD2MIwX9iDMOtxlSIHIk8Lidwdw==}
+  '@scalar/openapi-parser@0.29.1':
+    resolution: {integrity: sha512-IZjotdEnmIexqHCSwa/rNmrkKERWOj7uitGZs1i+xZ/wbA88frGgGt6LFH31ZJzOmrMggH35S/e0UN30YapJyg==}
     engines: {node: '>=22'}
 
   '@scalar/openapi-types@0.9.5':
@@ -2212,16 +2212,16 @@ packages:
     resolution: {integrity: sha512-yqROK9U96ElasEL4Wl/+PIjQZlqrQXVUUpXk9PA6xBnrp8KdEv7at8pR5gsZkvddJfYVwLILPlctyqUg4u4YZA==}
     engines: {node: '>=22'}
 
-  '@scalar/openapi-validator@0.1.0':
-    resolution: {integrity: sha512-ZwUibJj0nPCdhRXCdgOvWme3EcywDPIwsfKCh912AMOWjSw4EF5Iv9MfAsKC+y8k8vrQEZ3JRcVvJcq3OwWtQQ==}
+  '@scalar/openapi-validator@0.1.1':
+    resolution: {integrity: sha512-or/zAV/BUABPV6WEfOb5PO5VDXz305rkoJNyHjh2J1L9ho3S6TUBr2ewOo/3GG4R/MIiQ7qTwWc7irGsicuUWw==}
     engines: {node: '>=22'}
 
-  '@scalar/schemas@0.8.4':
-    resolution: {integrity: sha512-gbx/UjAswjJc+OZp/vcVRIopjqoJ62pOkrKLvVHa1MuMRoVxcPyNzW2/SQmnvdJku7C7a6PsKaPUQ6gZXGA4eg==}
+  '@scalar/schemas@0.9.0':
+    resolution: {integrity: sha512-yYRlIWzw+7HuIX4z7rk7tg4y1nERwvvWKbolZOm7LveSTrppllGKyjtnIqS5uXsmJddERxuurSgDW224gGJlFQ==}
     engines: {node: '>=22'}
 
-  '@scalar/types@0.18.3':
-    resolution: {integrity: sha512-hPLLxVt/ah4RpCVp5UrLEpnBEgTwf+RvPtRiSEty3QqfBJUfADMXHz+oWK6UAa/vALg2AWuJLCD8hRlyQ2ET9w==}
+  '@scalar/types@0.19.0':
+    resolution: {integrity: sha512-EKeoWgUlP+uepbM/zEHKbsdpBNyOmSrw6DdU/WC0p53gz5uRzI7d/IEecIP9SQMUkResPR9DmWeWfFQftG7vqg==}
     engines: {node: '>=22'}
 
   '@scalar/validation@0.6.3':
@@ -2422,9 +2422,6 @@ packages:
   '@types/geojson@7946.0.16':
     resolution: {integrity: sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg==}
 
-  '@types/google.maps@3.66.0':
-    resolution: {integrity: sha512-HOvl5nXOBazgI9rgG79mWm4sNuA08ig+AMvdCQ/rEAzXJQFfKj/LqjaP+fHLM5JFa68+VKiN15NWFBos8/Kr9w==}
-
   '@types/google.maps@3.66.2':
     resolution: {integrity: sha512-Lg/U5iLj90fQV3jQJo6hmGYsNAecXH3J+3LkKb4AupYyyI3UFx7y4hINz1pYILX0DEWNN1FeCAXLUEjBBeV9XA==}
 
@@ -2601,8 +2598,8 @@ packages:
   '@ungap/structured-clone@1.3.2':
     resolution: {integrity: sha512-5jsZFwgR5rTdKwidH9Qmat75RKwqfpKlWWB1frDkljN127mwqBu8K0PYo7/hFpF03IEJpfVPpCQDY/eDx3iHvA==}
 
-  '@vis.gl/react-google-maps@1.9.0':
-    resolution: {integrity: sha512-ELL/zo8mRMPGDQZwHRClf2tE1/PMYYKjg+C/dUn8rmlQ0e+s7rkcNmCgaeBAV48GJzEcrBsr+vjDv4AvzJrlUA==}
+  '@vis.gl/react-google-maps@1.10.0':
+    resolution: {integrity: sha512-J7vHSwZ+xQUopnNj3LFg+Ck+rETqU/jf07miH8nr7Fcs6+0C7Qcz4BqVsVgOMHpUuOrAJ4tODI8SLCEOXl1W7g==}
     peerDependencies:
       react: '>=16.8.0 || ^19.0 || ^19.0.0-rc'
       react-dom: '>=16.8.0 || ^19.0 || ^19.0.0-rc'
@@ -3194,12 +3191,12 @@ packages:
     resolution: {integrity: sha512-jt2DW/aNFNwke7AUd+Z+e6pz39KO5rzdbbFCg2sGafS4mk13MI7Z8O5z9cADNn5lhGODIgLwug6TZO2ctf7kcw==}
     engines: {node: '>=6.0.0'}
 
-  fast-equals@6.0.0:
-    resolution: {integrity: sha512-PFhhIGgdM79r5Uztdj9Zb6Tt1zKafqVfdMGwVca1z5z6fbX7DmsySSuJd8HiP6I1j505DCS83cLxo5rmSNeVEA==}
-    engines: {node: '>=6.0.0'}
-
   fast-equals@6.0.2:
     resolution: {integrity: sha512-sAjhj9ZhOxYCGiNMnZLaucOqf5ZeFnHNoKoAZiD9thhJ0N8RP85qJK759/97C/3L7NzzmGVB5uiX9AUpySZmUQ==}
+    engines: {node: '>=6.0.0'}
+
+  fast-equals@6.0.3:
+    resolution: {integrity: sha512-IECu4C0fFZFoUC2cA2rDaNUuVIfWIZMwh3tY+ng924vOuD9OaUFFrcIrVwCKbV7TJDkGmrHfhwZ7R0AnHfVhyw==}
     engines: {node: '>=6.0.0'}
 
   fast-json-stringify@7.0.1:
@@ -3234,11 +3231,11 @@ packages:
       openapi-types: ^12.1.3
       zod: '>=4.1.5'
 
-  fastify@5.12.1:
-    resolution: {integrity: sha512-FWi+tQvwxR/PeRX7Z2mhfEF5ozJ3jn9asiiclzKXNSzJRHAYcU924aIOKAdHFJ+YIKieh3cqr1IwCOvTr41B3Q==}
+  fastify@5.12.3:
+    resolution: {integrity: sha512-reZ8wce5VNCcufIt9AVtzZa3L4u1j8esikn7OEgHWLVpRpL5R7Y2+Xzj70OUkv5zDfzUAxXZT6cu4Rt0zr3EKA==}
 
-  fastq@1.20.1:
-    resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
+  fastq@1.20.3:
+    resolution: {integrity: sha512-XKv5nnLs6nLF71NgiKJLIZFLkPyIEuOselLG7ujZnGrRfQK8HpvY+WqKhAJUAdLomwVHErVS4LfxFlPq0/FTAw==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -3418,8 +3415,8 @@ packages:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
 
-  jose@6.2.10:
-    resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
+  jose@6.2.12:
+    resolution: {integrity: sha512-9NiFmJEex0sy2Dk58j2UGBSHgUs2ypF9eZSu4L6vjOX3Dp96Sw1F3uL+H+D1sx02jZZdzUT0HgvCy59CuvXcWw==}
 
   joycon@3.1.1:
     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
@@ -3652,13 +3649,8 @@ packages:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
     engines: {node: 20 || >=22}
 
-  lucide-react@1.38.0:
-    resolution: {integrity: sha512-xZCyBd/wiVUDactoCc+42TjL0aB7EBOXsuX+tjz+W/sGzw2KhHpL1NOH3FIaVUcpimvUBpIYfz34Ofj9S5JEzQ==}
-    peerDependencies:
-      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  lucide-react@1.41.0:
-    resolution: {integrity: sha512-6lksP35l6KszDKUeRTi4LV7i6DEe0Yzl2ALJm9j4c5xEYN91GdW1xGsawGMOg2mgjF5GHBVX8pKX9kP+cWsP3Q==}
+  lucide-react@1.42.0:
+    resolution: {integrity: sha512-b3jprplnoLS8n5etw1z8xODe3hF/yjKATrTitsrKrnjUhCef5BdDct6Ppv3zVvzFwmtfWgLO6XNM3C9fAD93ug==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
@@ -4504,8 +4496,8 @@ packages:
     resolution: {integrity: sha512-AswgMPnpOoaVZHrrSBejETzEbuIA69OVGwfkHwfrY0A23VjWXBANzgq9+OymWOHAIArB7D1+1z498WY8fGg1Jw==}
     hasBin: true
 
-  type-fest@5.8.0:
-    resolution: {integrity: sha512-YGYEVz3Fm5iy/AybuA0oyNFq7H4CgQNfRp/qfe8nurE1kuCeNm3/vfm9X4Mtl+qLyaKJUh5xrFZwogr41SMjYA==}
+  type-fest@5.9.0:
+    resolution: {integrity: sha512-yANm3Jr3GiJ1qgJlxGAVxTOIcEOk1rhQHamlXtnrCK7EHP4HeM9OGxtMg/W7HFdrVzw/ZWJKGVIJusVH85sLtw==}
     engines: {node: '>=20'}
 
   typescript@7.0.2:
@@ -4792,58 +4784,58 @@ snapshots:
 
   '@bcoe/v8-coverage@1.0.2': {}
 
-  '@better-auth/api-key@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(better-auth@1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11))(better-call@1.4.0(zod@4.4.3))':
+  '@better-auth/api-key@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(better-auth@1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11))(better-call@1.4.0(zod@4.4.3))':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
       better-auth: 1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11)
       better-call: 1.4.0(zod@4.4.3)
       zod: 4.4.3
 
-  '@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)':
+  '@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)':
     dependencies:
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.1
       '@opentelemetry/semantic-conventions': 1.40.0
       '@standard-schema/spec': 1.1.0
       better-call: 1.4.0(zod@4.4.3)
-      jose: 6.2.10
+      jose: 6.2.12
       kysely: 0.28.17
       nanostores: 1.2.0
       zod: 4.4.3
 
-  '@better-auth/drizzle-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))':
+  '@better-auth/drizzle-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
     optionalDependencies:
       drizzle-orm: 0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0)
 
-  '@better-auth/kysely-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(kysely@0.28.17)':
+  '@better-auth/kysely-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(kysely@0.28.17)':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
     optionalDependencies:
       kysely: 0.28.17
 
-  '@better-auth/memory-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
+  '@better-auth/memory-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/mongo-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
+  '@better-auth/mongo-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/prisma-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
+  '@better-auth/prisma-adapter@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
 
-  '@better-auth/telemetry@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)':
+  '@better-auth/telemetry@1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)':
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.1
 
@@ -5263,9 +5255,9 @@ snapshots:
 
   '@floating-ui/utils@0.2.11': {}
 
-  '@googlemaps/js-api-loader@2.0.2':
+  '@googlemaps/js-api-loader@2.1.1':
     dependencies:
-      '@types/google.maps': 3.66.0
+      '@types/google.maps': 3.66.2
 
   '@googlemaps/markerclusterer@2.6.2':
     dependencies:
@@ -6098,7 +6090,7 @@ snapshots:
       cmdk: 1.1.1(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       lodash: 4.18.1
       lodash-es: 4.18.1
-      lucide-react: 1.38.0(react@19.2.8)
+      lucide-react: 1.42.0(react@19.2.8)
       react: 19.2.8
       tailwind-merge: 3.6.0
       tailwindcss-animate: 1.0.7(tailwindcss@4.3.3)
@@ -6250,45 +6242,45 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.59.0':
     optional: true
 
-  '@scalar/client-side-rendering@0.3.10':
+  '@scalar/client-side-rendering@0.4.0':
     dependencies:
-      '@scalar/schemas': 0.8.4
-      '@scalar/types': 0.18.3
+      '@scalar/schemas': 0.9.0
+      '@scalar/types': 0.19.0
       '@scalar/validation': 0.6.3
 
-  '@scalar/fastify-api-reference@1.67.0':
+  '@scalar/fastify-api-reference@1.68.0':
     dependencies:
-      '@scalar/client-side-rendering': 0.3.10
-      '@scalar/openapi-parser': 0.29.0
+      '@scalar/client-side-rendering': 0.4.0
+      '@scalar/openapi-parser': 0.29.1
       '@scalar/openapi-types': 0.9.5
       fastify-plugin: 4.5.1
       github-slugger: 2.0.0
 
-  '@scalar/helpers@0.11.2': {}
+  '@scalar/helpers@0.11.3': {}
 
-  '@scalar/json-magic@0.13.3':
+  '@scalar/json-magic@0.13.4':
     dependencies:
-      '@scalar/helpers': 0.11.2
+      '@scalar/helpers': 0.11.3
       pathe: 2.0.3
       yaml: 2.9.0
 
-  '@scalar/json-schema-validator@0.1.0':
+  '@scalar/json-schema-validator@0.1.1':
     dependencies:
-      '@scalar/helpers': 0.11.2
-      '@scalar/types': 0.18.3
+      '@scalar/helpers': 0.11.3
+      '@scalar/types': 0.19.0
       ajv: 8.20.0
       ajv-draft-04: 1.0.0(ajv@8.20.0)
       ajv-formats: 3.0.1(ajv@8.20.0)
       yaml: 2.9.0
 
-  '@scalar/openapi-parser@0.29.0':
+  '@scalar/openapi-parser@0.29.1':
     dependencies:
-      '@scalar/helpers': 0.11.2
-      '@scalar/json-magic': 0.13.3
+      '@scalar/helpers': 0.11.3
+      '@scalar/json-magic': 0.13.4
       '@scalar/openapi-types': 0.9.5
       '@scalar/openapi-upgrader': 0.2.15
-      '@scalar/openapi-validator': 0.1.0
-      '@scalar/types': 0.18.3
+      '@scalar/openapi-validator': 0.1.1
+      '@scalar/types': 0.19.0
       yaml: 2.9.0
 
   '@scalar/openapi-types@0.9.5': {}
@@ -6297,24 +6289,24 @@ snapshots:
     dependencies:
       '@scalar/openapi-types': 0.9.5
 
-  '@scalar/openapi-validator@0.1.0':
+  '@scalar/openapi-validator@0.1.1':
     dependencies:
-      '@scalar/helpers': 0.11.2
-      '@scalar/json-schema-validator': 0.1.0
-      '@scalar/types': 0.18.3
+      '@scalar/helpers': 0.11.3
+      '@scalar/json-schema-validator': 0.1.1
+      '@scalar/types': 0.19.0
       yaml: 2.9.0
 
-  '@scalar/schemas@0.8.4':
+  '@scalar/schemas@0.9.0':
     dependencies:
-      '@scalar/helpers': 0.11.2
+      '@scalar/helpers': 0.11.3
       '@scalar/validation': 0.6.3
 
-  '@scalar/types@0.18.3':
+  '@scalar/types@0.19.0':
     dependencies:
-      '@scalar/helpers': 0.11.2
+      '@scalar/helpers': 0.11.3
       nanoid: 5.1.16
-      type-fest: 5.8.0
-      zod: 4.4.3
+      type-fest: 5.9.0
+      zod: 4.5.4
 
   '@scalar/validation@0.6.3': {}
 
@@ -6473,8 +6465,6 @@ snapshots:
 
   '@types/geojson@7946.0.16': {}
 
-  '@types/google.maps@3.66.0': {}
-
   '@types/google.maps@3.66.2': {}
 
   '@types/hast@3.0.4':
@@ -6595,11 +6585,11 @@ snapshots:
 
   '@ungap/structured-clone@1.3.2': {}
 
-  '@vis.gl/react-google-maps@1.9.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@vis.gl/react-google-maps@1.10.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@googlemaps/js-api-loader': 2.0.2
-      '@types/google.maps': 3.66.0
-      fast-equals: 6.0.0
+      '@googlemaps/js-api-loader': 2.1.1
+      '@types/google.maps': 3.66.2
+      fast-equals: 6.0.3
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
@@ -6731,7 +6721,7 @@ snapshots:
   avvio@9.3.0:
     dependencies:
       '@fastify/error': 4.2.0
-      fastq: 1.20.1
+      fastq: 1.20.3
 
   axios@1.20.0:
     dependencies:
@@ -6747,20 +6737,20 @@ snapshots:
 
   better-auth@1.6.30(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))(pg@8.23.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11):
     dependencies:
-      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0)
-      '@better-auth/drizzle-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))
-      '@better-auth/kysely-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(kysely@0.28.17)
-      '@better-auth/memory-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
-      '@better-auth/mongo-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
-      '@better-auth/prisma-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
-      '@better-auth/telemetry': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)
+      '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0)
+      '@better-auth/drizzle-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(drizzle-orm@0.45.2(@types/pg@8.23.1)(kysely@0.28.17)(pg@8.23.0))
+      '@better-auth/kysely-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(kysely@0.28.17)
+      '@better-auth/memory-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
+      '@better-auth/mongo-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
+      '@better-auth/prisma-adapter': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)
+      '@better-auth/telemetry': 1.6.30(@better-auth/core@1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.12)(kysely@0.28.17)(nanostores@1.2.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)
       '@better-auth/utils': 0.4.2
       '@better-fetch/fetch': 1.3.1
       '@noble/ciphers': 2.1.1
       '@noble/hashes': 2.0.1
       better-call: 1.4.0(zod@4.4.3)
       defu: 6.1.7
-      jose: 6.2.10
+      jose: 6.2.12
       kysely: 0.28.17
       nanostores: 1.2.0
       zod: 4.4.3
@@ -7115,9 +7105,9 @@ snapshots:
 
   fast-equals@5.4.0: {}
 
-  fast-equals@6.0.0: {}
-
   fast-equals@6.0.2: {}
+
+  fast-equals@6.0.3: {}
 
   fast-json-stringify@7.0.1:
     dependencies:
@@ -7147,15 +7137,15 @@ snapshots:
       fastify-plugin: 5.1.0
       qs: 6.16.0
 
-  fastify-type-provider-zod@6.1.0(@fastify/swagger@9.8.1)(fastify@5.12.1)(openapi-types@12.1.3)(zod@4.5.4):
+  fastify-type-provider-zod@6.1.0(@fastify/swagger@9.8.1)(fastify@5.12.3)(openapi-types@12.1.3)(zod@4.5.4):
     dependencies:
       '@fastify/error': 4.2.0
       '@fastify/swagger': 9.8.1
-      fastify: 5.12.1
+      fastify: 5.12.3
       openapi-types: 12.1.3
       zod: 4.5.4
 
-  fastify@5.12.1:
+  fastify@5.12.3:
     dependencies:
       '@fastify/ajv-compiler': 4.0.6
       '@fastify/error': 4.2.0
@@ -7173,7 +7163,7 @@ snapshots:
       semver: 7.8.5
       toad-cache: 3.7.4
 
-  fastq@1.20.1:
+  fastq@1.20.3:
     dependencies:
       reusify: 1.1.0
 
@@ -7370,7 +7360,7 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  jose@6.2.10: {}
+  jose@6.2.12: {}
 
   joycon@3.1.1: {}
 
@@ -7556,11 +7546,7 @@ snapshots:
 
   lru-cache@11.5.2: {}
 
-  lucide-react@1.38.0(react@19.2.8):
-    dependencies:
-      react: 19.2.8
-
-  lucide-react@1.41.0(react@19.2.8):
+  lucide-react@1.42.0(react@19.2.8):
     dependencies:
       react: 19.2.8
 
@@ -8667,7 +8653,7 @@ snapshots:
       '@turbo/windows-64': 2.10.12
       '@turbo/windows-arm64': 2.10.12
 
-  type-fest@5.8.0:
+  type-fest@5.9.0:
     dependencies:
       tagged-tag: 1.0.0
 
